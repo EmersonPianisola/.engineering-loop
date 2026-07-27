@@ -1,0 +1,72 @@
+name: engineering-loop
+version: 8.0.0
+description: 'Persistent loop engine. Progressive disclosure — stages and references loaded by ID on demand. Documentation phase with MADR ADRs and C4 Model.'
+
+# Framework paths
+artifact_root: "../.engineering-loop/artifacts"
+log_root: "_bmad-output/process-logs"
+skill_root: "../.engineering-loop/skills"
+reference_root: "../.engineering-loop/references"
+stage_root: "../.engineering-loop/stages"
+
+# Planning integration (optional — loop is planning-agnostic)
+planning_framework: "bmad"
+planning_artifacts_root: "_bmad-output/implementation-artifacts"
+
+# Loop constraints — per-stage iteration limits
+constraints:
+  max_init_bdd_attempts: 2              # BDD journey mapping max iterations
+  max_init_refine_attempts: 5           # Idea refinement max iterations
+  max_design_user_research_attempts: 2  # User research max iterations
+  max_design_personas_attempts: 2       # Personas max iterations
+  max_design_info_arch_attempts: 2      # Information architecture max iterations
+  max_design_interaction_attempts: 2    # Interaction design max iterations
+  max_design_design_system_attempts: 2  # Design system max iterations
+  max_design_visual_design_attempts: 2  # Visual design max iterations
+  max_arch_requirements_attempts: 2     # Requirements refinement max iterations
+  max_arch_cloud_attempts: 2            # Cloud architecture max iterations
+  max_arch_solution_attempts: 2         # Solution design max iterations
+  max_arch_review_attempts: 2           # Architecture review max iterations
+  max_impl_design_attempts: 2           # Implementation blueprint max iterations
+  max_impl_code_attempts: 3             # Code implementation max iterations
+  max_impl_review_attempts: 2           # Implementation review max iterations
+  max_test_unit_attempts: 3             # Unit test max iterations
+  max_test_integration_attempts: 3      # Integration test max iterations
+  max_test_e2e_attempts: 3              # E2E test max iterations
+  max_test_qa_attempts: 2               # QA audit max iterations
+  max_qa_security_attempts: 2           # Security review max iterations
+  max_qa_api_contract_attempts: 2       # API contract validation max iterations
+  max_qa_performance_attempts: 2        # Performance check max iterations
+  max_deploy_prepare_attempts: 2        # Deploy preparation max iterations
+  max_review_attempts: 2                # Final review max iterations
+  max_doc_decisions_attempts: 2         # Decision log extraction max iterations
+  max_doc_project_attempts: 2           # Project documentation max iterations
+   require_design_phase: true            # Design phase mandatory before architecture
+   require_e2e_user_facing: true         # E2E mandatory for user-facing features
+   require_100_coverage: true            # BDD Journey 100% test coverage
+
+# Local hardware management
+hardware:
+  context_window: 200000              # Total available tokens
+  context_safety_margin: 0.15         # 15% reserve (39K buffer)
+  max_parallel_agents: 3              # Max concurrent sub-agents
+  agent_context_limit: 66666          # Max tokens per sub-agent (3 x 66.666K = 200K)
+  stage_timeout_seconds: 300          # 5 min max per stage execution
+  max_artifact_size_lines: 300        # Cap artifact size to prevent bloat
+  max_findings_buffer: 50             # Cap accumulated findings; older ones are summarized
+  compact_log_after_iteration: 3      # Compact log after N iterations
+
+# Essence sidecar — runs BEFORE every stage
+essence:
+  enabled: true
+  skill: "essence"
+  run_before_stage: true     # Always runs before stage invocation
+
+# Loop safety limits
+max_loop_iterations: 50
+max_subagent_invocations_per_stage: 3
+max_essence_retries_per_stage: 5
+
+# Self-construction
+skill_creator: "skill-creator"
+template_path: "../.engineering-loop/references/skill-templates.md"

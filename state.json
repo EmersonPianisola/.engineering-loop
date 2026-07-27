@@ -1,0 +1,66 @@
+{
+  "iteration": 7,
+  "status": "running",
+  "work_item": {
+    "title": "Rota 101 — Refinamentos de UI e Funcionalidades",
+    "acceptance_criteria": [
+      "Paleta B/W/Gray: fundo #121212, texto branco, acentos cinza. Zero tons terrosos.",
+      "Página /veiculos/:id com galeria (zoom 4×), info match engine visível, seções colapsáveis",
+      "Calculadora de swap pré-confirmação: FIPE + ajuste dono. Delta em R$. Requer conexão.",
+      "Botões ❤️/❌ persistentes (48×48px) + swipe mantidos"
+    ]
+  },
+  "work_item_type": "confirmed",
+  "artifacts": {
+    "bdd_journey": "artifacts/bdd-journeys/journey-rota101-refinements.md",
+    "research": "artifacts/design/research-findings.md",
+    "design": "artifacts/design/design-artifacts.md",
+    "architecture": "artifacts/architectures/architecture-refinements.md",
+    "blueprint": "artifacts/blueprints/blueprint-rota101-refinements.md"
+  },
+  "started_at": "2025-07-26T00:00:00.000Z",
+  "impl_summary": {
+    "modified_files": [
+      "src/tokens.css — B/W/Gray palette, Inter font, removed --glow-cta",
+      "src/index.css — removed film grain, updated focus/selection",
+      "src/lib/swap-value.js — added computeSwapDeltaWithAdjustment()",
+      "src/pages/VehicleDetail.jsx — collapsible sections, zoom 4× max, match info bar",
+      "src/pages/VehicleDetail.css — B/W/Gray, collapsible styles, match info styles",
+      "src/pages/HomePage.css — buttons 48×48px, grayscale hover states",
+      "src/components/SwipeContainer.css — grayscale stamp colors",
+      "src/components/MatchCard.jsx — computeSwapDeltaWithAdjustment integration",
+      "src/components/MatchCard.css — text-only delta, grayscale badges/buttons"
+    ]
+  },
+  "stages": {
+    "init": { "done": true, "attempts": 1, "essence_checked": true },
+    "init.bdd": { "done": true, "attempts": 1, "essence_checked": true },
+    "init.refine": { "done": true, "attempts": 0, "essence_checked": true },
+    "design.user-research": { "done": true, "attempts": 1, "essence_checked": true },
+    "design.personas": { "done": true, "attempts": 1, "essence_checked": true },
+    "design.info-arch": { "done": true, "attempts": 1, "essence_checked": true },
+    "design.interaction": { "done": true, "attempts": 1, "essence_checked": true },
+    "design.design-system": { "done": true, "attempts": 1, "essence_checked": true },
+    "design.visual-design": { "done": true, "attempts": 1, "essence_checked": true },
+    "architecture.requirements": { "done": true, "attempts": 1, "essence_checked": true },
+    "architecture.cloud": { "done": true, "attempts": 1, "essence_checked": true },
+    "architecture.solution": { "done": true, "attempts": 1, "essence_checked": true },
+    "architecture.review": { "done": true, "attempts": 1, "essence_checked": true },
+    "impl.design": { "done": true, "attempts": 1, "essence_checked": true },
+    "impl.code": { "done": true, "attempts": 1, "essence_checked": true },
+    "impl.review": { "done": false, "attempts": 0, "essence_checked": false },
+    "test.unit": { "done": false, "attempts": 0, "essence_checked": false },
+    "test.integration": { "done": false, "attempts": 0, "essence_checked": false },
+    "test.e2e": { "done": false, "attempts": 0, "essence_checked": false },
+    "test.qa": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.security": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.api-contract": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.performance": { "done": false, "attempts": 0, "essence_checked": false },
+    "deploy.prepare": { "done": false, "attempts": 0, "essence_checked": false },
+    "review": { "done": false, "attempts": 0, "essence_checked": false },
+    "doc.decisions": { "done": false, "attempts": 0, "essence_checked": false },
+    "doc.project": { "done": false, "attempts": 0, "essence_checked": false },
+    "post": { "done": false, "attempts": 0, "essence_checked": false }
+  },
+  "findings": { "critical": 0, "high": 0, "medium": 0, "low": 0, "summarized": 0 }
+}
