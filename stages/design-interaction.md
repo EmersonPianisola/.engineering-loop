@@ -1,9 +1,11 @@
 ---
 stage: design.interaction
 skill: bmad-interaction
+min_complexity: large
 ---
 
 # Design > Interaction
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 Interaction design procedure (patterns, component behaviors, motion).
 

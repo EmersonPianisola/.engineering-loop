@@ -1,9 +1,9 @@
 ---
 name: essence-sidecar
 id: essence
-version: 2.0.0
+version: 3.0.0
 type: reference
-description: 'Four Lenses validation protocol. Runs BEFORE every stage, validates inputs are sound.'
+description: 'Four Lenses validation protocol. Runs BEFORE every stage. Lens 4 tensions captured to context.md.'
 ---
 
 # Essence Sidecar — Four Lenses Protocol
@@ -37,8 +37,31 @@ Mandatory validation BEFORE every stage. Ensures stage inputs are sound before a
    - Set `state.stages.{stage}.essence_checked = true`.
 5. If Lens 4 tension (conflicting priorities):
    - Escalate to user for resolution. Await confirmation.
-   - Apply resolution, set `essence_checked = true`.
+   - **Capture decision in context.md** — record the tension, options, and user's resolution.
+   - Set `essence_checked = true`.
 6. If clean: set `state.stages.{stage}.essence_checked = true`. Proceed to stage.
+
+## Context.md — Decision Capture
+
+When Lens 4 tensions occur, the user's resolution is recorded in the feature's `context.md`:
+
+```markdown
+# Context — {feature slug}
+
+## Decisions
+
+### {Decision Title}
+- **Tension**: {What priorities conflict}
+- **Options**: {Option A vs Option B}
+- **Resolution**: {User's choice}
+- **Date**: {YYYY-MM-DD}
+- **Stage**: {stage that triggered the tension}
+```
+
+This file lives at `{artifact-root}/context-{slug}.md` and is loaded by:
+- `impl.design` — blueprint creation considers user decisions
+- `impl.code` — implementation follows user decisions
+- `verify` — verification accounts for user decisions
 
 ## Essence Input Per Stage
 
@@ -46,23 +69,19 @@ Mandatory validation BEFORE every stage. Ensures stage inputs are sound before a
 |-------|-------------------|
 | `init` | Work item completeness, clarity of intent |
 | `init.bdd` | PRD features, UX flows, user stories sufficient for journey mapping |
-| `init.refine` | Raw user request: clarity, scope, and intent are well-defined |
+| `init.refine` | Raw user request: clarity, scope, intent |
 | `arch.requirements` | Work item + planning artifacts provide sufficient context |
-| `arch.cloud` | Requirements artifact is complete and unambiguous |
 | `arch.solution` | Requirements artifact + UX designs are sufficient |
-| `arch.review` | All 3 architecture artifacts exist and are internally consistent |
-| `impl.design` | Consolidated architecture is complete |
+| `arch.review` | All architecture artifacts exist and are consistent |
+| `impl.design` | Architecture (or work item for small/medium) is complete |
 | `impl.code` | Blueprint is complete, contracts are defined |
-| `impl.review` | Code implementation is complete |
-| `test.unit` | Code + BDD journey (unit scenarios) available |
-| `test.integration` | Code + BDD journey (integration scenarios) + API contracts available |
-| `test.e2e` | Code + BDD journey (e2e scenarios) + UX flows available |
-| `test.qa` | All test files + BDD journey available |
+| `verify` | Code implementation + tests are complete |
 | `qa.security` | Code diff + architecture artifacts available |
 | `qa.api-contract` | Blueprint + API source files available |
 | `qa.performance` | Blueprint + architecture + build output available |
 | `deploy.prepare` | All QA stages complete, code is ready |
-| `review` | All implementation and test artifacts available |
+| `doc.decisions` | STATE.md Decisions section has entries to consolidate |
+| `doc.project` | Decision log exists, project structure is clear |
 
 ## Rules
 
@@ -70,4 +89,5 @@ Mandatory validation BEFORE every stage. Ensures stage inputs are sound before a
 - **Never increment attempts** — essence loop is internal to the pre-stage gate.
 - **Never escalate Lenses 1-3** — auto-adjust inline.
 - **Always escalate Lens 4** — human resolution required for priority tensions.
+- **Always capture Lens 4 in context.md** — user decisions are recorded for traceability.
 - **Always run BEFORE stage** — Essence validates inputs, not outputs.

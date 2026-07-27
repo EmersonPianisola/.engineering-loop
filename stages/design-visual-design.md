@@ -1,9 +1,11 @@
 ---
 stage: design.visual-design
 skill: bmad-visual-design
+min_complexity: large
 ---
 
 # Design > Visual Design
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 Visual design procedure (typography, colors, layout, micro-animations).
 

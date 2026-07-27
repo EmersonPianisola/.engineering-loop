@@ -1,9 +1,11 @@
 ---
 stage: design.user-research
 skill: bmad-user-research
+min_complexity: large
 ---
 
 # Design > User Research
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 User research procedure (interviews, contextual studies, usability tests, competitive analysis).
 

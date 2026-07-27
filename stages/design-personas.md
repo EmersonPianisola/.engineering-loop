@@ -1,9 +1,11 @@
 ---
 stage: design.personas
 skill: bmad-personas
+min_complexity: large
 ---
 
 # Design > Personas & Journey Maps
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 Personas & journey maps procedure.
 

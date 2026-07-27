@@ -1,14 +1,50 @@
 ---
 name: logging
 id: logging
-version: 2.0.0
+version: 3.0.0
 type: reference
-description: 'Log format, state table template, and compaction rules.'
+description: 'Log format, state table template, and compaction rules. Dual state: JSON (machine) + STATE.md (human).'
 ---
 
 # Logging Specification
 
 **MANDATORY.** Every iteration writes to `{process-logs}/engineering/{run_id}-{slug}.md`.
+
+## Dual State
+
+| File | Purpose | Updated By |
+|------|---------|------------|
+| `state.json` | Machine-readable state (iteration, done/attempts, constraints) | Orchestrator every iteration |
+| `STATE.md` | Human-readable state + Decisions (AD-NNN) + Handoff | Orchestrator after each stage |
+
+## STATE.md Format
+
+```markdown
+# STATE
+
+## Decisions
+
+### AD-001
+- **Decision**: {What}
+- **Reason**: {Why}
+- **Trade-off**: {Cost}
+- **Scope**: {Where}
+- **Date**: {YYYY-MM-DD}
+- **Status**: active
+- **Origin**: {stage ID}
+
+## Handoff
+
+**Current stage:** {stage ID}
+**Iteration:** {n}
+**Status:** running | blocked | done
+**Summary:** {What was accomplished in the last stage}
+
+## Complexity
+
+**Level:** small | medium | large | complex
+**Heuristics:** {files: N, tasks: N, new_domains: Y/N, external_integrations: Y/N}
+```
 
 ## Log File Template
 
@@ -22,6 +58,7 @@ completed_at: ""
 status: "running"
 work_item: "{path or description}"
 skills_used: ""
+complexity: "unset"
 ---
 
 # Engineering Loop: {title}
@@ -31,6 +68,7 @@ skills_used: ""
 | Variable | Value |
 |----------|-------|
 | iteration | 0 |
+| complexity | unset |
 | max_loop_iterations | 50 |
 | subagent_invocations | {} |
 | essence_retries | {} |
@@ -46,9 +84,6 @@ skills_used: ""
 | stages.architecture.requirements.done | false |
 | stages.architecture.requirements.attempts | 0 |
 | stages.architecture.requirements.essence_checked | false |
-| stages.architecture.cloud.done | false |
-| stages.architecture.cloud.attempts | 0 |
-| stages.architecture.cloud.essence_checked | false |
 | stages.architecture.solution.done | false |
 | stages.architecture.solution.attempts | 0 |
 | stages.architecture.solution.essence_checked | false |
@@ -61,21 +96,9 @@ skills_used: ""
 | stages.impl.code.done | false |
 | stages.impl.code.attempts | 0 |
 | stages.impl.code.essence_checked | false |
-| stages.impl.review.done | false |
-| stages.impl.review.attempts | 0 |
-| stages.impl.review.essence_checked | false |
-| stages.test.unit.done | false |
-| stages.test.unit.attempts | 0 |
-| stages.test.unit.essence_checked | false |
-| stages.test.integration.done | false |
-| stages.test.integration.attempts | 0 |
-| stages.test.integration.essence_checked | false |
-| stages.test.e2e.done | false |
-| stages.test.e2e.attempts | 0 |
-| stages.test.e2e.essence_checked | false |
-| stages.test.qa.done | false |
-| stages.test.qa.attempts | 0 |
-| stages.test.qa.essence_checked | false |
+| stages.verify.done | false |
+| stages.verify.attempts | 0 |
+| stages.verify.essence_checked | false |
 | stages.qa.security.done | false |
 | stages.qa.security.attempts | 0 |
 | stages.qa.security.essence_checked | false |
@@ -88,9 +111,6 @@ skills_used: ""
 | stages.deploy.prepare.done | false |
 | stages.deploy.prepare.attempts | 0 |
 | stages.deploy.prepare.essence_checked | false |
-| stages.review.done | false |
-| stages.review.attempts | 0 |
-| stages.review.essence_checked | false |
 | stages.doc.decisions.done | false |
 | stages.doc.decisions.attempts | 0 |
 | stages.doc.decisions.essence_checked | false |
@@ -111,5 +131,6 @@ skills_used: ""
 ## Update Rules
 
 - **Every iteration:** update State table, append row to Iteration Log, append details, overwrite file.
+- **After each stage:** update STATE.md Decisions (new AD-NNN) and Handoff.
 - **Compaction:** After `compact_log_after_iteration` iterations, run `compact_log()` per `references/hardware-management.md`.
 - **Post-loop:** update `completed_at`, `status: done`, `skills_used`, `total_iterations`. Append to `{process-logs}/index.md`.

@@ -1,9 +1,11 @@
 ---
 stage: design.design-system
 skill: bmad-design-system
+min_complexity: large
 ---
 
 # Design > Design System
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 Design system procedure (tokens, components, guidelines).
 

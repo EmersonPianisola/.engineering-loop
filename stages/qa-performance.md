@@ -1,13 +1,14 @@
 ---
 name: qa-performance
 id: qa.performance
-version: 1.0.0
+version: 2.0.0
 type: stage
-description: 'Performance check. Load targets, bundle size, response time verification.'
+description: 'Performance check. Load targets, bundle size, response time. Active for complex features only.'
 ---
 
 # STAGE: Performance Check
 <!-- ID: qa.performance -->
+<!-- Min Complexity: complex -->
 
 ## 🚨 MANDATORY EXECUTION BOUNDARY (RE-ACT ISOLATION)
 - You are acting as the performance checker.
@@ -18,12 +19,13 @@ description: 'Performance check. Load targets, bundle size, response time verifi
 ## Procedure
 
 1. **Prerequisite Check:** If `state.stages.qa.api-contract.done != true` → `status: blocked`, `blocking_condition: API contract validation not complete`. **EXIT.**
-2. Proceed with the steps below.
+2. **Complexity Check:** If `state.complexity < "complex"` → `done: true` (deactivated). **SKIP.**
+3. Proceed with the steps below.
 
 # Performance Check — Metrics Verification
 
 **Skill:** Self-constructed from web performance best practices
-**Runs when:** `state.stages.qa.performance.done == false`
+**Runs when:** `state.stages.qa.performance.done == false` AND `state.complexity == "complex"`
 **Prerequisite:** `state.stages.qa.api-contract.done == true`
 
 ## Execute — Performance Audit

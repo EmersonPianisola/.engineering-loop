@@ -1,9 +1,11 @@
 ---
 stage: design.info-arch
 skill: bmad-info-arch
+min_complexity: large
 ---
 
 # Design > Information Architecture
+<!-- Min Complexity: large — deactivated for small/medium -->
 
 Information architecture procedure (sitemaps, wireframes, navigation).
 

@@ -1,20 +1,20 @@
 ---
 name: anti-patterns
 id: anti
-version: 1.0.0
+version: 2.0.0
 type: reference
-description: 'Global anti-patterns that apply across all stages.'
+description: 'Global anti-patterns that apply across all stages. Updated for v9.'
 ---
 
 # Anti-Patterns
 
 ## Loop Mechanics
 
-- **Never treat stages as sequential** — the loop re-evaluates ALL stages every iteration
-- **Never break the loop prematurely** — only exit via all stages done or constraint breach
+- **Never treat stages as sequential** — the loop re-evaluates ALL active stages every iteration
+- **Never break the loop prematurely** — only exit via all active stages done or constraint breach
 - **Never reset attempt counters mid-loop** — counters persist across all iterations
-- **Never advance without convergence** — the architecture gate is mandatory
-- **Never skip stages on user request** — user requests for a specific step are focus directives, not skip directives. The full loop is mandatory.
+- **Never skip stages on user request** — user requests for a specific step are focus directives, not skip directives. All active stages must run.
+- **Always respect auto-sizing** — deactivated stages cannot be reactivated mid-loop
 
 ## Skill Usage
 
@@ -28,11 +28,31 @@ description: 'Global anti-patterns that apply across all stages.'
 - **Never run Essence after a stage** — it is a pre-stage gate, not a post-stage check
 - **Never skip Essence** — every stage must pass the Four Lenses before invocation
 - **Never increment attempts for Essence** — Essence loop is internal to the pre-stage gate
+- **Always capture Lens 4 in context.md** — user decisions must be recorded for traceability
 
 ## Design → Execute → Validate
 
-- **Never skip Design** — every stage produces a blueprint before execution
+- **Never skip Design for large/complex** — formal design stages are mandatory above complexity threshold
 - **Never skip Validate** — every execution is verified against its design
+
+## TDD
+
+- **Never implement code before tests** — test first, always
+- **Never skip the red phase** — test must fail before implementation
+- **Never weaken tests to make them pass** — the gate decides done, not self-assessment
+- **Never batch tasks in one commit** — one atomic commit per task
+
+## Verification
+
+- **Never let the author verify their own work** — Verifier must be a fresh agent
+- **Never skip the discrimination sensor** — surviving mutations indicate weak tests
+- **Never fabricate evidence** — evidence-or-zero: no file:line trace = gap
+
+## Decisions
+
+- **Never defer decision recording** — AD-NNN entries are recorded continuously, not at the end
+- **Never reuse AD IDs** — sequential, never recycled
+- **Never skip the Handoff update** — STATE.md Handoff must reflect current state
 
 ## Context Management
 
@@ -41,10 +61,8 @@ description: 'Global anti-patterns that apply across all stages.'
 - **Never let findings buffer grow unbounded** — cap at `max_findings_buffer`
 - **Never skip log compaction** — context overflow will crash the loop
 
-## Testing & Review
+## Lessons
 
-- **Never skip review** — even for trivial changes
-- **Never skip tests** — unit + E2E for user-facing features
-- **Never skip E2E** — every user-facing flow needs E2E coverage
-- **Never defer findings caused by this change** — defer is only pre-existing
-- **Never over-classify as reject** — when in doubt, prefer defer
+- **Never hand-edit lessons.json** — only the Verifier and lesson script modify it
+- **Never load candidate lessons** — only confirmed lessons enter sub-agent context
+- **Always distill from failures** — surviving mutants, spec gaps, uncovered ACs become lessons

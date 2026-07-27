@@ -1,13 +1,14 @@
 ---
 name: init-bdd
 id: init.bdd
-version: 1.0.0
+version: 2.0.0
 type: stage
-description: 'Full BDD journey mapping. Produces detailed user journeys with Gherkin scenarios used as test baseline.'
+description: 'Full BDD journey mapping. Active only for large+ complexity. Produces detailed user journeys with Gherkin scenarios.'
 ---
 
 # STAGE: INIT BDD Journey
 <!-- ID: init.bdd -->
+<!-- Min Complexity: large -->
 
 ## 🚨 MANDATORY EXECUTION BOUNDARY (RE-ACT ISOLATION)
 - You are acting EXCLUSIVELY as the BDD journey mapper.
@@ -18,13 +19,14 @@ description: 'Full BDD journey mapping. Produces detailed user journeys with Ghe
 ## Procedure
 
 1. **Prerequisite Check:** If `state.work_item` is null or missing → `status: blocked`, `blocking_condition: work item not validated`. **EXIT.**
-2. **Essence Gate:** Run Essence sidecar validation before proceeding. If Essence fails, adjust inputs and re-validate.
-3. Proceed with the steps below.
+2. **Complexity Check:** If `state.complexity < "large"` → `done: true` (deactivated). **SKIP.**
+3. **Essence Gate:** Run Essence sidecar validation before proceeding. If Essence fails, adjust inputs and re-validate.
+4. Proceed with the steps below.
 
 # BDD Journey — Discovery + Formulation
 
 **Skill:** Self-constructed from BDD best practices (Cucumber, Example Mapping)
-**Runs when:** `state.stages.init.bdd.done == false`
+**Runs when:** `state.stages.init.bdd.done == false` AND `state.complexity >= "large"`
 **Prerequisite:** `init` stage complete (validated work item)
 
 ## Design — Journey Discovery
@@ -73,7 +75,7 @@ Then {outcome}
 ### Test Mapping
 | Scenario | Type | Priority |
 |----------|------|----------|
-| {name} | e2e/unit/integration | high/medium/low |
+| {name} | unit/integration | high/medium/low |
 ```
 
 ## Execute — Validation
@@ -82,7 +84,7 @@ Then {outcome}
 - Every UX flow → Gherkin scenario coverage
 - Every user story → acceptance criteria mapped to scenarios
 - Edge cases identified for each journey
-- Test types assigned (e2e, unit, integration, component)
+- Test types assigned (unit, integration)
 - No vague language — all scenarios are testable
 
 ## Validate

@@ -1,13 +1,14 @@
 ---
 name: qa-security
 id: qa.security
-version: 1.0.0
+version: 2.0.0
 type: stage
-description: 'Security review. OWASP WSTG-based security audit of implementation.'
+description: 'Security review. OWASP WSTG-based security audit. Active for medium+ complexity.'
 ---
 
 # STAGE: Security Review
 <!-- ID: qa.security -->
+<!-- Min Complexity: medium -->
 
 ## 🚨 MANDATORY EXECUTION BOUNDARY (RE-ACT ISOLATION)
 - You are acting as the security reviewer.
@@ -17,15 +18,16 @@ description: 'Security review. OWASP WSTG-based security audit of implementation
 
 ## Procedure
 
-1. **Prerequisite Check:** If `state.stages.test.qa.done != true` → `status: blocked`, `blocking_condition: QA audit not complete`. **EXIT.**
-2. Proceed with the steps below.
+1. **Prerequisite Check:** If `state.stages.verify.done != true` → `status: blocked`, `blocking_condition: verification not complete`. **EXIT.**
+2. **Complexity Check:** If `state.complexity < "medium"` → `done: true` (deactivated). **SKIP.**
+3. Proceed with the steps below.
 
 # Security Review — OWASP WSTG Audit
 
 **Skill:** Self-constructed from OWASP Web Security Testing Guide (WSTG)
 **Reference:** https://owasp.org/www-project-web-security-testing-guide/
-**Runs when:** `state.stages.qa.security.done == false`
-**Prerequisite:** `state.stages.test.qa.done == true`
+**Runs when:** `state.stages.qa.security.done == false` AND `state.complexity >= "medium"`
+**Prerequisite:** `state.stages.verify.done == true`
 
 ## Execute — Security Audit
 

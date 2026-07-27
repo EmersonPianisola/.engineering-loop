@@ -1,13 +1,14 @@
 ---
 name: qa-api-contract
 id: qa.api-contract
-version: 1.0.0
+version: 2.0.0
 type: stage
-description: 'API contract validation. Frontend-backend contract compliance verification.'
+description: 'API contract validation. Frontend-backend contract compliance. Active for medium+ complexity.'
 ---
 
 # STAGE: API Contract Validation
 <!-- ID: qa.api-contract -->
+<!-- Min Complexity: medium -->
 
 ## 🚨 MANDATORY EXECUTION BOUNDARY (RE-ACT ISOLATION)
 - You are acting as the API contract validator.
@@ -18,13 +19,14 @@ description: 'API contract validation. Frontend-backend contract compliance veri
 ## Procedure
 
 1. **Prerequisite Check:** If `state.stages.qa.security.done != true` → `status: blocked`, `blocking_condition: security review not complete`. **EXIT.**
-2. Proceed with the steps below.
+2. **Complexity Check:** If `state.complexity < "medium"` → `done: true` (deactivated). **SKIP.**
+3. Proceed with the steps below.
 
 # API Contract Validation — Compliance Check
 
 **Skill:** Self-constructed from OpenAPI Specification best practices
 **Reference:** https://swagger.io/docs/specification/about/
-**Runs when:** `state.stages.qa.api-contract.done == false`
+**Runs when:** `state.stages.qa.api-contract.done == false` AND `state.complexity >= "medium"`
 **Prerequisite:** `state.stages.qa.security.done == true`
 
 ## Execute — Contract Audit

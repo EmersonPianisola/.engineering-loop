@@ -1,7 +1,7 @@
 ---
 name: deploy-prepare
 id: deploy.prepare
-version: 1.0.0
+version: 2.0.0
 type: stage
 description: 'Deploy preparation. Build, lint, environment configuration, migration verification.'
 ---
@@ -17,13 +17,14 @@ description: 'Deploy preparation. Build, lint, environment configuration, migrat
 
 ## Procedure
 
-1. **Prerequisite Check:** If `state.stages.qa.performance.done != true` → `status: blocked`, `blocking_condition: performance check not complete`. **EXIT.**
-2. Proceed with the steps below.
+1. **Prerequisite Check:** If `state.stages.verify.done != true` → `status: blocked`, `blocking_condition: verification not complete`. **EXIT.**
+2. **QA prerequisite:** If `state.complexity >= "medium"` and `state.stages.qa.security.done != true` → `status: blocked`. **EXIT.**
+3. Proceed with the steps below.
 
 # Deploy Preparation — Build and Verification
 
 **Runs when:** `state.stages.deploy.prepare.done == false`
-**Prerequisite:** `state.stages.qa.performance.done == true`
+**Prerequisite:** `state.stages.verify.done == true` (and QA stages if active)
 
 ## Execute — Build Pipeline
 
