@@ -6,3 +6,7 @@ context.md
 
 # Project artifacts
 artifacts/
+
+# Graphify — local tracking only (graph.json etc. are committed)
+graphify-out/cost.json
+graphify-out/cache/

@@ -115,6 +115,34 @@ Apply heuristics from `config.yaml → auto_sizing:`:
 7. Deactivate stages above complexity threshold (set `done: true`).
 8. Record heuristics in `{loop-root}/STATE.md ## Complexity`.
 
+## Phase 2.5: Knowledge Graph (conditional)
+
+Only runs when `config.graphify.enabled == true`.
+
+1. **Check prerequisites:**
+   - IF `config.graphify.skip_if_small` AND `state.complexity == "small"` → skip. Record "Graphify skipped: complexity small".
+   - IF no source code files exist in `{project-root}` → skip. Record "Graphify skipped: no codebase".
+
+2. **Check CLI:**
+   - Run: `graphify --version`
+   - IF not found → warn "graphify CLI not installed. Install: `uv tool install graphifyy` or `pipx install graphifyy`". Skip. Continue loop.
+   - IF found → continue.
+
+3. **Build graph:**
+   - IF `config.graphify.build_on_init` AND `graphify-out/graph.json` does not exist:
+     - Run: `graphify .`
+     - Record in STATE.md: "Graph built: N nodes, M edges, K communities"
+   - IF `graphify-out/graph.json` already exists:
+     - Run: `graphify . --update` (incremental, AST only, zero LLM cost)
+     - Record in STATE.md: "Graph updated (incremental)"
+
+4. **Git hook (optional):**
+   - IF `config.graphify.build_on_commit` → run: `graphify hook install`
+
+5. **Register skill:**
+   - Set `state.skills.graphify = "graphify"`
+   - Set `state.graphify.built = true`
+
 ## Lessons Loading
 
 1. Load shared lessons from `{artifact-root}/lessons-shared.json` (if exists)

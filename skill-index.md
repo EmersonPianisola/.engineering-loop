@@ -34,6 +34,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `doc-decisions` | Decision Log Consolidator | Document | doc.decisions | MADR ADR consolidation from AD-NNN entries (self-constructed) |
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
+| `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, query-first for architecture |
 
 ## Self-Constructed Skills
 
@@ -64,3 +65,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-25 | all | v8.1.0 — Documentation phase: decision log (MADR ADRs), project docs (C4 Model) |
 | 2026-07-27 | all | v9.0.0 — Auto-sizing by complexity, TDD per task, Verifier with discrimination sensor, continuous AD-NNN decisions, self-improving lessons, Essence captures Lens 4 to context.md |
 | 2026-07-29 | all | v10.0.0 — Multi-project architecture: git submodule, isolated artifacts, two-layer config, shared lessons |
+| 2026-07-29 | graphify | v1.0.0 — Knowledge graph integration: Graphify skill, opt-in config, INIT build, query rules |

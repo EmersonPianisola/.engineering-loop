@@ -101,6 +101,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | ID | Topic | Path |
 |----|-------|------|
 | `essence` | Essence Sidecar (Four Lenses) | `{reference-root}/essence-sidecar.md` |
+| `graphify` | Knowledge Graph (Graphify, opt-in) | `{reference-root}/graphify.md` |
 | `hardware` | Hardware Management | `{reference-root}/hardware-management.md` |
 | `logging` | Log format + state table | `{reference-root}/logging.md` |
 | `exit` | Exit conditions + resets | `{reference-root}/exit-conditions.md` |

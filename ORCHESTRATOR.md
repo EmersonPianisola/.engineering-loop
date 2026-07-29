@@ -509,6 +509,14 @@ Per `{reference-root}/hardware-management.md`. Never pass the full set of artifa
 | API Contract Validator | blueprint + API source + integration tests | E2E tests, full diff |
 | Performance Checker | blueprint + architecture + build output | Test files |
 
+## KNOWLEDGE GRAPH (Graphify)
+
+When `config.graphify.enabled == true` and `graphify-out/graph.json` exists:
+
+- Inject into sub-agent context: "Graphify knowledge graph available at `graphify-out/`. Use `graphify explain <entity>` before modifying code, `graphify path A B` to trace connections, `graphify query <question>` for scoped architecture context. Edge confidence: EXTRACTED (trust), INFERRED (verify if critical), AMBIGUOUS (must Read source). Graph is the map, Read is the terrain — never substitute Read with query when contract/type is critical."
+- After `impl.code` completes: IF `config.graphify.update_after_impl` → run `graphify update .`
+- Sub-agents follow rules in `{reference-root}/graphify.md`.
+
 ## OUTPUT FORMAT
 
 Each orchestrator response MUST contain exactly these two sections:

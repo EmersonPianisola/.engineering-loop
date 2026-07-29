@@ -38,6 +38,20 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | API Contract Validator | blueprint + API source + integration tests | E2E tests, full diff |
 | Performance Checker | blueprint + architecture + build output | test files |
 
+## Graphify Context (when enabled)
+
+When `config.graphify.enabled == true`, sub-agents can use graph query as an alternative to Read for structural understanding.
+
+| Agent | Graphify Command | Instead of |
+|-------|-----------------|------------|
+| Impl Code | `graphify explain <entity>` before modifying | Reading multiple dependency files |
+| Security Reviewer | `graphify path <source> <sink>` | Grep for data flow connections |
+| API Contract | `graphify query "API endpoints"` | Reading all route files |
+| Verifier | `graphify explain <entity>` | Reading dependency chain |
+| Architecture | `graphify explain <concept>` + `graphify path` | Reading architecture files |
+
+**Rule:** Graph query provides structure and connections. Read provides implementation details. Use both — never replace Read with query when contract/type/logic is critical.
+
 **Rule:** Never pass the full set of artifacts to any single sub-agent.
 
 ## Context Compaction

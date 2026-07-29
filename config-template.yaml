@@ -121,3 +121,13 @@ lessons:
   shared_file: "artifacts/lessons-shared.json"
   pending_file: "artifacts/lessons-pending.json"
   confirm_threshold: 2
+
+# ============================================================
+# GRAPHIFY — knowledge graph integration (opt-in)
+# ============================================================
+graphify:
+  enabled: false
+  build_on_init: true
+  build_on_commit: false
+  update_after_impl: true
+  skip_if_small: true
