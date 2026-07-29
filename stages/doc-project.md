@@ -76,7 +76,7 @@ Update or create the project README with:
 - [Architecture Overview](docs/architecture-overview.md) — C4 Model diagrams and decisions
 - [User Manual](docs/user-manual.md) — how to use the application
 - [Project Overview](docs/project-overview.md) — context, goals, and scope
-- [Decision Log](.engineering-loop/artifacts/decision-log-{slug}.md) — architectural decisions
+- [Decision Log]({artifact-root}/decision-log-{slug}.md) — architectural decisions
 
 ## Development
 

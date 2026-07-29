@@ -1,21 +1,21 @@
 ---
 name: logging
 id: logging
-version: 3.0.0
+version: 4.0.0
 type: reference
 description: 'Log format, state table template, and compaction rules. Dual state: JSON (machine) + STATE.md (human).'
 ---
 
 # Logging Specification
 
-**MANDATORY.** Every iteration writes to `{process-logs}/engineering/{run_id}-{slug}.md`.
+**MANDATORY.** Every iteration writes to `{log_root}/engineering/{run_id}-{slug}.md`.
 
 ## Dual State
 
 | File | Purpose | Updated By |
 |------|---------|------------|
-| `state.json` | Machine-readable state (iteration, done/attempts, constraints) | Orchestrator every iteration |
-| `STATE.md` | Human-readable state + Decisions (AD-NNN) + Handoff | Orchestrator after each stage |
+| `{loop-root}/state.json` | Machine-readable state (iteration, done/attempts, constraints) | Orchestrator every iteration |
+| `{loop-root}/STATE.md` | Human-readable state + Decisions (AD-NNN) + Handoff | Orchestrator after each stage |
 
 ## STATE.md Format
 
@@ -131,6 +131,21 @@ complexity: "unset"
 ## Update Rules
 
 - **Every iteration:** update State table, append row to Iteration Log, append details, overwrite file.
-- **After each stage:** update STATE.md Decisions (new AD-NNN) and Handoff.
+- **After each stage:** update `{loop-root}/STATE.md` Decisions (new AD-NNN) and Handoff.
 - **Compaction:** After `compact_log_after_iteration` iterations, run `compact_log()` per `references/hardware-management.md`.
-- **Post-loop:** update `completed_at`, `status: done`, `skills_used`, `total_iterations`. Append to `{process-logs}/index.md`.
+- **Post-loop:** update `completed_at`, `status: done`, `skills_used`, `total_iterations`. Append to `{log_root}/index.md`.
+
+## State Initialization
+
+1. Copy `{framework-root}/state-template.json` → `{loop-root}/state.json`
+2. Initialize all stages: `done: false`, `attempts: 0`, `essence_checked: false`
+3. Set `iteration: 0`, `status: running`, `complexity: unset`
+
+## File Locations
+
+| File | Location | Git-ignored |
+|------|----------|-------------|
+| `state.json` | `{loop-root}/state.json` | Yes |
+| `STATE.md` | `{loop-root}/STATE.md` | Yes |
+| Process logs | `{log_root}/engineering/` | Project decision |
+| Log index | `{log_root}/index.md` | Project decision |

@@ -1,13 +1,13 @@
 ---
 name: engineering-loop
-version: 9.0.0
+version: 10.0.0
 type: framework
-description: 'Adaptive loop engine. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons.'
+description: 'Adaptive loop engine. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v9
+# Engineering Loop v10
 
-Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage.
+Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. Multi-project architecture — framework code and project artifacts are isolated.
 
 ```
                         INIT (Phase 0)
@@ -29,6 +29,28 @@ Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Ind
                              │
                         POST-LOOP (Phase 5+6)
 ```
+
+## Multi-Project Architecture
+
+The framework is installed as a **git submodule** (`.eng/`). Project artifacts live inside the submodule but are gitignored. Framework code (stages, skills, references) is read-only and always up-to-date via `git submodule update`.
+
+| Variable | Resolves To | Used For |
+|----------|------------|----------|
+| `{framework-root}` | `.eng/` (submodule dir) | stages/, skills/, references/ (read-only) |
+| `{loop-root}` | `.eng/` (same as framework-root) | config.yaml, state.json, STATE.md, artifacts/ |
+| `{project-root}` | `cwd` (consumer project) | source code, tests, _bmad-output/ |
+| `{artifact-root}` | `{loop-root}/artifacts/` | all runtime artifacts |
+| `{skill-root}` | `{framework-root}/skills/` | skills (read-only) |
+| `{reference-root}` | `{framework-root}/references/` | references (read-only) |
+| `{stage-root}` | `{framework-root}/stages/` | stage procedures (read-only) |
+| `{log-root}` | `{project-root}/_bmad-output/process-logs/` | process logs |
+
+### Configuration (Two Layers)
+
+1. **`config-template.yaml`** (framework): defaults, never modified by projects
+2. **`config.yaml`** (project): copied from template, overridden per-project, gitignored
+
+The orchestrator deep-merges: template defaults → project overrides.
 
 ## Auto-Sizing
 
@@ -99,6 +121,15 @@ See `skill-index.md` for full registry.
 ## THE LOOP
 
 ```
+# INITIALIZATION
+{framework-root} = directory of ORCHESTRATOR.md
+{project-root} = cwd
+{loop-root} = {framework-root}
+config = merge(config-template.yaml, config.yaml)
+state = load(state.json) or copy(state-template.json)
+lessons = merge(shared + local)
+ensure_directories()
+
 state = initialize_state()           # all done: false, attempts: 0
 run_stage(init)                      # Phase 0: validate, auto-size, discover
 
@@ -177,13 +208,16 @@ Essence retries tracked per stage in `essence_retries`. When `max_essence_retrie
 
 | Concern | Source |
 |---------|--------|
-| State template | `{reference-root}/logging.md` |
+| State template | `{framework-root}/state-template.json` |
+| State file | `{loop-root}/state.json` |
+| Config template | `{framework-root}/config-template.yaml` |
+| Config file | `{loop-root}/config.yaml` |
 | Constraints | `config.yaml` → `constraints:` |
-| Paths | `config.yaml` (top-level keys) |
+| Paths | `config.yaml` (top-level keys, resolved to roots) |
 | Hardware caps | `config.yaml` → `hardware:` |
 | Exit conditions | `{reference-root}/exit-conditions.md` |
 | Anti-patterns | `{reference-root}/anti-patterns.md` |
 | Essence gate | `{reference-root}/essence-sidecar.md` (runs before every stage) |
 | Auto-sizing | `config.yaml` → `auto_sizing:` |
-| Decisions | `{reference-root}/decision-log.md` (continuous AD-NNN) |
-| Lessons | `{reference-root}/lessons.md` (self-improving) |
+| Decisions | `{loop-root}/STATE.md` (continuous AD-NNN) |
+| Lessons | `{reference-root}/lessons.md` (shared + local) |

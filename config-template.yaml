@@ -1,0 +1,123 @@
+name: engineering-loop
+version: 10.0.0
+description: 'Adaptive loop engine. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions. Self-improving lessons. Multi-project ready.'
+
+# ============================================================
+# FRAMEWORK PATHS — relative to {framework-root} (read-only)
+# ============================================================
+framework_skill_root: "skills"
+framework_reference_root: "references"
+framework_stage_root: "stages"
+framework_template_path: "references/skill-templates.md"
+
+# ============================================================
+# PROJECT PATHS — relative to {loop-root} (override as needed)
+# ============================================================
+artifact_root: "artifacts"
+log_root: "../_bmad-output/process-logs"
+state_file: "state.json"
+context_file: "context.md"
+
+# Planning integration (optional — loop is planning-agnostic)
+planning_framework: "bmad"
+planning_artifacts_root: "../_bmad-output/implementation-artifacts"
+
+# ============================================================
+# AUTO-SIZING — complexity determines which stages are active
+# ============================================================
+auto_sizing:
+  enabled: true
+  heuristics:
+    small:
+      max_files: 3
+      max_tasks: 3
+      new_domains: false
+      external_integrations: false
+    medium:
+      max_files: 10
+      max_tasks: 8
+      new_domains: false
+      external_integrations: true
+    large:
+      min_files: 10
+      min_tasks: 8
+      new_domains: true
+      external_integrations: true
+    complex:
+      ambiguity: true
+      new_domains: true
+      external_integrations: true
+
+# ============================================================
+# LOOP CONSTRAINTS — per-stage iteration limits
+# ============================================================
+constraints:
+  max_init_bdd_attempts: 2
+  max_init_refine_attempts: 5
+  max_design_user_research_attempts: 2
+  max_design_personas_attempts: 2
+  max_design_info_arch_attempts: 2
+  max_design_interaction_attempts: 2
+  max_design_design_system_attempts: 2
+  max_design_visual_design_attempts: 2
+  max_arch_requirements_attempts: 2
+  max_arch_solution_attempts: 2
+  max_arch_review_attempts: 2
+  max_impl_design_attempts: 2
+  max_impl_code_attempts: 3
+  max_verify_attempts: 3
+  max_qa_security_attempts: 2
+  max_qa_api_contract_attempts: 2
+  max_qa_performance_attempts: 2
+  max_deploy_prepare_attempts: 2
+  max_doc_decisions_attempts: 2
+  max_doc_project_attempts: 2
+  require_design_phase_large: true
+  require_e2e_user_facing: true
+
+# ============================================================
+# LOCAL HARDWARE MANAGEMENT
+# ============================================================
+hardware:
+  context_window: 200000
+  context_safety_margin: 0.15
+  max_parallel_agents: 3
+  agent_context_limit: 66666
+  stage_timeout_seconds: 300
+  max_artifact_size_lines: 300
+  max_findings_buffer: 50
+  compact_log_after_iteration: 3
+
+# ============================================================
+# ESSENCE SIDECAR — runs BEFORE every stage
+# ============================================================
+essence:
+  enabled: true
+  skill: "essence"
+  run_before_stage: true
+  capture_decisions: true
+  context_file: "context.md"
+
+# ============================================================
+# LOOP SAFETY LIMITS
+# ============================================================
+max_loop_iterations: 50
+max_subagent_invocations_per_stage: 3
+max_essence_retries_per_stage: 5
+
+# ============================================================
+# SELF-CONSTRUCTION
+# ============================================================
+skill_creator: "skill-creator"
+template_path: "references/skill-templates.md"
+
+# ============================================================
+# LESSONS — self-improving, shared across projects
+# ============================================================
+lessons:
+  enabled: true
+  local_file: "artifacts/lessons.json"
+  rendered_file: "artifacts/LESSONS.md"
+  shared_file: "artifacts/lessons-shared.json"
+  pending_file: "artifacts/lessons-pending.json"
+  confirm_threshold: 2

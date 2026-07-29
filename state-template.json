@@ -1,0 +1,31 @@
+{
+  "iteration": 0,
+  "status": "running",
+  "complexity": "unset",
+  "work_item": null,
+  "stages": {
+    "init": { "done": false, "attempts": 0, "essence_checked": false },
+    "init.bdd": { "done": false, "attempts": 0, "essence_checked": false },
+    "init.refine": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.user-research": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.personas": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.info-arch": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.interaction": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.design-system": { "done": false, "attempts": 0, "essence_checked": false },
+    "design.visual-design": { "done": false, "attempts": 0, "essence_checked": false },
+    "architecture.requirements": { "done": false, "attempts": 0, "essence_checked": false },
+    "architecture.solution": { "done": false, "attempts": 0, "essence_checked": false },
+    "architecture.review": { "done": false, "attempts": 0, "essence_checked": false },
+    "impl.design": { "done": false, "attempts": 0, "essence_checked": false },
+    "impl.code": { "done": false, "attempts": 0, "essence_checked": false },
+    "verify": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.security": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.api-contract": { "done": false, "attempts": 0, "essence_checked": false },
+    "qa.performance": { "done": false, "attempts": 0, "essence_checked": false },
+    "deploy.prepare": { "done": false, "attempts": 0, "essence_checked": false },
+    "doc.decisions": { "done": false, "attempts": 0, "essence_checked": false },
+    "doc.project": { "done": false, "attempts": 0, "essence_checked": false },
+    "post": { "done": false, "attempts": 0, "essence_checked": false }
+  },
+  "decisions": []
+}

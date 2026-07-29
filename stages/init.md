@@ -1,9 +1,9 @@
 ---
 name: init
 id: init
-version: 2.0.0
+version: 3.0.0
 type: stage
-description: 'Phase 0 (Validate Input) + Phase 1 (Skill Discovery) + Auto-size classification. Runs once before loop opens.'
+description: 'Phase 0 (Validate Input) + Phase 1 (Skill Discovery) + Auto-size classification. Runs once before loop opens. Initializes project paths and state.'
 ---
 
 # STAGE: INIT (Phase 0 + Phase 1)
@@ -19,6 +19,34 @@ description: 'Phase 0 (Validate Input) + Phase 1 (Skill Discovery) + Auto-size c
 
 # INIT — Phases 0, 1, and Auto-Size
 
+## Path Resolution
+
+Before any work, ensure paths are resolved:
+- `{framework-root}` = directory containing ORCHESTRATOR.md
+- `{loop-root}` = `{framework-root}` (project files live inside submodule)
+- `{project-root}` = current working directory (cwd)
+- `{artifact-root}` = `{loop-root}/<config.artifact_root>`
+- `{skill-root}` = `{framework-root}/<config.framework_skill_root>`
+- `{reference-root}` = `{framework-root}/<config.framework_reference_root>`
+- `{stage-root}` = `{framework-root}/<config.framework_stage_root>`
+- `{log-root}` = `{project-root}/<config.log_root>`
+
+## State Initialization
+
+1. IF `{loop-root}/config.yaml` does not exist:
+   - Copy `{framework-root}/config-template.yaml` → `{loop-root}/config.yaml`
+   - Warn user to review and customize config.yaml
+2. IF `{loop-root}/state.json` does not exist:
+   - Copy `{framework-root}/state-template.json` → `{loop-root}/state.json`
+3. Ensure directories exist:
+   - `{artifact-root}/`
+   - `{artifact-root}/architectures/`
+   - `{artifact-root}/blueprints/`
+   - `{artifact-root}/bdd-journeys/`
+   - `{artifact-root}/design/`
+   - `{artifact-root}/test-plans/`
+   - `{log-root}/`
+
 ## Phase 0: Validate Input
 
 1. Read `{loop-root}/config.yaml` → load constraints, hardware settings, auto-sizing heuristics.
@@ -31,7 +59,7 @@ description: 'Phase 0 (Validate Input) + Phase 1 (Skill Discovery) + Auto-size c
 5. If fails → `status: blocked`, `blocking_condition: input not ready`. **EXIT.**
 6. Store in `state.work_item`.
 7. Create log file per `references/logging.md`.
-8. Initialize `STATE.md` per `references/logging.md` dual state format.
+8. Initialize `{loop-root}/STATE.md` per `references/logging.md` dual state format.
 
 ## Phase 0.5: Ideation (Ad-Hoc Work Items)
 
@@ -85,7 +113,15 @@ Apply heuristics from `config.yaml → auto_sizing:`:
 
 6. Set `state.complexity`.
 7. Deactivate stages above complexity threshold (set `done: true`).
-8. Record heuristics in `STATE.md ## Complexity`.
+8. Record heuristics in `{loop-root}/STATE.md ## Complexity`.
+
+## Lessons Loading
+
+1. Load shared lessons from `{artifact-root}/lessons-shared.json` (if exists)
+2. Load local lessons from `{artifact-root}/lessons.json` (if exists)
+3. Merge: shared lessons take precedence
+4. Filter: only confirmed lessons are loaded into context
+5. Report: "Loaded N confirmed lessons (M shared, K local)"
 
 ## Self-Construction
 
@@ -97,4 +133,4 @@ On success, proceed to THE LOOP. On failure, see `references/exit-conditions.md`
 
 ## Expected Output
 
-Your final response MUST strictly contain the validated work item, discovered skills registry, and complexity classification. End your generation immediately after the output block. Do not write "Next steps".
+Your final response MUST strictly contain the validated work item, discovered skills registry, complexity classification, and loaded lessons summary. End your generation immediately after the output block. Do not write "Next steps".

@@ -6,8 +6,8 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v9.0.0
-**Root:** `.engineering-loop/skills/`
+**Framework:** Engineering Loop v10.0.0
+**Root:** `{framework-root}/skills/`
 
 ## Registry
 
@@ -63,3 +63,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-22 | all | v8.0.0 — Design phase: six new stages (user-research through visual-design) |
 | 2026-07-25 | all | v8.1.0 — Documentation phase: decision log (MADR ADRs), project docs (C4 Model) |
 | 2026-07-27 | all | v9.0.0 — Auto-sizing by complexity, TDD per task, Verifier with discrimination sensor, continuous AD-NNN decisions, self-improving lessons, Essence captures Lens 4 to context.md |
+| 2026-07-29 | all | v10.0.0 — Multi-project architecture: git submodule, isolated artifacts, two-layer config, shared lessons |

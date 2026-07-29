@@ -1,0 +1,8 @@
+# Project-specific files (generated per project)
+config.yaml
+state.json
+STATE.md
+context.md
+
+# Project artifacts
+artifacts/

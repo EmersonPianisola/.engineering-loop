@@ -1,7 +1,7 @@
 ---
 name: essence-sidecar
 id: essence
-version: 3.0.0
+version: 4.0.0
 type: reference
 description: 'Four Lenses validation protocol. Runs BEFORE every stage. Lens 4 tensions captured to context.md.'
 ---
@@ -37,13 +37,13 @@ Mandatory validation BEFORE every stage. Ensures stage inputs are sound before a
    - Set `state.stages.{stage}.essence_checked = true`.
 5. If Lens 4 tension (conflicting priorities):
    - Escalate to user for resolution. Await confirmation.
-   - **Capture decision in context.md** — record the tension, options, and user's resolution.
+   - **Capture decision in `{loop-root}/context.md`** — record the tension, options, and user's resolution.
    - Set `essence_checked = true`.
 6. If clean: set `state.stages.{stage}.essence_checked = true`. Proceed to stage.
 
 ## Context.md — Decision Capture
 
-When Lens 4 tensions occur, the user's resolution is recorded in the feature's `context.md`:
+When Lens 4 tensions occur, the user's resolution is recorded in `{loop-root}/context.md`:
 
 ```markdown
 # Context — {feature slug}
@@ -58,7 +58,7 @@ When Lens 4 tensions occur, the user's resolution is recorded in the feature's `
 - **Stage**: {stage that triggered the tension}
 ```
 
-This file lives at `{artifact-root}/context-{slug}.md` and is loaded by:
+This file is loaded by:
 - `impl.design` — blueprint creation considers user decisions
 - `impl.code` — implementation follows user decisions
 - `verify` — verification accounts for user decisions
