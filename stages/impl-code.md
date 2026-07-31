@@ -43,6 +43,15 @@ FOR each task:
        - Mock external dependencies (APIs, DB, FS)
        - Test happy path + error conditions
 
+       IF task involves UI components:
+       - WRITE UI CONTRACT TEST:
+         a. Component renders without errors
+         b. Required props are validated (missing prop → error/warning)
+         c. Events fire correctly (click, submit, change → callback invoked)
+         d. States render correctly (loading, error, empty, success)
+         e. Form fields validate input (empty, invalid, valid)
+         f. Accessibility: aria-labels, roles, keyboard navigation
+
     2. RED — Run gate
        - Test MUST fail (confirms test is not vacuous)
        - If test passes without code → test is wrong, rewrite
@@ -51,6 +60,7 @@ FOR each task:
        - Minimal code to satisfy test
        - Follow blueprint file structure, contracts, data flows
        - No speculative features
+       - For UI: ensure all states (loading/error/empty) are handled
 
     4. GREEN — Run gate
        - ALL tests must pass
@@ -75,6 +85,10 @@ FOR each task:
 6. No speculative features
 7. Tests derive from spec ACs — never weaken or skip tests to make them pass
 8. One atomic commit per task — never batch
+9. UI components MUST handle: loading state, error state, empty state, success state
+10. UI forms MUST validate: required fields, type validation, error messages
+11. Navigation MUST work: all routes accessible, no 404 on valid paths
+12. Events MUST fire: onClick, onSubmit, onChange callbacks must be invoked
 
 ### Decisions
 

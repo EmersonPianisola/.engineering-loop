@@ -78,13 +78,29 @@ Surviving mutations become fix tasks.
 | Edge Cases | Every edge case from blueprint has a test |
 | Error Paths | Every error condition has a test |
 | Test Types | Unit + integration coverage as appropriate |
+| UI Contract Tests | Every UI component has render/event/state tests |
+
+### Layer 4: Runtime Evidence Check
+
+**Context slice:** `{e2e_test_results}` + `{smoke_test_results}` (if available from prior runs)
+
+| Check | Requirement |
+|-------|-------------|
+| E2E Tests | If `e2e.execute` has run, all E2E tests must have passed |
+| Console Errors | Zero unhandled console errors in browser |
+| Network Errors | Zero 4xx/5xx responses on tested routes |
+| Screenshots | Visual evidence captured for each tested page |
+
+**If E2E tests haven't run yet:** This layer is informational. The `e2e.execute` stage will enforce these checks.
+**If E2E tests have run:** Failures here are blocking gaps.
 
 ## Validate — Verdict
 
 ```
 IF all ACs are TRACED or SPEC_DEVIATION
    AND all mutations are KILLED (or documented as non-actionable)
-   AND coverage audit shows no UNCOVERED ACs:
+   AND coverage audit shows no UNCOVERED ACs
+   AND runtime evidence (if available) shows no blocking failures:
     VERDICT: PASS
     state.stages.verify.done = true
 ELSE:

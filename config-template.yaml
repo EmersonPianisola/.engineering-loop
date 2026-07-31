@@ -66,6 +66,8 @@ constraints:
   max_impl_design_attempts: 2
   max_impl_code_attempts: 3
   max_verify_attempts: 3
+  max_e2e_execute_attempts: 3
+  max_smoke_test_attempts: 3
   max_qa_security_attempts: 2
   max_qa_api_contract_attempts: 2
   max_qa_performance_attempts: 2
@@ -74,6 +76,12 @@ constraints:
   max_doc_project_attempts: 2
   require_design_phase_large: true
   require_e2e_user_facing: true
+  require_smoke_ui_projects: true
+  e2e_locator_strategy: "role-based"  # Mandatory: getByRole, getByLabel, getByText
+  e2e_console_error_gate: true        # Zero console errors required
+  e2e_network_error_gate: true        # Zero 4xx/5xx required
+  e2e_screenshot_on: true             # Always capture screenshots
+  e2e_bdd_coverage_enforcement: true  # 1:1 BDD→E2E mandatory
 
 # ============================================================
 # LOCAL HARDWARE MANAGEMENT

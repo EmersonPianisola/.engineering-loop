@@ -19,10 +19,12 @@
     "impl.design": { "done": false, "attempts": 0, "essence_checked": false },
     "impl.code": { "done": false, "attempts": 0, "essence_checked": false },
     "verify": { "done": false, "attempts": 0, "essence_checked": false },
+    "e2e.execute": { "done": false, "attempts": 0, "essence_checked": false },
     "qa.security": { "done": false, "attempts": 0, "essence_checked": false },
     "qa.api-contract": { "done": false, "attempts": 0, "essence_checked": false },
     "qa.performance": { "done": false, "attempts": 0, "essence_checked": false },
     "deploy.prepare": { "done": false, "attempts": 0, "essence_checked": false },
+    "smoke.test": { "done": false, "attempts": 0, "essence_checked": false },
     "doc.decisions": { "done": false, "attempts": 0, "essence_checked": false },
     "doc.project": { "done": false, "attempts": 0, "essence_checked": false },
     "post": { "done": false, "attempts": 0, "essence_checked": false }

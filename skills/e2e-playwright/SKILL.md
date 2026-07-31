@@ -136,12 +136,24 @@ For tests requiring backend services:
 - [ ] Tests are independent
 - [ ] Explicit waits, no `page.waitForTimeout()`
 - [ ] Screenshots/video on failure
+- [ ] **Zero console errors** (mandatory)
+- [ ] **Zero network 4xx/5xx** (mandatory)
+- [ ] **Role-based locators only** (no CSS/XPath)
+- [ ] **BDD→E2E 1:1 coverage** (mandatory)
+- [ ] **Dimension assertions** (CSS collapse detection)
+- [ ] **Auth bypass configured** (if auth exists)
 
 ## Anti-Patterns
 
 - **Never use `page.waitForTimeout()`** — use `expect().toBeVisible()`
-- **Never hard-select by implementation details** — use semantic selectors
+- **Never use CSS/XPath selectors** — use `getByRole()`, `getByLabel()`, `getByText()`
 - **Never share state between tests** — each test independently runnable
 - **Never test internals** — only observable user-facing behavior
 - **Never skip mobile viewport** — PWA tested on mobile dimensions
 - **Never ignore flaky tests** — fix root cause
+- **Never ignore console errors** — zero errors is mandatory
+- **Never ignore network errors** — zero 4xx/5xx is mandatory
+- **Never skip auth bypass** — tests must reach protected routes
+- **Never skip BDD→E2E coverage check** — every `@e2e` scenario needs a test
+- **Never test against dev server for smoke tests** — use production build
+- **Never skip screenshots** — visual evidence is mandatory

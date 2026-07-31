@@ -191,6 +191,9 @@ Canonical state format per `{reference-root}/logging.md`. Maintain and update th
 | stages.verify.done | false |
 | stages.verify.attempts | 0 |
 | stages.verify.essence_checked | false |
+| stages.e2e.execute.done | false |
+| stages.e2e.execute.attempts | 0 |
+| stages.e2e.execute.essence_checked | false |
 | stages.qa.security.done | false |
 | stages.qa.security.attempts | 0 |
 | stages.qa.security.essence_checked | false |
@@ -203,6 +206,9 @@ Canonical state format per `{reference-root}/logging.md`. Maintain and update th
 | stages.deploy.prepare.done | false |
 | stages.deploy.prepare.attempts | 0 |
 | stages.deploy.prepare.essence_checked | false |
+| stages.smoke.test.done | false |
+| stages.smoke.test.attempts | 0 |
+| stages.smoke.test.essence_checked | false |
 | stages.doc.decisions.done | false |
 | stages.doc.decisions.attempts | 0 |
 | stages.doc.decisions.essence_checked | false |
@@ -234,10 +240,12 @@ Derived from `CORE.md` + `skill-index.md`. Each stage loads its procedure from `
 | 5 | `impl.design` | `impl-design.md` | `implementation-architect` | — |
 | 6 | `impl.code` | `impl-code.md` | domain skill (self-constructed) | — |
 | 7 | `verify` | `verify.md` | `verifier` | — |
+| 7.5 | `e2e.execute` | `e2e-execute.md` | `e2e-playwright` | — (UI projects) |
 | 8 | `qa.security` | `qa-security.md` | OWASP WSTG (self-constructed) | `medium` |
 | 9 | `qa.api-contract` | `qa-api-contract.md` | OpenAPI (self-constructed) | `medium` |
 | 10 | `qa.performance` | `qa-performance.md` | self-constructed | `complex` |
 | 11 | `deploy.prepare` | `deploy-prepare.md` | — | — |
+| 11.5 | `smoke.test` | `smoke-test.md` | `e2e-playwright` | — (UI projects) |
 | 12 | `doc.decisions` | `doc-decisions.md` | MADR + C4 Model (self-constructed) | — |
 | 13 | `doc.project` | `doc-project.md` | arc42 + C4 Model (self-constructed) | — |
 | 14 | `post` | `post-loop.md` | orchestrator (finalize) | — |
@@ -395,11 +403,30 @@ WHILE any active stage is not done:
   1. Spec-anchored check — each AC traced to `file:line` evidence
   2. Discrimination sensor — inject behavior-level faults, confirm tests kill them
   3. Coverage audit — ACs vs test coverage
-  4. Write `validation.md` (PASS/FAIL, per-AC evidence, sensor result, diff range)
-  5. Distill lessons from failures → `{artifact-root}/lessons.json`
-- **On PASS:** `done: true`, advance to qa.security (if active) or deploy.prepare
+  4. Runtime evidence check — E2E test results (if available)
+  5. Write `validation.md` (PASS/FAIL, per-AC evidence, sensor result, diff range)
+  6. Distill lessons from failures → `{artifact-root}/lessons.json`
+- **On PASS:** `done: true`, advance to e2e.execute (if UI project) or qa.security (if active) or deploy.prepare
 - **On FAIL:** gaps become fix tasks, reset `impl.code.done = false`, loop re-runs (max 3 iterations)
 - **Artifact:** `{artifact-root}/validation-{slug}.md`
+
+### E2E.EXECUTE — Browser E2E Testing
+
+- **Sub-agent:** `e2e-playwright`
+- **Context:** Behavior Map + Blueprint + running dev server + auth config
+- **Active only when:** Project has UI (frontend files detected)
+- **Limit:** `max_e2e_execute_attempts`
+- **Execution:**
+  1. Infrastructure setup — Playwright, config, Page Objects
+  2. Auth bypass detection + wiring
+  3. Scenario derivation from BDD `@e2e` tags
+  4. Four-layer assertions: DOM, Dimension, Console, Network
+  5. Screenshot evidence capture
+  6. BDD→E2E 1:1 coverage check
+  7. Auto-fix loop (max 3 attempts) with regression gate
+- **On PASS:** `done: true`, advance to qa.security (if active) or deploy.prepare
+- **On FAIL:** reset `impl.code.done = false`, loop re-runs
+- **Artifact:** `{artifact-root}/e2e-report-{slug}.md`
 
 ### QA.SECURITY — Security Review
 
@@ -433,8 +460,26 @@ WHILE any active stage is not done:
 - **Sub-agent:** orchestrator executes directly
 - **Tasks:** build, lint, type check, env config, migration verification, final test run
 - **Limit:** `max_deploy_prepare_attempts`
-- **On success:** `done: true`, advance to doc.decisions
+- **Prerequisite:** E2E tests must have passed (if UI project)
+- **On success:** `done: true`, advance to smoke.test (if UI project) or doc.decisions
 - **On failure:** reset `impl.code.done = false`
+
+### SMOKE.TEST — User Journey Smoke Test
+
+- **Sub-agent:** `e2e-playwright`
+- **Context:** Production build + critical paths from BDD/Blueprint
+- **Active only when:** Project has UI (frontend files detected)
+- **Limit:** `max_smoke_test_attempts`
+- **Execution:**
+  1. Build production binary
+  2. Define critical paths (login, navigation, CRUD, reports, logout)
+  3. Run full user journey against production build
+  4. Screenshot at each step
+  5. Console + network error monitoring
+  6. Auto-fix loop (max 3 attempts)
+- **On PASS:** `done: true`, advance to doc.decisions
+- **On FAIL:** reset `impl.code.done = false`, loop re-runs
+- **Artifact:** `{artifact-root}/smoke-report-{slug}.md`
 
 ### DOC.DECISIONS — Decision Log Consolidation
 
@@ -491,6 +536,8 @@ Configured via `config.yaml` → `essence:`. Runs BEFORE every stage.
 | `impl.design` | Architecture (or work item for small/medium) is complete |
 | `impl.code` | Blueprint is complete, contracts are defined |
 | `verify` | Code implementation + tests are complete |
+| `e2e.execute` | Blueprint, Behavior Map (if exists), running dev server available |
+| `smoke.test` | Production build available, critical paths defined |
 | `qa.security` | Code diff + architecture artifacts available |
 | `qa.api-contract` | Blueprint + API source files available |
 | `qa.performance` | Blueprint + architecture + build output available |
@@ -585,12 +632,14 @@ ORCHESTRATOR (you)
 ├── impl.design → implementation-architect
 ├── impl.code → domain skill (TDD per task)
 ├── verify → verifier (discrimination sensor)
+├── e2e.execute → e2e-playwright (browser E2E)     [UI projects]
 │
 ├── qa.security → OWASP WSTG                      [medium+]
 ├── qa.api-contract → OpenAPI                     [medium+]
 ├── qa.performance → performance checker          [complex]
 │
 ├── deploy.prepare → orchestrator (build, lint, verify)
+├── smoke.test → e2e-playwright (user journey)     [UI projects]
 │
 ├── doc.decisions → MADR consolidation
 ├── doc.project → arc42 + C4 Model

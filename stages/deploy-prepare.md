@@ -18,13 +18,14 @@ description: 'Deploy preparation. Build, lint, environment configuration, migrat
 ## Procedure
 
 1. **Prerequisite Check:** If `state.stages.verify.done != true` → `status: blocked`, `blocking_condition: verification not complete`. **EXIT.**
-2. **QA prerequisite:** If `state.complexity >= "medium"` and `state.stages.qa.security.done != true` → `status: blocked`. **EXIT.**
-3. Proceed with the steps below.
+2. **E2E prerequisite:** If project has UI and `state.stages.e2e.execute.done != true` → `status: blocked`, `blocking_condition: E2E browser testing not complete`. **EXIT.**
+3. **QA prerequisite:** If `state.complexity >= "medium"` and `state.stages.qa.security.done != true` → `status: blocked`. **EXIT.**
+4. Proceed with the steps below.
 
 # Deploy Preparation — Build and Verification
 
 **Runs when:** `state.stages.deploy.prepare.done == false`
-**Prerequisite:** `state.stages.verify.done == true` (and QA stages if active)
+**Prerequisite:** `state.stages.verify.done == true` + `state.stages.e2e.execute.done == true` (if UI project) + QA stages if active
 
 ## Execute — Build Pipeline
 

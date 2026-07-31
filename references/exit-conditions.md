@@ -22,6 +22,8 @@ description: 'All possible loop exit conditions, status codes, and blocking cond
 | `impl.design.attempts >= max` | impl design | `blocked` | `implementation blueprint non-convergence` |
 | `impl.code.attempts >= max` | impl code | `blocked` | `implementation non-convergence` |
 | `verify.attempts >= max` | verify | `blocked` | `verification non-convergence` |
+| `e2e.execute.attempts >= max` | e2e execute | `blocked` | `E2E browser testing non-convergence` |
+| `smoke.test.attempts >= max` | smoke test | `blocked` | `smoke test non-convergence` |
 | `qa.security.attempts >= max` | qa security | `blocked` | `security review non-convergence` |
 | `qa.api-contract.attempts >= max` | qa api-contract | `blocked` | `API contract validation non-convergence` |
 | `qa.performance.attempts >= max` | qa performance | `blocked` | `performance check non-convergence` |
@@ -38,7 +40,27 @@ description: 'All possible loop exit conditions, status codes, and blocking cond
 | Surviving mutation | `impl.code.done = false`, `verify.done = false` — fix iteration |
 | Uncovered AC | `impl.code.done = false`, `verify.done = false` — fix iteration |
 | Spec-precision gap | Document, `verify.done = false` if blocking |
+| Runtime evidence failure | `impl.code.done = false`, `verify.done = false` — fix iteration |
 | 3 iterations still FAIL | `status: blocked`, `blocking_condition: verification non-convergence` |
+
+## E2E Execute Resets
+
+| Finding | Effect on State |
+|---------|----------------|
+| Test failure | `impl.code.done = false`, `e2e.execute.done = false` — fix iteration |
+| Console error | `impl.code.done = false`, `e2e.execute.done = false` — fix iteration |
+| Network 4xx/5xx | `impl.code.done = false`, `e2e.execute.done = false` — fix iteration |
+| Orphaned BDD scenario | `impl.code.done = false`, `e2e.execute.done = false` — generate test |
+| 3 iterations still FAIL | `status: blocked`, `blocking_condition: E2E browser testing non-convergence` |
+
+## Smoke Test Resets
+
+| Finding | Effect on State |
+|---------|----------------|
+| Journey step failure | `impl.code.done = false`, `smoke.test.done = false` — fix iteration |
+| Network error | `impl.code.done = false`, `smoke.test.done = false` — fix iteration |
+| Route 404 | `impl.code.done = false`, `smoke.test.done = false` — fix routing |
+| 3 iterations still FAIL | `status: blocked`, `blocking_condition: smoke test non-convergence` |
 
 ## QA Stage Resets
 

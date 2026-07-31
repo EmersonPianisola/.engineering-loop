@@ -66,3 +66,18 @@ description: 'Global anti-patterns that apply across all stages. Updated for v9.
 - **Never hand-edit lessons.json** — only the Verifier and lesson script modify it
 - **Never load candidate lessons** — only confirmed lessons enter sub-agent context
 - **Always distill from failures** — surviving mutants, spec gaps, uncovered ACs become lessons
+
+## UI Testing
+
+- **Never skip E2E for UI projects** — unit tests cannot catch integration-level UI bugs
+- **Never use CSS/XPath selectors** — use role-based locators (`getByRole`, `getByLabel`, `getByText`)
+- **Never rely on dev server for smoke tests** — test against production build
+- **Never ignore console errors** — zero console errors is mandatory
+- **Never ignore network errors** — zero 4xx/5xx is mandatory
+- **Never skip auth bypass setup** — tests must bypass auth to reach protected routes
+- **Never share state between E2E tests** — each test independently runnable
+- **Never skip BDD→E2E coverage check** — every `@e2e` scenario must have a test
+- **Never use `waitForTimeout()`** — use explicit assertions (`expect().toBeVisible()`)
+- **Never test implementation details** — test observable user-facing behavior only
+- **Always capture screenshots** — visual evidence for every test step
+- **Always run serial execution for E2E** — deterministic state, no parallel flakiness

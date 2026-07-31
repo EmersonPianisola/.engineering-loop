@@ -86,10 +86,12 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | 5 | `impl.design` | Implementation > Blueprint | `implementation-architect` | `{stage-root}/impl-design.md` | — |
 | 6 | `impl.code` | Implementation > Code (TDD) | domain (self-constructed) | `{stage-root}/impl-code.md` | — |
 | 7 | `verify` | Verify | `verifier` | `{stage-root}/verify.md` | — |
+| 7.5 | `e2e.execute` | E2E Browser Testing | `e2e-playwright` | `{stage-root}/e2e-execute.md` | — (UI projects) |
 | 8 | `qa.security` | QA > Security | OWASP WSTG (self-constructed) | `{stage-root}/qa-security.md` | `medium` |
 | 9 | `qa.api-contract` | QA > API Contract | OpenAPI (self-constructed) | `{stage-root}/qa-api-contract.md` | `medium` |
 | 10 | `qa.performance` | QA > Performance | self-constructed | `{stage-root}/qa-performance.md` | `complex` |
 | 11 | `deploy.prepare` | Deploy > Prepare | — | `{stage-root}/deploy-prepare.md` | — |
+| 11.5 | `smoke.test` | Smoke Test (User Journey) | `e2e-playwright` | `{stage-root}/smoke-test.md` | — (UI projects) |
 | 12 | `doc.decisions` | Doc > Decision Log | MADR + C4 Model (self-constructed) | `{stage-root}/doc-decisions.md` | — |
 | 13 | `doc.project` | Doc > Project Docs | arc42 + C4 Model (self-constructed) | `{stage-root}/doc-project.md` | — |
 | 14 | `post` | POST-LOOP | — | `{stage-root}/post-loop.md` | — |
@@ -108,6 +110,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | `anti` | Anti-patterns | `{reference-root}/anti-patterns.md` |
 | `discovery` | Skill discovery | `{reference-root}/skill-discovery-guide.md` |
 | `templates` | Self-construction templates | `{reference-root}/skill-templates.md` |
+| `ui-testing` | UI Testing Patterns | `{reference-root}/ui-testing-patterns.md` |
 | `decisions` | Decision template (AD-NNN) | `{reference-root}/decision-log.md` |
 | `lessons` | Lessons lifecycle | `{reference-root}/lessons.md` |
 

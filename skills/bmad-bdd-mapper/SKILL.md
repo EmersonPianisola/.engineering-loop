@@ -118,6 +118,24 @@ coverage: {percentage}%
 - [ ] Each scenario has exactly one When clause
 - [ ] Then clauses are observable (not implementation-internal)
 - [ ] Artifact does not exceed `max_artifact_size_lines` (from config.yaml)
+- [ ] **Every @e2e scenario has a unique, testable identifier** for 1:1 mapping to Playwright tests
+
+## BDD→E2E Enforcement
+
+Every `@e2e` scenario in this Behavior Map **MUST** have a corresponding Playwright test. The `e2e.execute` stage enforces this:
+
+```
+FOR each @e2e scenario:
+    IF no test exists → ORPHANED (FAIL)
+    IF test fails → FAILED (becomes fix task)
+    IF test passes → COVERED (PASS)
+```
+
+**Rules:**
+- Each `@e2e` scenario name becomes the test title
+- Scenario tags include `@{scenario-id}` for traceability
+- Then clauses must be browser-observable (visible element, URL change, text presence)
+- If a scenario cannot be tested in a browser, re-tag as `@component` or `@integration`
 
 ## Anti-Patterns
 
