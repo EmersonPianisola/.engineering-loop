@@ -66,7 +66,19 @@ export default defineConfig({
 });
 ```
 
-### Step 2: Detect Auth Provider + Wire Bypass
+### Step 2.5: Confirmed Lessons — Mandatory E2E Rules
+
+**L-001 (Confirmed):** API-only E2E tests miss SSR fetch errors in Server Components.
+- **Rule:** Every E2E test suite MUST include page-level tests that navigate to and render actual routes, not just API endpoint tests.
+- **Check:** For each page with server-side data fetching, write at least one `page.goto()` test that verifies the page renders without server errors.
+- **Monitor:** Browser console for `ERR_INVALID_URL` during test runs.
+
+**L-002 (Confirmed):** E2E tests that only assert element presence miss broken navigation links.
+- **Rule:** For every navigation link or button that triggers a route change, the E2E test MUST click it and verify the destination page renders — not just assert the element is visible.
+- **Pattern:** click link → `waitForURL` → assert destination content.
+- **Apply to:** All action buttons (Novo Cliente, Novo Pedido, Editar, etc.).
+
+### Step 3: Detect Auth Provider + Wire Bypass
 
 Detect the authentication provider and configure bypass for testing:
 
@@ -78,7 +90,24 @@ Detect the authentication provider and configure bypass for testing:
 | Custom JWT | localStorage token injection | `{reference-root}/ui-testing-patterns.md` |
 | None | Skip | — |
 
-### Step 3: Derive Test Scenarios
+### Step 3: Load Lessons
+
+1. Load shared lessons: `{artifact-root}/lessons-shared.json` (if exists)
+2. Load project lessons: `{artifact-root}/lessons.json` (if exists)
+3. Filter confirmed lessons with `origin_stage` containing "e2e" or "qa"
+4. Apply all prevention rules before writing tests
+
+**L-001 (Confirmed):** API-only E2E tests miss SSR fetch errors in Server Components.
+- **Rule:** Every E2E test suite MUST include page-level tests that navigate to and render actual routes, not just API endpoint tests.
+- **Check:** For each page with server-side data fetching, write at least one `page.goto()` test that verifies the page renders without server errors.
+- **Monitor:** Browser console for `ERR_INVALID_URL` during test runs.
+
+**L-002 (Confirmed):** E2E tests that only assert element presence miss broken navigation links.
+- **Rule:** For every navigation link or button that triggers a route change, the E2E test MUST click it and verify the destination page renders — not just assert the element is visible.
+- **Pattern:** click link → `waitForURL` → assert destination content.
+- **Apply to:** All action buttons (Novo Cliente, Novo Pedido, Editar, etc.).
+
+### Step 4: Derive Test Scenarios
 
 Generate E2E scenarios from multiple sources (in order of priority):
 
@@ -88,7 +117,7 @@ Generate E2E scenarios from multiple sources (in order of priority):
 
 Cross-reference: every `@e2e` scenario from the Behavior Map MUST have a test. Orphaned scenarios are FAIL conditions.
 
-### Step 4: Create Page Objects
+### Step 5: Create Page Objects
 
 For each major page/route, create a Page Object class:
 
@@ -130,7 +159,7 @@ export class DashboardPage {
 - Role-based locators survive CSS class changes and visual refactors
 - Fallback: `data-testid` attributes (add to source if role-based fails)
 
-### Step 5: Generate Test Specs
+### Step 6: Generate Test Specs
 
 For each scenario, write a Playwright test with four assertion layers:
 
@@ -161,7 +190,7 @@ test.describe('Dashboard', () => {
 });
 ```
 
-### Step 6: Run Tests with Four-Layer Assertions
+### Step 7: Run Tests with Four-Layer Assertions
 
 Each test must assert four layers:
 
@@ -172,7 +201,7 @@ Each test must assert four layers:
 | **Console** | JavaScript errors, React warnings | Filter `page.on('console')` for errors |
 | **Network** | 4xx/5xx responses, failed API calls | Intercept `page.route()`, check status |
 
-### Step 7: Console Error Gate
+### Step 8: Console Error Gate
 
 Capture and assert on browser console output:
 
@@ -193,7 +222,7 @@ Known warnings to ignore (configure in `playwright.config.js`):
 - Hydration mismatches (non-blocking warning)
 - Third-party library warnings
 
-### Step 8: Network Error Gate
+### Step 9: Network Error Gate
 
 Intercept and assert on network responses:
 
@@ -212,7 +241,7 @@ await page.route('**/*', async (route) => {
 expect(failedRequests).toHaveLength(0);
 ```
 
-### Step 9: Screenshot Evidence
+### Step 10: Screenshot Evidence
 
 Capture screenshot at the end of every test (pass or fail):
 
@@ -225,7 +254,7 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 ```
 
-### Step 10: Run and Evaluate
+### Step 11: Run and Evaluate
 
 ```bash
 npx playwright test --reporter=list

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "L-001",
+    "title": "API-only E2E tests miss SSR fetch errors in Server Components",
+    "context": "E2E tests for Next.js app covered only API endpoints using Playwright's request fixture (e.g., POST /api/orders, GET /api/clients). No page-level tests navigated to rendered routes.",
+    "error": "Server Components making fetch() calls with relative URLs (e.g., fetch('/api/clients')) threw ERR_INVALID_URL during SSR. These errors were invisible to tests because the test suite only exercised API routes, never rendering the affected pages (/clientes/[id], /configuracoes/impressoras, /configuracoes/filamentos).",
+    "correction": "Fixed all Server Component fetch calls to use full URLs with baseUrl. Converted pages with onClick handlers to 'use client' components. Root cause was that Next.js Server Components run on the server where relative URLs are invalid, but tests never triggered the SSR of those pages.",
+    "prevention": "Every E2E test suite must include page-level tests that navigate to and render actual routes, not just API endpoint tests. Rule: for each page with server-side data fetching, write at least one page.goto() test that verifies the page renders without server errors. Monitor browser console for ERR_INVALID_URL during test runs.",
+    "status": "confirmed",
+    "occurrences": 2,
+    "confirmed_at": "2026-07-31",
+    "origin_feature": "orders-crud",
+    "origin_project": "kapa",
+    "origin_stage": "qa",
+    "created_at": "2026-07-30"
+  },
+  {
+    "id": "L-002",
+    "title": "E2E tests that only assert element presence miss broken navigation links",
+    "context": "E2E test in page-clientes.spec.ts verified the 'Novo Cliente' button was visible using toBeVisible(), but never clicked it. The button linked to /clientes/novo which did not exist as a route, resulting in a 404 that went undetected.",
+    "error": "A navigation link (/clientes/novo) was broken (404) for an unknown period. The existing E2E test only asserted the link element was visible on the page, but did not follow the link or verify the destination page rendered correctly.",
+    "correction": "Created the missing route at /clientes/novo/page.tsx using the existing ClientForm component. Added a new E2E test that clicks the 'Novo Cliente' link, waits for the /clientes/novo URL, and asserts the form renders with the expected heading and submit button.",
+    "prevention": "Rule: for every navigation link or button that triggers a route change, the E2E test must click it and verify the destination page renders — not just assert the element is visible. Pattern: click link → waitForURL → assert destination content. Apply this to all action buttons (Novo Cliente, Novo Pedido, Editar, etc.).",
+    "status": "confirmed",
+    "occurrences": 2,
+    "confirmed_at": "2026-07-31",
+    "origin_feature": "clientes-novo-route",
+    "origin_project": "kapa",
+    "origin_stage": "qa",
+    "created_at": "2026-07-31"
+  }
+]

@@ -71,3 +71,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-29 | graphify | v1.0.0 — Knowledge graph integration: Graphify skill, opt-in config, INIT build, query rules |
 | 2026-07-31 | all | v10.1.0 — Continuous documentation: doc.update stage after impl.code, existing project files updated, doc.decisions/doc.project medium+ only |
 | 2026-07-31 | all | v10.2.0 — BMAD Ideation stage: Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition for raw work items |
+| 2026-08-01 | all | v10.3.0 — Shared lessons from kapa: L-001 (page-level E2E tests required, API-only tests miss SSR errors), L-002 (navigation links must be clicked and destination verified, not just asserted visible) |
