@@ -1,34 +1,42 @@
 ---
 name: engineering-loop
-version: 10.0.0
+version: 10.2.0
 type: framework
-description: 'Adaptive loop engine. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. Multi-project via git submodule.'
+description: 'Adaptive loop engine. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation for raw work items. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v10
+# Engineering Loop v10.2
 
-Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. Multi-project architecture — framework code and project artifacts are isolated.
+Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
 ```
                         INIT (Phase 0)
-                        validate input + auto-size
-                             │
-                        ┌────▼────┐
-              ┌──────── │ THE LOOP│
-              │          │ repeat  │
-              │          │ active  │
-              │          │ stages  │
-              │          └────┬────┘
-              │               │
-              │        incomplete?
-              │      yes│  no │
-              └────────┘     │
-                             ▼
-                        DOC (Phase 4)
-                         doc.update (existing files)
-                         Decision Log + Project Docs
-                             │
-                        POST-LOOP (Phase 5+6)
+                   validate input + auto-size
+                              │
+                   ┌──────────┴──────────┐
+                   │  ad-hoc work item?  │
+                   │  yes → init.ideate  │
+                   │  (Party Mode +      │
+                   │   Brainstorming +   │
+                   │   SDD + Decompose)  │
+                   └──────────┬──────────┘
+                              │
+                         ┌────▼────┐
+               ┌──────── │ THE LOOP│
+               │          │ repeat  │
+               │          │ active  │
+               │          │ stages  │
+               │          └────┬────┘
+               │               │
+               │        incomplete?
+               │      yes│  no │
+               └────────┘     │
+                              ▼
+                         DOC (Phase 4)
+                          doc.update (existing files)
+                          Decision Log + Project Docs
+                              │
+                         POST-LOOP (Phase 5+6)
 ```
 
 ## Multi-Project Architecture
@@ -73,6 +81,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | # | ID | Stage | Skill(s) | Procedure | Min Complexity |
 |---|----|-------|----------|-----------|----------------|
 | 0 | `init` | INIT | `bmad-integration` | `{stage-root}/init.md` | — |
+| 0.25 | `init.ideate` | Ideation + Decomposition | `bmad-ideation` | `{stage-root}/init-ideate.md` | — |
 | 0.5 | `init.bdd` | BDD Journey | `bmad-bdd-mapper` | `{stage-root}/init-bdd.md` | `large` |
 | 0.75 | `init.refine` | Idea Refinement | essence + `bmad-brainstorming` | `{stage-root}/init-refine.md` | — |
 | 1.1 | `design.user-research` | Design > User Research | `bmad-user-research` | `{stage-root}/design-user-research.md` | `large` |
@@ -105,6 +114,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | ID | Topic | Path |
 |----|-------|------|
 | `essence` | Essence Sidecar (Four Lenses) | `{reference-root}/essence-sidecar.md` |
+| `bmad-ideation` | BMAD Ideation Patterns (Party Mode, Brainstorming, SDD) | `{reference-root}/bmad-ideation-patterns.md` |
 | `graphify` | Knowledge Graph (Graphify, opt-in) | `{reference-root}/graphify.md` |
 | `hardware` | Hardware Management | `{reference-root}/hardware-management.md` |
 | `logging` | Log format + state table | `{reference-root}/logging.md` |

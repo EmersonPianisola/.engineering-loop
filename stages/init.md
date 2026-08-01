@@ -42,8 +42,9 @@ Before any work, ensure paths are resolved:
    - `{artifact-root}/`
    - `{artifact-root}/architectures/`
    - `{artifact-root}/blueprints/`
-   - `{artifact-root}/bdd-journeys/`
-   - `{artifact-root}/design/`
+ - `{artifact-root}/bdd-journeys/`
+    - `{artifact-root}/design/`
+    - `{artifact-root}/ideation/`
    - `{artifact-root}/test-plans/`
    - `{log-root}/`
 
@@ -61,7 +62,7 @@ Before any work, ensure paths are resolved:
 7. Create log file per `references/logging.md`.
 8. Initialize `{loop-root}/STATE.md` per `references/logging.md` dual state format.
 
-## Phase 0.5: Ideation (Ad-Hoc Work Items)
+## Phase 0.25: Ideation Dispatch (Ad-Hoc Work Items)
 
 When the work item is ad-hoc (no explicit path, no BMad spec):
 
@@ -69,20 +70,20 @@ When the work item is ad-hoc (no explicit path, no BMad spec):
 2. Run essence validation on the raw intent:
    - Apply Four Lenses to identify ambiguities, hidden assumptions, literal traps, conflicting priorities.
    - Report findings back to the user with specific clarifications.
-3. Propose a refined work item structure:
-   - `title` — one-line summary of what the user wants
-   - `intent` — what the user is trying to achieve (not how)
-   - `acceptance_criteria` — 3-7 concrete, testable outcomes
-   - `scope` — what's in and what's out
-   - `constraints` — technical, UX, or domain constraints
-4. Present the refined work item to the user and ask: "Is this what you want, or should we adjust X?"
-5. Iterate until the user confirms the work item is accurate.
-   - Each iteration: run essence on the updated intent, refine, present.
-   - Max iterations: 5 (then proceed with current state).
-6. On user confirmation:
-   - Set `state.work_item` with the finalized structure.
-   - Set `state.work_item_type = "ad-hoc"`.
-   - Proceed to Phase 1.
+3. Store preliminary work item in `state.work_item`.
+4. Set `state.work_item_type = "ad-hoc"`.
+5. **Delegar para `init.ideate`** — the BMAD Ideation stage (Phase 0.25) will:
+   - Run Party Mode analysis (9 roles)
+   - Apply Brainstorming techniques (2-3 from 62)
+   - Extract SDD structure
+   - Decompose into atomic tasks with impact gates
+6. After `init.ideate` completes, `state.work_item` will be enriched with:
+   - `title`, `intent`, `acceptance_criteria`, `code_map`, `edge_cases`
+   - `non_goals`, `success_metrics`, `impact_classification`
+7. Proceed to Phase 1 (Skill Discovery) with the enriched work item.
+
+> **Note:** If the work item is already structured (≥3 ACs + code_map), `init.ideate` will early-exit.
+> If the work item came from a BMad spec, `init.ideate` will early-exit.
 
 ## Phase 1: Skill Discovery
 

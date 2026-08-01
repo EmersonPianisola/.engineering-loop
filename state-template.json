@@ -3,8 +3,10 @@
   "status": "running",
   "complexity": "unset",
   "work_item": null,
+  "ideation": null,
   "stages": {
     "init": { "done": false, "attempts": 0, "essence_checked": false },
+    "init.ideate": { "done": false, "attempts": 0, "essence_checked": false },
     "init.bdd": { "done": false, "attempts": 0, "essence_checked": false },
     "init.refine": { "done": false, "attempts": 0, "essence_checked": false },
     "design.user-research": { "done": false, "attempts": 0, "essence_checked": false },

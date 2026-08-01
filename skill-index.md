@@ -6,13 +6,14 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v10.0.0
+**Framework:** Engineering Loop v10.2.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
 
 | ID | Skill | Role | Stage | Description |
 |----|-------|------|-------|-------------|
+| `ideation` | `bmad-ideation` | Design | init.ideate | Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition |
 | `bridge` | `bmad-integration` | Bridge | init | BMad → universal work item transformation + auto-size |
 | `bdd-journey` | `bmad-bdd-mapper` | Design | init.bdd | Full user journey mapping with Gherkin scenarios (large+) |
 | `refine` | essence + `bmad-brainstorming` | Design | init.refine | Iterative refinement of ad-hoc work items |
@@ -69,3 +70,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-29 | all | v10.0.0 — Multi-project architecture: git submodule, isolated artifacts, two-layer config, shared lessons |
 | 2026-07-29 | graphify | v1.0.0 — Knowledge graph integration: Graphify skill, opt-in config, INIT build, query rules |
 | 2026-07-31 | all | v10.1.0 — Continuous documentation: doc.update stage after impl.code, existing project files updated, doc.decisions/doc.project medium+ only |
+| 2026-07-31 | all | v10.2.0 — BMAD Ideation stage: Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition for raw work items |
