@@ -72,6 +72,7 @@ constraints:
   max_qa_api_contract_attempts: 2
   max_qa_performance_attempts: 2
   max_deploy_prepare_attempts: 2
+  max_doc_update_attempts: 2
   max_doc_decisions_attempts: 2
   max_doc_project_attempts: 2
   require_design_phase_large: true

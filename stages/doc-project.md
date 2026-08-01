@@ -29,7 +29,7 @@ description: 'Generate project documentation: README, setup guide, architecture 
 
 ## Design
 
-- Input: All stage artifacts + decision log + work item + project codebase.
+- Input: `artifacts/stage-results-{slug}.md` + all stage artifacts + decision log + work item + project codebase.
 - Output: Project documentation files in `docs/` and updated `README.md`.
 - Enforce `max_artifact_size_lines` per document.
 

@@ -31,6 +31,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `sec-review` | Security Reviewer | Validate | qa.security | OWASP WSTG-based security audit (self-constructed from OWASP) |
 | `api-contract` | API Contract Validator | Validate | qa.api-contract | OpenAPI contract compliance (self-constructed from OpenAPI spec) |
 | `perf-check` | Performance Checker | Validate | qa.performance | Load targets, bundle size, response time (self-constructed) |
+| `doc-update` | Project Documentation Updater | Document | doc.update | Update existing README, CHANGELOG, docs, inline comments |
 | `doc-decisions` | Decision Log Consolidator | Document | doc.decisions | MADR ADR consolidation from AD-NNN entries (self-constructed) |
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
@@ -46,6 +47,7 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | Security Reviewer | OWASP Web Security Testing Guide (WSTG) | Stage `qa.security` |
 | API Contract Validator | OpenAPI Specification, Swagger best practices | Stage `qa.api-contract` |
 | Performance Checker | Web performance best practices, Lighthouse | Stage `qa.performance` |
+| Project Documentation Updater | conventional-changelog, README best practices | Stage `doc.update` |
 | Decision Log Consolidator | MADR v4.0, C4 Model | Stage `doc.decisions` |
 | Project Documentation | arc42, C4 Model, README conventions | Stage `doc.project` |
 
@@ -66,3 +68,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-27 | all | v9.0.0 — Auto-sizing by complexity, TDD per task, Verifier with discrimination sensor, continuous AD-NNN decisions, self-improving lessons, Essence captures Lens 4 to context.md |
 | 2026-07-29 | all | v10.0.0 — Multi-project architecture: git submodule, isolated artifacts, two-layer config, shared lessons |
 | 2026-07-29 | graphify | v1.0.0 — Knowledge graph integration: Graphify skill, opt-in config, INIT build, query rules |
+| 2026-07-31 | all | v10.1.0 — Continuous documentation: doc.update stage after impl.code, existing project files updated, doc.decisions/doc.project medium+ only |

@@ -18,6 +18,7 @@
     "architecture.review": { "done": false, "attempts": 0, "essence_checked": false },
     "impl.design": { "done": false, "attempts": 0, "essence_checked": false },
     "impl.code": { "done": false, "attempts": 0, "essence_checked": false },
+    "doc.update": { "done": false, "attempts": 0, "essence_checked": false },
     "verify": { "done": false, "attempts": 0, "essence_checked": false },
     "e2e.execute": { "done": false, "attempts": 0, "essence_checked": false },
     "qa.security": { "done": false, "attempts": 0, "essence_checked": false },

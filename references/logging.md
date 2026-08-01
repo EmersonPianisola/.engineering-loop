@@ -96,6 +96,9 @@ complexity: "unset"
 | stages.impl.code.done | false |
 | stages.impl.code.attempts | 0 |
 | stages.impl.code.essence_checked | false |
+| stages.doc.update.done | false |
+| stages.doc.update.attempts | 0 |
+| stages.doc.update.essence_checked | false |
 | stages.verify.done | false |
 | stages.verify.attempts | 0 |
 | stages.verify.essence_checked | false |

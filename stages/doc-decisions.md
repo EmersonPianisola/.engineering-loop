@@ -29,7 +29,7 @@ description: 'Consolidate AD-NNN decisions from STATE.md into formal MADR decisi
 
 ## Design
 
-- Input: `STATE.md ## Decisions` section (AD-NNN entries already recorded continuously).
+- Input: `STATE.md ## Decisions` section (AD-NNN entries already recorded continuously), `artifacts/stage-results-{slug}.md`.
 - Template: `{reference-root}/decision-template.md` (MADR-based ADR format).
 - Output: `{artifact-root}/decision-log-{slug}.md`
 - Enforce `max_artifact_size_lines`. Store path in `state.artifacts.decision_log`.

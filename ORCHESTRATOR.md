@@ -188,6 +188,9 @@ Canonical state format per `{reference-root}/logging.md`. Maintain and update th
 | stages.impl.code.done | false |
 | stages.impl.code.attempts | 0 |
 | stages.impl.code.essence_checked | false |
+| stages.doc.update.done | false |
+| stages.doc.update.attempts | 0 |
+| stages.doc.update.essence_checked | false |
 | stages.verify.done | false |
 | stages.verify.attempts | 0 |
 | stages.verify.essence_checked | false |
@@ -239,6 +242,7 @@ Derived from `CORE.md` + `skill-index.md`. Each stage loads its procedure from `
 | 4 | `arch.review` | `architecture.md` | `architecture-reviewer` | `complex` |
 | 5 | `impl.design` | `impl-design.md` | `implementation-architect` | — |
 | 6 | `impl.code` | `impl-code.md` | domain skill (self-constructed) | — |
+| 6.5 | `doc.update` | `doc-update.md` | Project Doc Updater (self-constructed) | — |
 | 7 | `verify` | `verify.md` | `verifier` | — |
 | 7.5 | `e2e.execute` | `e2e-execute.md` | `e2e-playwright` | — (UI projects) |
 | 8 | `qa.security` | `qa-security.md` | OWASP WSTG (self-constructed) | `medium` |
@@ -246,8 +250,8 @@ Derived from `CORE.md` + `skill-index.md`. Each stage loads its procedure from `
 | 10 | `qa.performance` | `qa-performance.md` | self-constructed | `complex` |
 | 11 | `deploy.prepare` | `deploy-prepare.md` | — | — |
 | 11.5 | `smoke.test` | `smoke-test.md` | `e2e-playwright` | — (UI projects) |
-| 12 | `doc.decisions` | `doc-decisions.md` | MADR + C4 Model (self-constructed) | — |
-| 13 | `doc.project` | `doc-project.md` | arc42 + C4 Model (self-constructed) | — |
+| 12 | `doc.decisions` | `doc-decisions.md` | MADR + C4 Model (self-constructed) | `medium` |
+| 13 | `doc.project` | `doc-project.md` | arc42 + C4 Model (self-constructed) | `medium` |
 | 14 | `post` | `post-loop.md` | orchestrator (finalize) | — |
 
 ## THE LOOP ALGORITHM
@@ -394,6 +398,16 @@ WHILE any active stage is not done:
 - **Validate:** inline validator compares code against blueprint
 - **Decisions:** Record any implementation decisions as AD-NNN in STATE.md
 
+### DOC.UPDATE — Update Existing Project Files
+
+- **Sub-agent:** Project Documentation Updater (self-constructed from conventional-changelog + README best practices)
+- **Context:** Git diff + blueprint + work item + existing project files
+- **Prerequisite:** `impl.code.done == true`
+- **Limit:** `max_doc_update_attempts`
+- **On success:** `done: true`, advance to verify
+- **Artifact:** `artifacts/stage-results-{slug}.md` + updated project files
+- **Note:** Updates existing README, CHANGELOG, docs, inline comments. Does NOT create new files.
+
 ### VERIFY — Independent Verification
 
 - **Sub-agent:** `verifier` (fresh agent, author != verifier)
@@ -484,7 +498,8 @@ WHILE any active stage is not done:
 ### DOC.DECISIONS — Decision Log Consolidation
 
 - **Sub-agent:** Documentation specialist (self-constructed from MADR v4.0 + C4 Model)
-- **Context:** STATE.md Decisions section + all stage artifacts
+- **Context:** STATE.md Decisions section + stage results artifact + all stage artifacts
+- **Active only when:** `state.complexity >= "medium"`
 - **Prerequisite:** `deploy.prepare.done == true`
 - **Limit:** `max_doc_decisions_attempts`
 - **On success:** `done: true`, advance to doc.project
@@ -494,7 +509,8 @@ WHILE any active stage is not done:
 ### DOC.PROJECT — Project Documentation
 
 - **Sub-agent:** Documentation specialist (self-constructed from arc42 + C4 Model)
-- **Context:** All stage artifacts + decision log + work item + project codebase
+- **Context:** Stage results artifact + all stage artifacts + decision log + work item + project codebase
+- **Active only when:** `state.complexity >= "medium"`
 - **Prerequisite:** `doc.decisions.done == true`
 - **Limit:** `max_doc_project_attempts`
 - **On success:** `done: true`, advance to post
@@ -542,6 +558,7 @@ Configured via `config.yaml` → `essence:`. Runs BEFORE every stage.
 | `qa.api-contract` | Blueprint + API source files available |
 | `qa.performance` | Blueprint + architecture + build output available |
 | `deploy.prepare` | All QA stages complete, code is ready |
+| `doc.update` | Implementation diff available, project files exist to update |
 | `doc.decisions` | STATE.md Decisions section has entries to consolidate |
 | `doc.project` | Decision log exists, project structure is clear |
 
@@ -641,8 +658,9 @@ ORCHESTRATOR (you)
 ├── deploy.prepare → orchestrator (build, lint, verify)
 ├── smoke.test → e2e-playwright (user journey)     [UI projects]
 │
-├── doc.decisions → MADR consolidation
-├── doc.project → arc42 + C4 Model
+├── doc.update → Project Doc Updater (existing files)
+├── doc.decisions → MADR consolidation              [medium+]
+├── doc.project → arc42 + C4 Model                  [medium+]
 │
 └── POST-LOOP → orchestrator finalize (Phase 5+6)
 ```

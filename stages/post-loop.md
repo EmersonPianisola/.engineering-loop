@@ -16,7 +16,8 @@ description: 'Phase 5 (Skill Improvement + Lessons) + Phase 6 (Finalize). Runs o
 
 ## Procedure
 
-1. **Prerequisite Check:** If `state.stages.doc.project.done != true` → `status: blocked`, `blocking_condition: documentation phase not complete`. **EXIT.**
+1. **Prerequisite Check:** If `state.stages.doc.update.done != true` → `status: blocked`, `blocking_condition: project documentation not updated`. **EXIT.**
+2. **Prerequisite Check:** If `state.stages.doc.project.done != true` AND `state.complexity >= "medium"` → `status: blocked`, `blocking_condition: documentation phase not complete`. **EXIT.**
 2. Proceed with the steps below.
 
 # POST-LOOP — Phases 5 & 6

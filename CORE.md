@@ -25,7 +25,8 @@ Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Ind
               └────────┘     │
                              ▼
                         DOC (Phase 4)
-                        Decision Log + Project Docs
+                         doc.update (existing files)
+                         Decision Log + Project Docs
                              │
                         POST-LOOP (Phase 5+6)
 ```
@@ -85,6 +86,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | 4 | `arch.review` | Architecture > Review | `architecture-reviewer` | `{stage-root}/architecture.md` | `complex` |
 | 5 | `impl.design` | Implementation > Blueprint | `implementation-architect` | `{stage-root}/impl-design.md` | — |
 | 6 | `impl.code` | Implementation > Code (TDD) | domain (self-constructed) | `{stage-root}/impl-code.md` | — |
+| 6.5 | `doc.update` | Doc > Update Project Files | Project Doc Updater (self-constructed) | `{stage-root}/doc-update.md` | — |
 | 7 | `verify` | Verify | `verifier` | `{stage-root}/verify.md` | — |
 | 7.5 | `e2e.execute` | E2E Browser Testing | `e2e-playwright` | `{stage-root}/e2e-execute.md` | — (UI projects) |
 | 8 | `qa.security` | QA > Security | OWASP WSTG (self-constructed) | `{stage-root}/qa-security.md` | `medium` |
@@ -92,8 +94,8 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | 10 | `qa.performance` | QA > Performance | self-constructed | `{stage-root}/qa-performance.md` | `complex` |
 | 11 | `deploy.prepare` | Deploy > Prepare | — | `{stage-root}/deploy-prepare.md` | — |
 | 11.5 | `smoke.test` | Smoke Test (User Journey) | `e2e-playwright` | `{stage-root}/smoke-test.md` | — (UI projects) |
-| 12 | `doc.decisions` | Doc > Decision Log | MADR + C4 Model (self-constructed) | `{stage-root}/doc-decisions.md` | — |
-| 13 | `doc.project` | Doc > Project Docs | arc42 + C4 Model (self-constructed) | `{stage-root}/doc-project.md` | — |
+| 12 | `doc.decisions` | Doc > Decision Log | MADR + C4 Model (self-constructed) | `{stage-root}/doc-decisions.md` | `medium` |
+| 13 | `doc.project` | Doc > Project Docs | arc42 + C4 Model (self-constructed) | `{stage-root}/doc-project.md` | `medium` |
 | 14 | `post` | POST-LOOP | — | `{stage-root}/post-loop.md` | — |
 
 ---
