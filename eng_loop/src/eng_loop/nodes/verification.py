@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import E2eOutput, VerifyOutput
+from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
@@ -15,7 +21,7 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "verify"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto=_post_verify(state))
+        return Command(goto=_post_verify(state), update={"current_stage": _post_verify(state), "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_verify_attempts", 3)
 
@@ -57,55 +63,94 @@ Execute verification:
 2. Discrimination sensor — inject behavior-level faults, confirm tests kill them
 3. Coverage audit — ACs vs test coverage
 
-Return JSON:
-{{
-  "verdict": "PASS" or "FAIL",
-  "per_ac_evidence": ["AC1 -> file:line", ...],
-  "discrimination_sensor": "pass/fail",
-  "coverage_audit": "pass/fail",
-  "gaps": ["gap descriptions if FAIL"],
-  "complete": true/false
-}}
+Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence, discrimination_sensor, coverage_audit, gaps, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"verdict": "PASS", "gaps": [], "complete": True}
+        structured = model.with_structured_output(VerifyOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        log_model_done(stage_id, time.monotonic() - t0)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="verify",
+            )
+        stages[stage_id]["done"] = True
+        return Command(
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            goto="__end__",
+        )
 
-    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-    stages[stage_id]["output"] = str(result)
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
+
+    # Evidence gate
+    is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+    if not is_valid:
+        log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="verify",
+            )
 
     verdict = result.get("verdict", "PASS")
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
     write_file(f"{artifact_root}/validation.md", str(result))
+    log_artifact(stage_id, f"{artifact_root}/validation.md")
 
     if verdict == "FAIL":
         gaps = result.get("gaps", [])
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = False
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        log_stage_fail(stage_id, f"FAIL: {gaps}")
         return Command(
             update={
                 "stages": stages,
                 "current_stage": "impl-code",
                 "errors": list(state.get("errors", [])) + [f"Verify FAIL: {gaps}"],
+                "iteration": state.get("iteration", 0) + 1,
             },
             goto="impl-code",
         )
 
+    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
+    stages[stage_id]["output"] = str(result)
+    log_stage_done(stage_id, "PASS")
+
+    next_node = _post_verify(state)
     return Command(
         update={
             "stages": stages,
-            "current_stage": _post_verify(state),
+            "current_stage": next_node,
+            "iteration": state.get("iteration", 0) + 1,
         },
-        goto=_post_verify(state),
+        goto=next_node,
     )
 
 
@@ -116,7 +161,8 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "e2e.execute"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto=_post_e2e(state))
+        next_node = _post_e2e(state)
+        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_e2e_execute_attempts", 3)
 
@@ -124,7 +170,7 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "current_stage": "impl-code"},
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
 
@@ -156,50 +202,89 @@ Execute:
 5. Screenshot evidence capture
 6. BDD->E2E 1:1 coverage check
 
-Return JSON:
-{{
-  "verdict": "PASS" or "FAIL",
-  "test_results": ["test1: pass", ...],
-  "console_errors": 0,
-  "network_errors": 0,
-  "bdd_coverage": "1:1 achieved or gaps",
-  "complete": true/false
-}}
+Return a JSON object with these fields: verdict (PASS or FAIL), test_results, console_errors, network_errors, bdd_coverage, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"verdict": "PASS", "complete": True}
+        structured = model.with_structured_output(E2eOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        log_model_done(stage_id, time.monotonic() - t0)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="e2e-execute",
+            )
+        stages["impl.code"]["done"] = False
+        stages[stage_id]["done"] = True
+        return Command(
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
+            goto="impl-code",
+        )
 
-    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-    stages[stage_id]["output"] = str(result)
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
+
+    # Evidence gate
+    is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+    if not is_valid:
+        log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="e2e-execute",
+            )
 
     verdict = result.get("verdict", "PASS")
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
     write_file(f"{artifact_root}/e2e-report.md", str(result))
+    log_artifact(stage_id, f"{artifact_root}/e2e-report.md")
 
     if verdict == "FAIL":
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = False
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        log_stage_fail(stage_id, "FAIL")
         return Command(
-            update={"stages": stages, "current_stage": "impl-code"},
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
 
+    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
+    stages[stage_id]["output"] = str(result)
+    log_stage_done(stage_id, "PASS")
+
+    next_node = _post_e2e(state)
     return Command(
         update={
             "stages": stages,
-            "current_stage": _post_e2e(state),
+            "current_stage": next_node,
+            "iteration": state.get("iteration", 0) + 1,
         },
-        goto=_post_e2e(state),
+        goto=next_node,
     )
 
 

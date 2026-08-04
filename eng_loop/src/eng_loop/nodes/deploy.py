@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import DeployPrepareOutput, SmokeTestOutput
+from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
@@ -15,7 +21,8 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "deploy.prepare"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto=_post_deploy(state))
+        next_node = _post_deploy(state)
+        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_deploy_prepare_attempts", 2)
 
@@ -23,7 +30,7 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "current_stage": "impl-code"},
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
 
@@ -41,50 +48,91 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
 ## DIFF
 {state.get('stage_artifacts', {}).get('diff', '')}
 
-Execute deployment preparation checks. Return JSON:
-{{
-  "build_status": "pass/fail",
-  "lint_status": "pass/fail",
-  "type_check_status": "pass/fail",
-  "verdict": "PASS" or "FAIL",
-  "errors": ["any errors"],
-  "complete": true/false
-}}
+Execute deployment preparation checks.
+Return a JSON object with these fields: build_status, lint_status, type_check_status, verdict (PASS or FAIL), errors, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"verdict": "PASS", "errors": [], "complete": True}
+        structured = model.with_structured_output(DeployPrepareOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="deploy-prepare",
+            )
+        stages["impl.code"]["done"] = False
+        stages[stage_id]["done"] = True
+        return Command(
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
+            goto="impl-code",
+        )
 
-    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-    stages[stage_id]["output"] = str(result)
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
+
+    # Evidence gate
+    is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+    if not is_valid:
+        log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="deploy-prepare",
+            )
 
     verdict = result.get("verdict", "PASS")
 
     if verdict == "FAIL":
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = False
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        log_stage_fail(stage_id, f"FAIL: {result.get('errors', [])}")
         return Command(
             update={
                 "stages": stages,
                 "current_stage": "impl-code",
                 "errors": list(state.get("errors", [])) + [f"deploy.prepare FAIL: {result.get('errors', [])}"],
+                "iteration": state.get("iteration", 0) + 1,
             },
             goto="impl-code",
         )
 
+    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
+    stages[stage_id]["output"] = str(result)
+    log_stage_done(stage_id, "PASS")
+
+    next_node = _post_deploy(state)
     return Command(
         update={
             "stages": stages,
-            "current_stage": _post_deploy(state),
+            "current_stage": next_node,
+            "iteration": state.get("iteration", 0) + 1,
         },
-        goto=_post_deploy(state),
+        goto=next_node,
     )
 
 
@@ -95,7 +143,7 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "smoke.test"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="doc-decisions")
+        return Command(goto="doc-decisions", update={"current_stage": "doc-decisions", "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_smoke_test_attempts", 3)
 
@@ -103,7 +151,7 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "current_stage": "impl-code"},
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
 
@@ -125,47 +173,87 @@ Execute:
 4. Screenshot at each step
 5. Console + network error monitoring
 
-Return JSON:
-{{
-  "verdict": "PASS" or "FAIL",
-  "critical_paths": ["path1: pass", ...],
-  "console_errors": 0,
-  "network_errors": 0,
-  "complete": true/false
-}}
+Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, console_errors, network_errors, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"verdict": "PASS", "complete": True}
+        structured = model.with_structured_output(SmokeTestOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="smoke-test",
+            )
+        stages["impl.code"]["done"] = False
+        stages[stage_id]["done"] = True
+        return Command(
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
+            goto="impl-code",
+        )
 
-    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-    stages[stage_id]["output"] = str(result)
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
+
+    # Evidence gate
+    is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+    if not is_valid:
+        log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="smoke-test",
+            )
 
     verdict = result.get("verdict", "PASS")
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
     write_file(f"{artifact_root}/smoke-report.md", str(result))
+    log_artifact(stage_id, f"{artifact_root}/smoke-report.md")
 
     if verdict == "FAIL":
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = False
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        log_stage_fail(stage_id, "FAIL")
         return Command(
-            update={"stages": stages, "current_stage": "impl-code"},
+            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
 
+    stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
+    stages[stage_id]["output"] = str(result)
+    log_stage_done(stage_id, "PASS")
+
     return Command(
         update={
             "stages": stages,
             "current_stage": "doc-decisions",
+            "iteration": state.get("iteration", 0) + 1,
         },
         goto="doc-decisions",
     )

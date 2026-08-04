@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v10.2.0
+**Framework:** Engineering Loop v10.4.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -73,3 +73,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-07-31 | all | v10.2.0 — BMAD Ideation stage: Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition for raw work items |
 | 2026-08-01 | all | v10.3.0 — Shared lessons from kapa: L-001 (page-level E2E tests required, API-only tests miss SSR errors), L-002 (navigation links must be clicked and destination verified, not just asserted visible) |
 | 2026-08-01 | all | v10.3.1 — **LangGraph orchestrator**: Programmatic flow control via `StateGraph` (28 nodes), local model support (OpenAI-compatible), CLI (`eng-loop`), markdown stages as prompt templates, per-stage model overrides, `interrupt()` for Lens 4 escalation |
+| 2026-08-04 | all | v10.4.0 — **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies in `json_parse.py`), automatic retry on failure, iteration counter tracking, `stage_runner.py` shared helper |

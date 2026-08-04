@@ -1,17 +1,19 @@
 ---
 name: engineering-loop
-version: 10.3.0
+version: 10.4.0
 type: framework
-description: 'LangGraph orchestrator. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'LangGraph orchestrator with Pydantic structured output + evidence gates. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v10.3
+# Engineering Loop v10.4
 
-Persistent while-loop engine enforced by **LangGraph StateGraph** (Python). Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
+Persistent while-loop engine enforced by **LangGraph StateGraph** (Python) with **Pydantic structured output** and **evidence gates**. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
-**Orchestrator:** `eng_loop/` (LangGraph Python, CLI: `eng-loop`)
+**Orchestrator:** `eng_loop/` (LangGraph Python, Pydantic schemas, CLI: `eng-loop`)
 **Legacy:** `ORCHESTRATOR.md` (prompt-based, deprecated)
 **Model:** Any OpenAI-compatible local endpoint (llama.cpp, vLLM, Ollama)
+**Structured Output:** 27 Pydantic schemas, one per stage, enforced via `model.with_structured_output()`
+**Evidence Gates:** Quality validation after every stage; failures trigger automatic retry
 
 ```
                         INIT (Phase 0)

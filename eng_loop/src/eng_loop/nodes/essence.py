@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.tools.progress import log_model_invoke, log_model_done, log_stage_done, log_stage_fail
 from langgraph.types import Command, interrupt
 
 
@@ -20,9 +23,10 @@ def essence_gate_node(state: dict[str, Any]) -> Command[str]:
     config = state.get("config", {})
     essence_config = config.get("essence", {})
     if not essence_config.get("enabled", True):
-        stages[stage_id]["essence_checked"] = True
+        new_stages = dict(stages)
+        new_stages[stage_id] = dict(stage, essence_checked=True)
         return Command(
-            update={"stages": stages},
+            update={"stages": new_stages},
             goto=_next_node_name(stage_id),
         )
 
@@ -60,9 +64,10 @@ def essence_gate_node(state: dict[str, Any]) -> Command[str]:
         })
         _capture_decision(state, tension, decision)
 
-    stages[stage_id]["essence_checked"] = True
+    new_stages = dict(stages)
+    new_stages[stage_id] = dict(stage, essence_checked=True)
     return Command(
-        update={"stages": stages},
+        update={"stages": new_stages},
         goto=_next_node_name(stage_id),
     )
 
@@ -105,27 +110,44 @@ Lens 2: Hidden assumptions — surface them
 Lens 3: Literal traps — detect misinterpretations
 Lens 4: Conflicting priorities — identify tensions
 
-Return JSON:
-{{
-  "lenses_1_3": [list of findings or empty],
-  "lens_4": null or description of tension,
-  "suggested_adjustments": [adjustments for lenses 1-3]
-}}
+Return a JSON object with these fields: lenses_1_3 (list), lens_4 (null or string), suggested_adjustments (list).
 """
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
-    import json
+    log_model_invoke(inputs["stage_id"] + ".essence")
+    t0 = time.monotonic()
     try:
-        result = json.loads(content)
-        return {
-            "findings": {
-                "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
-                "lens_4": result.get("lens_4"),
-            },
-            "adjustments": result.get("suggested_adjustments", []),
-        }
-    except json.JSONDecodeError:
+        response = model.invoke([{"role": "user", "content": prompt}])
+        content = response.content.strip()
+        try:
+            result = json.loads(content)
+            return {
+                "findings": {
+                    "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
+                    "lens_4": result.get("lens_4"),
+                },
+                "adjustments": result.get("suggested_adjustments", []),
+            }
+        except json.JSONDecodeError:
+            # Try to extract JSON
+            import re
+            code_block = re.search(r'```(?:json)?\s*\n(.*?)\n```', content, re.DOTALL)
+            if code_block:
+                try:
+                    result = json.loads(code_block.group(1).strip())
+                    return {
+                        "findings": {
+                            "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
+                            "lens_4": result.get("lens_4"),
+                        },
+                        "adjustments": result.get("suggested_adjustments", []),
+                    }
+                except json.JSONDecodeError:
+                    pass
+            return {"findings": {"lenses_1_3": False, "lens_4": None}, "adjustments": []}
+    except Exception as e:
+        log_stage_fail(inputs["stage_id"] + ".essence", str(e))
         return {"findings": {"lenses_1_3": False, "lens_4": None}, "adjustments": []}
+    finally:
+        log_model_done(inputs["stage_id"] + ".essence", time.monotonic() - t0)
 
 
 def _adjust_inputs_inline(essence_result: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:

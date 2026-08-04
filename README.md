@@ -4,17 +4,18 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v10.3
+# Engineering Loop v10.4
 
-Persistent **while-loop engine** for AI-assisted software development. LangGraph-based orchestrator enforces flow programmatically. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
+Persistent **while-loop engine** for AI-assisted software development. LangGraph-based orchestrator enforces flow programmatically with Pydantic structured output and evidence gates. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
 
 | | |
 |---|---|
-| **Version** | 10.3.0 |
+| **Version** | 10.4.0 |
 | **Architecture** | Multi-project via git submodule |
-| **Orchestrator** | `eng_loop/` (LangGraph Python) + `ORCHESTRATOR.md` (legacy) |
+| **Orchestrator** | `eng_loop/` (LangGraph Python, Pydantic schemas) + `ORCHESTRATOR.md` (legacy) |
 | **Stages** | 26 stages across 7 phases |
 | **Skills** | 11 built-in + 7 self-constructed at runtime |
+| **Structured Output** | Pydantic schemas per stage, evidence gates |
 | **Entry point** | `CORE.md` |
 | **CLI** | `eng-loop --work-item "..."` |
 | **Configuration** | `config-template.yaml` (framework) + `config.yaml` (project) |
@@ -60,6 +61,8 @@ The loop is enforced by a **LangGraph StateGraph** (Python) that programmaticall
 ### Core Principles
 
 - **Programmatic flow control** — LangGraph StateGraph enforces stage order, retries, and resets in code (not prompts)
+- **Structured output** — Every stage uses Pydantic schemas via `model.with_structured_output()` — no free-form JSON
+- **Evidence gates** — Every stage output is validated against quality criteria before advancing; failures trigger automatic retry
 - **Orchestrator is pure delegation** — never executes work directly (except `deploy.prepare` and `post-loop` finalize)
 - **Progressive disclosure** — stages, references, and skills loaded by ID only when needed
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
@@ -163,19 +166,58 @@ Load `ORCHESTRATOR.md` in your AI agent session and provide a work item. The pro
 
 ## LangGraph Orchestrator
 
-v10.3 migrated from prompt-based orchestration to **programmatic flow control** via LangGraph. The orchestrator is now a Python package (`eng_loop/`) that enforces stage order, retries, resets, and constraints through code — not markdown instructions.
+v10.3 migrated from prompt-based orchestration to **programmatic flow control** via LangGraph. v10.4 added **Pydantic structured output** and **evidence gates** — every stage output is validated before the loop advances.
 
 ### Why LangGraph
 
-| Prompt-Based (v10.2) | LangGraph (v10.3) |
-|---|---|
-| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically |
-| Model eventually drifts from the loop | Flow enforced by code — no drift possible |
-| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit |
-| `stage.attempts++` in text | State reducer increments automatically |
-| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` |
-| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` |
-| Lens 4 escalation via prompt | `interrupt()` native to LangGraph |
+| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output + Evidence Gates) |
+|---|---|---|
+| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape |
+| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing |
+| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure |
+| `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress |
+| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass |
+| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures |
+| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) |
+
+### How Structured Output Works
+
+Each stage has a Pydantic schema that defines the exact output shape. The model is invoked with `model.with_structured_output(Schema)`, which forces the LLM to produce valid output matching the schema:
+
+```python
+# schemas.py — one schema per stage
+class VerifyOutput(BaseModel):
+    verdict: str = Field(default="PASS", description="PASS or FAIL")
+    per_ac_evidence: list[str] = Field(default_factory=list)
+    discrimination_sensor: str = Field(default="pass")
+    coverage_audit: str = Field(default="pass")
+    gaps: list[str] = Field(default_factory=list)
+    complete: bool = Field(default=True)
+
+# In node:
+structured = model.with_structured_output(VerifyOutput)
+response = structured.invoke([{"role": "user", "content": prompt}])
+result = response.model_dump()  # Guaranteed valid dict
+```
+
+### How Evidence Gates Work
+
+After the LLM returns structured output, the evidence gate validates quality before the stage is marked as done:
+
+```
+LLM Response → Pydantic Schema → Evidence Gate → Stage Done?
+                              ↓ (invalid)
+                        Retry (bounded by max_attempts)
+```
+
+Evidence gates enforce stage-specific criteria:
+- **verify**: Verdict must be `PASS` or `FAIL`; `FAIL` must include gaps
+- **impl.design**: Blueprint must be >100 chars and include tasks
+- **impl.code**: Implementation summary must be >50 chars
+- **QA stages**: Verdict must be `PASS` or `FAIL`
+- **init**: Work item must be valid or have a refinement
+
+If evidence fails, the stage retries automatically (up to `max_{stage}_attempts`). If all attempts are exhausted, the stage forces through with a warning.
 
 ### Architecture
 
@@ -186,6 +228,7 @@ eng_loop/
 ├── graph.py          # StateGraph builder (28 nodes: 26 stages + start/end)
 ├── routing.py        # Conditional edge functions (retry, block, advance)
 ├── model.py          # Model factory (OpenAI-compatible local endpoints)
+├── schemas.py        # 27 Pydantic schemas (one per stage) for structured output
 ├── templates.py      # Markdown → prompt loader (stages/ → prompt templates)
 ├── cli.py            # Entry point (eng-loop CLI)
 ├── nodes/            # One node per stage group
@@ -201,10 +244,14 @@ eng_loop/
 │   └── post.py       # post-loop finalize
 └── tools/
     ├── file_ops.py       # read/write/json helpers
+    ├── json_parse.py     # Robust JSON extraction (3 strategies)
+    ├── evidence_gate.py  # Stage output quality validation
+    ├── stage_runner.py   # Shared stage execution helper
     ├── context_slice.py  # Context slicing per stage
     ├── decisions.py      # AD-NNN extraction/recording
     ├── lessons.py        # Lessons lifecycle
-    └── autosizing.py     # Complexity classification
+    ├── autosizing.py     # Complexity classification
+    └── progress.py       # Terminal logging, node tracing
 ```
 
 ### How It Works
@@ -213,9 +260,37 @@ eng_loop/
 2. Config is loaded and merged (`config-template.yaml` + `config.yaml`)
 3. `StateGraph` is compiled with all 26 stage nodes
 4. Each node loads its stage procedure from `stages/*.md` as a prompt template
-5. The node invokes the model via `create_model_from_config(config, stage_id)`
-6. Conditional edges handle routing: advance, retry, reset, or block
-7. State is persisted to `state.json` after each iteration
+5. The node invokes the model with `model.with_structured_output(StageSchema)` — Pydantic enforces output shape
+6. **Evidence gate** validates output quality; failures trigger automatic retry
+7. Conditional edges handle routing: advance, retry, reset, or block
+8. State is persisted to `state.json` after each iteration
+9. **Iteration counter** tracks total loop progress; bounded by `max_loop_iterations`
+
+### Execution Flow Per Stage
+
+```
+Stage Node Entry
+    │
+    ├── Already done? → Skip to next node
+    │
+    ├── Max attempts reached? → Block or force advance
+    │
+    ├── Load stage procedure + skill
+    │
+    ├── Invoke model.with_structured_output(Schema)
+    │       │
+    │       ├── Success → Pydantic-validated dict
+    │       └── Error → Retry (if attempts < max)
+    │
+    ├── Evidence Gate: validate output quality
+    │       │
+    │       ├── Pass → Mark done, advance
+    │       └── Fail → Retry (if attempts < max)
+    │
+    ├── Write artifacts to disk
+    │
+    └── Return Command(goto=next_node, update={stages, iteration++})
+```
 
 ### Markdown Files as Templates
 
@@ -1023,17 +1098,27 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 │   └── verifier/                # Independent verification
 │
 ├── eng_loop/                    # LangGraph orchestrator (Python)
-│   ├── pyproject.toml           # Package config (langgraph, langchain-openai)
+│   ├── pyproject.toml           # Package config (langgraph, langchain-openai, pydantic)
 │   ├── src/eng_loop/
 │   │   ├── state.py             # PipelineState, 26 stages, reducers
 │   │   ├── config.py            # YAML loader, deep merge, paths
 │   │   ├── graph.py             # StateGraph builder (28 nodes)
-│   │   ├── routing.py           # Conditional edge functions
+│   │   ├── routing.py           # Conditional edge functions, iteration tracking
 │   │   ├── model.py             # Model factory (local OpenAI-compatible)
+│   │   ├── schemas.py           # 27 Pydantic schemas for structured output
 │   │   ├── templates.py         # Markdown → prompt loader
 │   │   ├── cli.py               # Entry point
 │   │   ├── nodes/               # Stage node implementations
-│   │   └── tools/               # Helpers (file ops, context, decisions, lessons)
+│   │   └── tools/               # Helpers
+│   │       ├── file_ops.py      # read/write/json helpers
+│   │       ├── json_parse.py    # Robust JSON extraction (3 strategies)
+│   │       ├── evidence_gate.py # Stage output quality validation
+│   │       ├── stage_runner.py  # Shared stage execution helper
+│   │       ├── context_slice.py # Context slicing per stage
+│   │       ├── decisions.py     # AD-NNN extraction/recording
+│   │       ├── lessons.py       # Lessons lifecycle
+│   │       ├── autosizing.py    # Complexity classification
+│   │       └── progress.py      # Terminal logging, node tracing
 │   └── tests/                   # Unit tests
 │
 └── setup/                       # Installation scripts
@@ -1173,9 +1258,30 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 **Symptom:** Loop halts with a Python traceback
 
 **Resolution:**
-- Check the model is returning valid JSON (nodes expect JSON responses)
+- v10.4: Pydantic schemas enforce output shape — most JSON errors are now caught automatically
 - Increase `max_tokens` in config if responses are truncated
 - Review `state.json` for the last successful stage
+- Check evidence gate logs for quality validation failures
+
+### Evidence Gate Retries
+
+**Symptom:** Stage retries multiple times before advancing
+
+**Resolution:**
+- The evidence gate validates output quality (e.g., blueprint must have tasks, verdict must be PASS/FAIL)
+- If the model consistently produces low-quality output, try a more capable model
+- Check the work item for clarity — ambiguous inputs produce ambiguous outputs
+- Review `state.json` errors for specific evidence gate messages
+
+### Structured Output Errors
+
+**Symptom:** Stage fails with Pydantic validation error
+
+**Resolution:**
+- This should not happen with `with_structured_output()` — the schema is enforced
+- If it occurs, the model may not support structured output; try a different model
+- Ensure your model endpoint supports function calling / structured output
+- Check that `max_tokens` is high enough for the full response
 
 ### Lessons Not Propagating
 
@@ -1206,6 +1312,7 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v10.1.0 | 2026-07-31 | Continuous documentation: doc.update stage after impl.code, existing project files updated |
 | v10.2.0 | 2026-07-31 | BMAD Ideation stage: Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition |
 | v10.3.0 | 2026-08-01 | **LangGraph orchestrator**: Programmatic flow control, 26 stage nodes, local model support (OpenAI-compatible), CLI (`eng-loop`), markdown as prompt templates, per-stage model overrides |
+| v10.4.0 | 2026-08-04 | **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies), automatic retry on failure, iteration counter tracking, `json_parse.py`, `evidence_gate.py`, `schemas.py`, `stage_runner.py` |
 
 ---
 
@@ -1214,6 +1321,10 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | File | Role |
 |------|------|
 | `eng_loop/` | LangGraph orchestrator — run `eng-loop -w "..."` to start |
+| `eng_loop/src/eng_loop/schemas.py` | 27 Pydantic schemas for structured output |
+| `eng_loop/src/eng_loop/tools/json_parse.py` | Robust JSON extraction (3 strategies) |
+| `eng_loop/src/eng_loop/tools/evidence_gate.py` | Stage output quality validation |
+| `eng_loop/src/eng_loop/tools/stage_runner.py` | Shared stage execution helper |
 | `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
 | `CORE.md` | Framework index — stage registry, references, skills |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |

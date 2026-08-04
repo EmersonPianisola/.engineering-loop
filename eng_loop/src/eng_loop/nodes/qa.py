@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import QaOutput
+from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
@@ -14,12 +20,6 @@ QA_STAGES = {
     "qa.performance": "performance best practices",
 }
 
-QA_NEXT_MAP = {
-    "qa.security": "qa.api-contract",
-    "qa.api-contract": "qa.performance",
-    "qa.performance": "deploy.prepare",
-}
-
 
 def qa_node(stage_id: str):
     def node_fn(state: dict[str, Any]) -> Command[str]:
@@ -29,7 +29,7 @@ def qa_node(stage_id: str):
 
         if stages.get(stage_id, {}).get("done", False):
             next_node = _resolve_next_qa(stage_id, state)
-            return Command(goto=next_node)
+            return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -62,26 +62,60 @@ def qa_node(stage_id: str):
 ## DIFF
 {state.get('stage_artifacts', {}).get('diff', '')}
 
-Execute the QA review and return JSON:
-{{
-  "verdict": "PASS" or "FAIL",
-  "findings": ["finding descriptions"],
-  "critical_findings": ["critical issues"],
-  "complete": true/false
-}}
+Execute the QA review.
+Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete.
 """
         model = create_model_from_config(config, stage_id)
-        response = model.invoke([{"role": "user", "content": prompt}])
-        content = response.content.strip()
+        log_model_invoke(stage_id)
+        t0 = time.monotonic()
 
-        import json
         try:
-            result = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            result = {"verdict": "PASS", "findings": [], "critical_findings": [], "complete": True}
+            structured = model.with_structured_output(QaOutput)
+            response = structured.invoke([{"role": "user", "content": prompt}])
+            if hasattr(response, "model_dump"):
+                result = response.model_dump()
+            else:
+                result = dict(response)
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            log_model_done(stage_id, elapsed)
+            log_stage_fail(stage_id, f"LLM error: {e}")
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            if stages[stage_id]["attempts"] < max_attempts:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                        "current_stage": stage_id,
+                        "iteration": state.get("iteration", 0) + 1,
+                    },
+                    goto=stage_id.replace(".", "-").replace("_", "-"),
+                )
+            stages[stage_id]["done"] = True
+            next_node = _resolve_next_qa(stage_id, state)
+            return Command(
+                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+                goto=next_node,
+            )
 
-        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-        stages[stage_id]["output"] = str(result)
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+
+        # Evidence gate
+        is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+        if not is_valid:
+            log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            if stages[stage_id]["attempts"] < max_attempts:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                        "current_stage": stage_id,
+                        "iteration": state.get("iteration", 0) + 1,
+                    },
+                    goto=stage_id.replace(".", "-").replace("_", "-"),
+                )
 
         verdict = result.get("verdict", "PASS")
         critical = result.get("critical_findings", [])
@@ -89,22 +123,29 @@ Execute the QA review and return JSON:
         if verdict == "FAIL" or critical:
             stages["impl.code"]["done"] = False
             stages[stage_id]["done"] = False
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            log_stage_fail(stage_id, f"FAIL: {critical}")
             return Command(
                 update={
                     "stages": stages,
                     "current_stage": "impl-code",
                     "errors": list(state.get("errors", [])) + [f"{stage_id} FAIL: {critical}"],
+                    "iteration": state.get("iteration", 0) + 1,
                 },
                 goto="impl-code",
             )
 
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
-        next_node = _resolve_next_qa(stage_id, state)
+        stages[stage_id]["output"] = str(result)
+        log_stage_done(stage_id, "PASS")
 
+        next_node = _resolve_next_qa(stage_id, state)
         return Command(
             update={
                 "stages": stages,
                 "current_stage": next_node,
+                "iteration": state.get("iteration", 0) + 1,
             },
             goto=next_node,
         )

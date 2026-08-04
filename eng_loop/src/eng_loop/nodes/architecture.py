@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import ArchOutput
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
@@ -29,7 +34,7 @@ def arch_node(stage_id: str):
 
         if stages.get(stage_id, {}).get("done", False):
             next_node = _resolve_next(stage_id, state)
-            return Command(goto=next_node)
+            return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -65,45 +70,70 @@ def arch_node(stage_id: str):
 ## CONTEXT
 {context}
 
-Execute the architecture task and return JSON:
-{{
-  "architecture_output": "structured output",
-  "complete": true/false,
-  "decisions": ["AD-NNN decisions"],
-  "critical_findings": []
-}}
+Execute the architecture task.
+Return a JSON object with these fields: architecture_output, complete, decisions, critical_findings.
 """
         model = create_model_from_config(config, stage_id)
-        response = model.invoke([{"role": "user", "content": prompt}])
-        content = response.content.strip()
+        log_model_invoke(stage_id)
+        t0 = time.monotonic()
 
-        import json
         try:
-            result = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            result = {"architecture_output": content, "complete": True, "decisions": [], "critical_findings": []}
+            structured = model.with_structured_output(ArchOutput)
+            response = structured.invoke([{"role": "user", "content": prompt}])
+            if hasattr(response, "model_dump"):
+                result = response.model_dump()
+            else:
+                result = dict(response)
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            log_model_done(stage_id, elapsed)
+            log_stage_fail(stage_id, f"LLM error: {e}")
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            if stages[stage_id]["attempts"] < max_attempts:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                        "current_stage": stage_id,
+                        "iteration": state.get("iteration", 0) + 1,
+                    },
+                    goto=stage_id.replace(".", "-").replace("_", "-"),
+                )
+            stages[stage_id]["done"] = True
+            next_node = _resolve_next(stage_id, state)
+            return Command(
+                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+                goto=next_node,
+            )
 
-        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
-        stages[stage_id]["output"] = str(result)
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
 
         critical_findings = result.get("critical_findings", [])
         if critical_findings and stage_id == "arch.review":
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            log_stage_fail(stage_id, f"critical findings: {critical_findings}")
             return Command(
                 update={
                     "stages": stages,
                     "current_stage": "arch-requirements",
+                    "iteration": state.get("iteration", 0) + 1,
                 },
                 goto="arch-requirements",
             )
 
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
+        stages[stage_id]["output"] = str(result)
 
         artifact_root = paths.get("artifact_root", "")
         arch_output = result.get("architecture_output", "")
         if arch_output:
             from eng_loop.tools.file_ops import write_file
             safe_name = stage_id.replace(".", "-").replace("_", "-")
-            write_file(f"{artifact_root}/architectures/{safe_name}.md", arch_output)
+            artifact_path = f"{artifact_root}/architectures/{safe_name}.md"
+            write_file(artifact_path, arch_output)
+            log_artifact(stage_id, artifact_path)
 
         new_decisions = list(state.get("decisions", []))
         for d in result.get("decisions", []):
@@ -111,12 +141,15 @@ Execute the architecture task and return JSON:
             record_decision({"decisions": new_decisions}, d)
 
         next_node = _resolve_next(stage_id, state)
+        log_stage_done(stage_id, f"output: {len(arch_output)} chars")
 
         return Command(
             update={
                 "stages": stages,
                 "decisions": new_decisions,
+                "stage_artifacts": {**state.get("stage_artifacts", {}), stage_id: arch_output},
                 "current_stage": next_node,
+                "iteration": state.get("iteration", 0) + 1,
             },
             goto=next_node,
         )

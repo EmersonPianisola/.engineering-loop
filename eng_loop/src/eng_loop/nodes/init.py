@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
-from langgraph.types import Command
-
-from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.schemas import InitBddOutput, InitIdeateOutput, InitOutput, InitRefineOutput
+from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
 from eng_loop.tools.file_ops import save_json, read_file
 from eng_loop.tools.progress import (
@@ -14,6 +15,9 @@ from eng_loop.tools.progress import (
     log_stage_skip, log_stage_fail, log_complexity, log_blocked, log_decision,
     log_artifact,
 )
+from langgraph.types import Command
+
+from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
 
 
 def _resolve_work_item(work_item: str) -> str:
@@ -28,7 +32,6 @@ def _resolve_work_item(work_item: str) -> str:
 
 def init_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.state import next_incomplete_stage
-    import time
 
     stage_id = "init"
 
@@ -63,33 +66,42 @@ def init_node(state: dict[str, Any]) -> Command[str]:
 ## COMPLEXITY CLASSIFICATION
 {complexity}
 
-Validate the input and return JSON:
-{{
-  "valid": true/false,
-  "work_item_refined": "refined work item text",
-  "estimated_files": N,
-  "estimated_tasks": N,
-  "notes": "any observations"
-}}
+Validate the input and return a JSON object with these fields: valid, work_item_refined, estimated_files, estimated_tasks, notes.
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
     log_model_invoke(stage_id)
     t0 = time.monotonic()
-    response = model.invoke([{"role": "user", "content": prompt}])
+
+    try:
+        structured = model.with_structured_output(InitOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_blocked("input not ready for engineering")
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": "input not ready for engineering",
+                "stages": stages,
+                "complexity": complexity,
+                "ui_project": ui_project,
+            },
+            goto="__end__",
+        )
+
     elapsed = time.monotonic() - t0
     log_model_done(stage_id, elapsed)
-    content = response.content.strip()
 
-    from eng_loop.tools.json_parse import extract_json
-    try:
-        result = extract_json(content)
-        valid = result.get("valid", False)
-        # If model refined the work item, accept it as valid even if valid=False
-        if not valid and result.get("work_item_refined"):
-            valid = True
-    except (json.JSONDecodeError, TypeError):
-        valid = False
-        result = {}
+    valid = result.get("valid", False)
+    if not valid and result.get("work_item_refined"):
+        valid = True
+
+    if not valid:
         log_blocked("input not ready for engineering")
         return Command(
             update={
@@ -122,14 +134,12 @@ Validate the input and return JSON:
 
 
 def init_ideate_node(state: dict[str, Any]) -> Command[str]:
-    import time
-
     stages = dict(state.get("stages", {}))
     stage_id = "init.ideate"
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
-        return Command(goto="init-bdd")
+        return Command(goto="init-bdd", update={"current_stage": "init-bdd", "iteration": state.get("iteration", 0) + 1})
 
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -157,26 +167,58 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Return JSON:
-{{
-  "ideation_results": "structured ideation output",
-  "decomposed_tasks": ["task1", "task2"],
-  "ready_for_next": true/false
-}}
+Return a JSON object with these fields: ideation_results, decomposed_tasks, ready_for_next.
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
     log_model_invoke(stage_id)
     t0 = time.monotonic()
-    response = model.invoke([{"role": "user", "content": prompt}])
+
+    try:
+        structured = model.with_structured_output(InitIdeateOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="init-ideate",
+            )
+        stages[stage_id]["done"] = True
+        return Command(
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            goto="__end__",
+        )
+
     elapsed = time.monotonic() - t0
     log_model_done(stage_id, elapsed)
-    content = response.content.strip()
 
-    from eng_loop.tools.json_parse import extract_json
-    try:
-        result = extract_json(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {}
+    # Evidence gate
+    is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
+    if not is_valid:
+        log_stage_fail(stage_id, f"evidence gate: {error_msg}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="init-ideate",
+            )
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -188,20 +230,19 @@ Return JSON:
             "stages": stages,
             "ideation": result.get("ideation_results", ""),
             "current_stage": "init-bdd",
+            "iteration": state.get("iteration", 0) + 1,
         },
         goto="init-bdd",
     )
 
 
 def init_bdd_node(state: dict[str, Any]) -> Command[str]:
-    import time
-
     stages = dict(state.get("stages", {}))
     stage_id = "init.bdd"
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
-        return Command(goto="init-refine")
+        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
 
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -210,7 +251,7 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
         log_stage_done(stage_id, "max attempts reached, proceeding")
-        return Command(goto="init-refine")
+        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
 
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-bdd")
     skill_content = load_skill(paths.get("framework_skill_root", ""), "bmad-bdd-mapper")
@@ -226,26 +267,39 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Return JSON:
-{{
-  "journey_map": "journey mapping output",
-  "gherkin_scenarios": ["scenario1", "scenario2"],
-  "complete": true/false
-}}
+Return a JSON object with these fields: journey_map, gherkin_scenarios, complete.
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
     log_model_invoke(stage_id)
     t0 = time.monotonic()
-    response = model.invoke([{"role": "user", "content": prompt}])
+
+    try:
+        structured = model.with_structured_output(InitBddOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="init-bdd",
+            )
+        stages[stage_id]["done"] = True
+        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
+
     elapsed = time.monotonic() - t0
     log_model_done(stage_id, elapsed)
-    content = response.content.strip()
-
-    from eng_loop.tools.json_parse import extract_json
-    try:
-        result = extract_json(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {}
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -261,20 +315,19 @@ Return JSON:
 
     log_stage_done(stage_id, str(result.get("gherkin_scenarios", ""))[:120])
     return Command(
-        update={"stages": stages, "current_stage": "init-refine"},
+        update={"stages": stages, "current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1},
         goto="init-refine",
     )
 
 
 def init_refine_node(state: dict[str, Any]) -> Command[str]:
-    import time
-
     stages = dict(state.get("stages", {}))
     stage_id = "init.refine"
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
-        return Command(goto=_next_phase_node(state))
+        next_node = _next_phase_node(state)
+        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -283,7 +336,8 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
         log_stage_done(stage_id, "max attempts reached, proceeding")
-        return Command(goto=_next_phase_node(state))
+        next_node = _next_phase_node(state)
+        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-refine")
 
@@ -295,25 +349,40 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Return JSON:
-{{
-  "refined_work_item": "refined text",
-  "ready_for_architecture": true/false
-}}
+Return a JSON object with these fields: refined_work_item, ready_for_architecture.
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
     log_model_invoke(stage_id)
     t0 = time.monotonic()
-    response = model.invoke([{"role": "user", "content": prompt}])
+
+    try:
+        structured = model.with_structured_output(InitRefineOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="init-refine",
+            )
+        stages[stage_id]["done"] = True
+        next_node = _next_phase_node(state)
+        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
+
     elapsed = time.monotonic() - t0
     log_model_done(stage_id, elapsed)
-    content = response.content.strip()
-
-    from eng_loop.tools.json_parse import extract_json
-    try:
-        result = extract_json(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {}
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -328,6 +397,7 @@ Return JSON:
             "stages": stages,
             "work_item": refined,
             "current_stage": next_node,
+            "iteration": state.get("iteration", 0) + 1,
         },
         goto=next_node,
     )

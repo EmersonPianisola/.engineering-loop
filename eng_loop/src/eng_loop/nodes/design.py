@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import DesignOutput
+from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
@@ -34,10 +40,8 @@ def design_node(stage_id: str):
         paths = state.get("paths", {})
 
         if stages.get(stage_id, {}).get("done", False):
-            next_node = DESIGN_NEXT_MAP.get(stage_id, _post_design(state))
-            if next_node == "_design_complete":
-                next_node = _post_design(state)
-            return Command(goto=next_node)
+            next_node = _resolve_next(stage_id, state)
+            return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -45,9 +49,7 @@ def design_node(stage_id: str):
 
         if stages[stage_id].get("attempts", 0) >= max_attempts:
             stages[stage_id]["done"] = True
-            next_node = DESIGN_NEXT_MAP.get(stage_id, _post_design(state))
-            if next_node == "_design_complete":
-                next_node = _post_design(state)
+            next_node = _resolve_next(stage_id, state)
             return Command(
                 update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"},
                 goto=next_node,
@@ -73,23 +75,44 @@ def design_node(stage_id: str):
 ## IDEATION
 {state.get('ideation', '')}
 
-Execute the design task and return JSON:
-{{
-  "design_output": "structured design output",
-  "artifacts": ["list of artifact descriptions"],
-  "complete": true/false,
-  "decisions": ["AD-NNN style decisions made"]
-}}
+Execute the design task.
+Return a JSON object with these fields: design_output, artifacts, complete, decisions.
 """
         model = create_model_from_config(config, stage_id)
-        response = model.invoke([{"role": "user", "content": prompt}])
-        content = response.content.strip()
+        log_model_invoke(stage_id)
+        t0 = time.monotonic()
 
-        import json
         try:
-            result = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            result = {"design_output": content, "complete": True, "artifacts": [], "decisions": []}
+            structured = model.with_structured_output(DesignOutput)
+            response = structured.invoke([{"role": "user", "content": prompt}])
+            if hasattr(response, "model_dump"):
+                result = response.model_dump()
+            else:
+                result = dict(response)
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            log_model_done(stage_id, elapsed)
+            log_stage_fail(stage_id, f"LLM error: {e}")
+            stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            if stages[stage_id]["attempts"] < max_attempts:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                        "current_stage": stage_id,
+                        "iteration": state.get("iteration", 0) + 1,
+                    },
+                    goto=stage_id.replace(".", "-").replace("_", "-"),
+                )
+            stages[stage_id]["done"] = True
+            next_node = _resolve_next(stage_id, state)
+            return Command(
+                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+                goto=next_node,
+            )
+
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
 
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
@@ -100,27 +123,36 @@ Execute the design task and return JSON:
         if design_output:
             from eng_loop.tools.file_ops import write_file
             safe_name = stage_id.replace(".", "-").replace("_", "-")
-            write_file(f"{artifact_root}/design/{safe_name}.md", design_output)
+            artifact_path = f"{artifact_root}/design/{safe_name}.md"
+            write_file(artifact_path, design_output)
+            log_artifact(stage_id, artifact_path)
 
         new_decisions = list(state.get("decisions", []))
         for d in result.get("decisions", []):
             from eng_loop.tools.decisions import record_decision
             record_decision({"decisions": new_decisions}, d)
 
-        next_node = DESIGN_NEXT_MAP.get(stage_id, _post_design(state))
-        if next_node == "_design_complete":
-            next_node = _post_design(state)
+        next_node = _resolve_next(stage_id, state)
+        log_stage_done(stage_id, f"output: {len(design_output)} chars")
 
         return Command(
             update={
                 "stages": stages,
                 "decisions": new_decisions,
                 "current_stage": next_node,
+                "iteration": state.get("iteration", 0) + 1,
             },
             goto=next_node,
         )
 
     return node_fn
+
+
+def _resolve_next(stage_id: str, state: dict[str, Any]) -> str:
+    next_node = DESIGN_NEXT_MAP.get(stage_id, _post_design(state))
+    if next_node == "_design_complete":
+        next_node = _post_design(state)
+    return next_node
 
 
 def _post_design(state: dict[str, Any]) -> str:

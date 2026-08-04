@@ -1,12 +1,13 @@
 [project]
 name = "eng-loop"
-version = "10.3.0"
-description = "Engineering Loop orchestrator — LangGraph-based AI development loop engine"
+version = "10.4.0"
+description = "Engineering Loop orchestrator — LangGraph-based AI development loop with Pydantic structured output and evidence gates"
 requires-python = ">=3.10"
 dependencies = [
     "langgraph>=1.2",
     "langchain>=1.0",
     "langchain-openai>=1.0",
+    "pydantic>=2.0",
     "pyyaml>=6.0",
 ]
 

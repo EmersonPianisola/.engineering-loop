@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import DocDecisionsOutput, DocProjectOutput
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+)
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
@@ -15,13 +20,13 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "doc.decisions"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="doc-project")
+        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_doc_decisions_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(goto="doc-project")
+        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
 
     stage_file = get_stage_file(stage_id)
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
@@ -39,22 +44,40 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Consolidate into MADR format. Return JSON:
-{{
-  "decision_log": "MADR formatted decision log",
-  "decisions_count": N,
-  "complete": true/false
-}}
+Consolidate into MADR format.
+Return a JSON object with these fields: decision_log, decisions_count, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"decision_log": content, "complete": True}
+        structured = model.with_structured_output(DocDecisionsOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="doc-decisions",
+            )
+        stages[stage_id]["done"] = True
+        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
+
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -62,12 +85,18 @@ Consolidate into MADR format. Return JSON:
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
-    write_file(f"{artifact_root}/decision-log.md", result.get("decision_log", ""))
+    decision_log = result.get("decision_log", "")
+    write_file(f"{artifact_root}/decision-log.md", decision_log)
+    log_artifact(stage_id, f"{artifact_root}/decision-log.md")
+
+    log_stage_done(stage_id, f"{result.get('decisions_count', 0)} decisions")
 
     return Command(
         update={
             "stages": stages,
+            "stage_artifacts": {**state.get("stage_artifacts", {}), "doc.decisions": decision_log},
             "current_stage": "doc-project",
+            "iteration": state.get("iteration", 0) + 1,
         },
         goto="doc-project",
     )
@@ -80,13 +109,13 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "doc.project"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="post")
+        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_doc_project_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(goto="post")
+        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
 
     stage_file = get_stage_file(stage_id)
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
@@ -107,33 +136,52 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
 ## DECISION LOG
 {decision_log}
 
-Generate project documentation. Return JSON:
-{{
-  "readme": "README content",
-  "setup_guide": "setup.md content",
-  "architecture_overview": "architecture overview",
-  "user_manual": "user manual content",
-  "complete": true/false
-}}
+Generate project documentation.
+Return a JSON object with these fields: readme, setup_guide, architecture_overview, user_manual, complete.
 """
     model = create_model_from_config(config, stage_id)
-    response = model.invoke([{"role": "user", "content": prompt}])
-    content = response.content.strip()
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
 
-    import json
     try:
-        result = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        result = {"readme": content, "complete": True}
+        structured = model.with_structured_output(DocProjectOutput)
+        response = structured.invoke([{"role": "user", "content": prompt}])
+        if hasattr(response, "model_dump"):
+            result = response.model_dump()
+        else:
+            result = dict(response)
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        log_model_done(stage_id, elapsed)
+        log_stage_fail(stage_id, f"LLM error: {e}")
+        stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+        if stages[stage_id]["attempts"] < max_attempts:
+            return Command(
+                update={
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "current_stage": stage_id,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="doc-project",
+            )
+        stages[stage_id]["done"] = True
+        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
+
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
 
+    log_stage_done(stage_id, "documentation generated")
+
     return Command(
         update={
             "stages": stages,
             "current_stage": "post",
+            "iteration": state.get("iteration", 0) + 1,
         },
         goto="post",
     )
