@@ -1,13 +1,17 @@
 ---
 name: engineering-loop
-version: 10.2.0
+version: 10.3.0
 type: framework
-description: 'Adaptive loop engine. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation for raw work items. Multi-project via git submodule.'
+description: 'LangGraph orchestrator. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v10.2
+# Engineering Loop v10.3
 
-Persistent while-loop engine. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
+Persistent while-loop engine enforced by **LangGraph StateGraph** (Python). Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
+
+**Orchestrator:** `eng_loop/` (LangGraph Python, CLI: `eng-loop`)
+**Legacy:** `ORCHESTRATOR.md` (prompt-based, deprecated)
+**Model:** Any OpenAI-compatible local endpoint (llama.cpp, vLLM, Ollama)
 
 ```
                         INIT (Phase 0)

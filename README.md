@@ -4,18 +4,19 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v10.2
+# Engineering Loop v10.3
 
-Persistent **while-loop engine** for AI-assisted software development. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
+Persistent **while-loop engine** for AI-assisted software development. LangGraph-based orchestrator enforces flow programmatically. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
 
 | | |
 |---|---|
-| **Version** | 10.2.0 |
+| **Version** | 10.3.0 |
 | **Architecture** | Multi-project via git submodule |
-| **Stages** | 24 stages across 7 phases |
+| **Orchestrator** | `eng_loop/` (LangGraph Python) + `ORCHESTRATOR.md` (legacy) |
+| **Stages** | 26 stages across 7 phases |
 | **Skills** | 11 built-in + 7 self-constructed at runtime |
 | **Entry point** | `CORE.md` |
-| **Orchestrator** | `ORCHESTRATOR.md` |
+| **CLI** | `eng-loop --work-item "..."` |
 | **Configuration** | `config-template.yaml` (framework) + `config.yaml` (project) |
 
 ---
@@ -24,6 +25,7 @@ Persistent **while-loop engine** for AI-assisted software development. Auto-size
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+- [LangGraph Orchestrator](#langgraph-orchestrator)
 - [Architecture](#architecture)
 - [The Loop](#the-loop)
 - [Auto-Sizing](#auto-sizing)
@@ -53,8 +55,11 @@ Persistent **while-loop engine** for AI-assisted software development. Auto-size
 
 Engineering Loop is a framework for orchestrating AI sub-agents through the complete software development lifecycle. Instead of a linear pipeline, it operates as a **persistent while-loop** that re-evaluates every stage on each iteration, allowing downstream findings to trigger upstream rework automatically.
 
+The loop is enforced by a **LangGraph StateGraph** (Python) that programmatically manages stage order, retries, resets, and constraints. Stage procedures remain as markdown templates in `stages/`, loaded at runtime and injected as prompts. The orchestrator works with any OpenAI-compatible local model (llama.cpp, vLLM, Ollama).
+
 ### Core Principles
 
+- **Programmatic flow control** — LangGraph StateGraph enforces stage order, retries, and resets in code (not prompts)
 - **Orchestrator is pure delegation** — never executes work directly (except `deploy.prepare` and `post-loop` finalize)
 - **Progressive disclosure** — stages, references, and skills loaded by ID only when needed
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
@@ -66,6 +71,7 @@ Engineering Loop is a framework for orchestrating AI sub-agents through the comp
 - **Multi-project isolation** — each project has its own config, state, and artifacts
 - **Shared lessons** — confirmed lessons propagate across all projects via the framework
 - **Continuous decisions** — every architectural decision recorded as `AD-NNN` immediately, not deferred
+- **Local model support** — works with any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama)
 
 ### Design vs. Execute vs. Validate
 
@@ -90,14 +96,20 @@ Every stage follows a three-phase pattern:
 
 ## Quick Start
 
-### 1. Add as Git Submodule
+### 1. Prerequisites
+
+- **Python 3.10+** with pip
+- **Local model server** running on `http://localhost:8000` (llama.cpp, vLLM, Ollama, etc.)
+  - Or configure your own endpoint in `config.yaml` → `model.base_url`
+
+### 2. Add as Git Submodule
 
 ```bash
 git submodule add <engineering-loop-url> .eng
 git commit -m "Add engineering loop framework"
 ```
 
-### 2. Run Setup
+### 3. Run Setup
 
 **Linux / Mac / WSL:**
 ```bash
@@ -113,15 +125,135 @@ The setup script:
 - Copies `config-template.yaml` → `config.yaml`
 - Copies `state-template.json` → `state.json`
 - Creates the `artifacts/` directory structure
-- Generates project `.gitignore`
+- Installs the `eng_loop` Python package (`pip install -e eng_loop/`)
 
-### 3. Customize Configuration
+### 4. Customize Configuration
 
-Review `.eng/config.yaml` and adjust constraints, hardware limits, and paths as needed.
+Review `.eng/config.yaml`:
+- `model.base_url` — your local model endpoint (default: `http://localhost:8000`)
+- `model.model` — model name (default: `qwable-v2`)
+- `constraints` — per-stage iteration limits
+- `hardware` — context window, parallel agents, timeouts
 
-### 4. Start Using
+### 5. Run the Loop
 
-Load `ORCHESTRATOR.md` in your AI agent session and provide a work item (spec file, ticket, or description). The orchestrator auto-detects all paths and begins the loop.
+```bash
+# Check model connectivity
+eng-loop --check-model -f .eng -l .eng -p .
+
+# Run with a work item
+eng-loop -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
+
+# Override model via CLI
+eng-loop -w "Add auth" -f .eng -l .eng -p . --model-base-url http://localhost:8001 --model-name "some-model"
+```
+
+The orchestrator:
+1. Detects framework and project roots automatically
+2. Loads config (template defaults + project overrides)
+3. Auto-sizes complexity
+4. Executes the full LangGraph pipeline with Essence gates
+5. Saves state to `.eng/state.json` after each iteration
+
+### Legacy Mode (Prompt-Based)
+
+Load `ORCHESTRATOR.md` in your AI agent session and provide a work item. The prompt-based orchestrator still works but is deprecated — the LangGraph orchestrator provides deterministic flow control.
+
+---
+
+## LangGraph Orchestrator
+
+v10.3 migrated from prompt-based orchestration to **programmatic flow control** via LangGraph. The orchestrator is now a Python package (`eng_loop/`) that enforces stage order, retries, resets, and constraints through code — not markdown instructions.
+
+### Why LangGraph
+
+| Prompt-Based (v10.2) | LangGraph (v10.3) |
+|---|---|
+| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically |
+| Model eventually drifts from the loop | Flow enforced by code — no drift possible |
+| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit |
+| `stage.attempts++` in text | State reducer increments automatically |
+| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` |
+| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` |
+| Lens 4 escalation via prompt | `interrupt()` native to LangGraph |
+
+### Architecture
+
+```
+eng_loop/
+├── state.py          # PipelineState schema, 26 stages, reducers
+├── config.py         # YAML loader, deep merge, path resolution
+├── graph.py          # StateGraph builder (28 nodes: 26 stages + start/end)
+├── routing.py        # Conditional edge functions (retry, block, advance)
+├── model.py          # Model factory (OpenAI-compatible local endpoints)
+├── templates.py      # Markdown → prompt loader (stages/ → prompt templates)
+├── cli.py            # Entry point (eng-loop CLI)
+├── nodes/            # One node per stage group
+│   ├── essence.py    # Four Lenses gate (pre-stage)
+│   ├── init.py       # init, ideate, bdd, refine
+│   ├── design.py     # 6 design stages (factory)
+│   ├── architecture.py  # requirements, solution, review
+│   ├── implementation.py  # impl.design, impl.code, doc.update
+│   ├── verification.py  # verify, e2e.execute
+│   ├── qa.py         # security, api-contract, performance
+│   ├── deploy.py     # deploy.prepare, smoke.test
+│   ├── documentation.py  # doc.decisions, doc.project
+│   └── post.py       # post-loop finalize
+└── tools/
+    ├── file_ops.py       # read/write/json helpers
+    ├── context_slice.py  # Context slicing per stage
+    ├── decisions.py      # AD-NNN extraction/recording
+    ├── lessons.py        # Lessons lifecycle
+    └── autosizing.py     # Complexity classification
+```
+
+### How It Works
+
+1. **`eng-loop --work-item "..."`** starts the CLI
+2. Config is loaded and merged (`config-template.yaml` + `config.yaml`)
+3. `StateGraph` is compiled with all 26 stage nodes
+4. Each node loads its stage procedure from `stages/*.md` as a prompt template
+5. The node invokes the model via `create_model_from_config(config, stage_id)`
+6. Conditional edges handle routing: advance, retry, reset, or block
+7. State is persisted to `state.json` after each iteration
+
+### Markdown Files as Templates
+
+Stage procedures in `stages/*.md` are no longer instructions for the orchestrator. They are **prompt templates** loaded by `templates.py` and injected into each node's model call. The markdown content defines WHAT each stage does; the Python code defines HOW the flow works.
+
+### Model Configuration
+
+The orchestrator works with any OpenAI-compatible endpoint:
+
+```yaml
+# config.yaml
+model:
+  base_url: "http://localhost:8000"
+  model: "qwable-v2"
+  temperature: 0.0
+  max_tokens: 128000
+
+# Per-stage override (optional)
+model_overrides:
+  impl.code:
+    base_url: "http://localhost:8001"
+    model: "Jackrong/Qwopus3.6-27B-v2-GGUF"
+    max_tokens: 200000
+```
+
+### CLI Reference
+
+```
+eng-loop --work-item "description"   Run the loop
+  -f, --framework-root                Framework root (default: .)
+  -l, --loop-root                     Loop root (default: .)
+  -p, --project-root                  Project root (default: .)
+  -s, --state-file                    State file for resume
+  --model-base-url                    Override model base URL
+  --model-name                        Override model name
+  --check-model                       Check model connectivity and exit
+  --dry-run                           Validate config and exit
+```
 
 ---
 
@@ -212,7 +344,27 @@ USER REQUEST (work item)
 
 ## The Loop
 
-The orchestrator maintains a state table and iterates through stages until all converge. It does **not** advance sequentially — it re-evaluates every stage each iteration.
+The orchestrator is a LangGraph `StateGraph` with 28 nodes (26 stages + start/end). It maintains typed state with reducers and iterates through stages until all converge. It does **not** advance sequentially — conditional edges re-evaluate every stage each iteration.
+
+### LangGraph Flow
+
+```
+START → init → [essence gate] → init-ideate → init-bdd → init-refine
+    → [conditional: complexity] →
+    ┌─ small: impl-design
+    ┌─ medium+: arch-requirements → arch-solution
+    ┌─ large+: design-user-research → ... → design-visual-design
+    ┌─ complex: arch-review
+
+    → impl-design → impl-code → doc-update → verify
+    → [conditional: PASS/FAIL]
+        PASS → e2e-execute → qa-security → qa-api-contract → qa-performance
+        FAIL → impl-code (retry, bounded by max attempts)
+
+    → deploy-prepare → smoke-test → doc-decisions → doc-project → post → END
+```
+
+Each retry loop is bounded by per-stage attempt limits in `config.yaml`. When exceeded, a conditional edge routes to `__end__` with `status: blocked`.
 
 ### Iteration Flow
 
@@ -870,9 +1022,23 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 │   ├── solution-designer/       # Solution architecture
 │   └── verifier/                # Independent verification
 │
+├── eng_loop/                    # LangGraph orchestrator (Python)
+│   ├── pyproject.toml           # Package config (langgraph, langchain-openai)
+│   ├── src/eng_loop/
+│   │   ├── state.py             # PipelineState, 26 stages, reducers
+│   │   ├── config.py            # YAML loader, deep merge, paths
+│   │   ├── graph.py             # StateGraph builder (28 nodes)
+│   │   ├── routing.py           # Conditional edge functions
+│   │   ├── model.py             # Model factory (local OpenAI-compatible)
+│   │   ├── templates.py         # Markdown → prompt loader
+│   │   ├── cli.py               # Entry point
+│   │   ├── nodes/               # Stage node implementations
+│   │   └── tools/               # Helpers (file ops, context, decisions, lessons)
+│   └── tests/                   # Unit tests
+│
 └── setup/                       # Installation scripts
-    ├── install.sh               # Linux / Mac / WSL setup
-    ├── install.ps1              # Windows PowerShell setup
+    ├── install.sh               # Linux / Mac / WSL setup (+ pip install)
+    ├── install.ps1              # Windows PowerShell setup (+ pip install)
     └── README.md                # Setup documentation
 ```
 
@@ -985,6 +1151,32 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 - Use `getByRole`, `getByLabel`, `getByText` — never fragile CSS/XPath selectors
 - Check that ARIA labels and roles are present in the DOM
 
+### Model Connectivity Failed
+
+**Symptom:** `eng-loop --check-model` fails with connection error
+
+**Resolution:**
+- Ensure your local model server is running at the configured `base_url`
+- Check the model name matches what your server expects
+- Use `--model-base-url` and `--model-name` to override
+
+### LangGraph Import Error
+
+**Symptom:** `ModuleNotFoundError: No module named 'eng_loop'`
+
+**Resolution:**
+- Run `pip install -e .eng/eng_loop/`
+- Or re-run the install script: `bash .eng/setup/install.sh`
+
+### Stage Node Crashes
+
+**Symptom:** Loop halts with a Python traceback
+
+**Resolution:**
+- Check the model is returning valid JSON (nodes expect JSON responses)
+- Increase `max_tokens` in config if responses are truncated
+- Review `state.json` for the last successful stage
+
 ### Lessons Not Propagating
 
 **Symptom:** Same failure occurs across projects
@@ -1013,6 +1205,7 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v10.0.0 | 2026-07-29 | Multi-project architecture: git submodule, isolated artifacts, two-layer config, shared lessons |
 | v10.1.0 | 2026-07-31 | Continuous documentation: doc.update stage after impl.code, existing project files updated |
 | v10.2.0 | 2026-07-31 | BMAD Ideation stage: Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition |
+| v10.3.0 | 2026-08-01 | **LangGraph orchestrator**: Programmatic flow control, 26 stage nodes, local model support (OpenAI-compatible), CLI (`eng-loop`), markdown as prompt templates, per-stage model overrides |
 
 ---
 
@@ -1020,10 +1213,11 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 
 | File | Role |
 |------|------|
-| `ORCHESTRATOR.md` | Main entry point — load this to start the loop |
+| `eng_loop/` | LangGraph orchestrator — run `eng-loop -w "..."` to start |
+| `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
 | `CORE.md` | Framework index — stage registry, references, skills |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |
-| `config-template.yaml` | Framework defaults — 143 lines of tunable configuration |
-| `state-template.json` | State template — 24 stages with done/attempts/essence_checked |
+| `config-template.yaml` | Framework defaults — model config, constraints, paths |
+| `state-template.json` | State template — 26 stages with done/attempts/essence_checked |
 | `AGENTS.md` | Agent instructions — framework editing guidelines |
 | `README.md` | This file — comprehensive documentation |

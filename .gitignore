@@ -10,3 +10,13 @@ artifacts/
 # Graphify — local tracking only (graph.json etc. are committed)
 graphify-out/cost.json
 graphify-out/cache/
+
+# Python / LangGraph build artifacts
+eng_loop/src/eng_loop/__pycache__/
+eng_loop/src/eng_loop/**/*.pyc
+eng_loop/.pytest_cache/
+eng_loop/*.egg-info/
+eng_loop/.ruff_cache/
+__pycache__/
+*.pyc
+.pytest_cache/

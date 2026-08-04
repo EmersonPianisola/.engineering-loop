@@ -1,6 +1,38 @@
+# ============================================================
+# MODEL — local OpenAI-compatible endpoint (llama.cpp, vLLM, etc.)
+# ============================================================
+model:
+  base_url: "http://localhost:8000"
+  model: "qwable-v2"
+  temperature: 0.0
+  max_tokens: 128000
+
+# Per-stage model override (optional)
+# model_overrides:
+#   impl.code:
+#     base_url: "http://localhost:8001"
+#     model: "Jackrong/Qwopus3.6-27B-v2-GGUF"
+#     max_tokens: 200000
+
+# ============================================================
+# MODEL — local OpenAI-compatible endpoint
+# ============================================================
+model:
+  base_url: "http://localhost:8000"
+  model: "qwable-v2"
+  temperature: 0.0
+  max_tokens: 128000
+
+# Per-stage model override (optional)
+# model_overrides:
+#   impl.code:
+#     base_url: "http://localhost:8001"
+#     model: "Jackrong/Qwopus3.6-27B-v2-GGUF"
+#     max_tokens: 200000
+
 name: engineering-loop
-version: 10.2.0
-description: 'Adaptive loop engine. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Multi-project ready.'
+version: 10.3.0
+description: 'LangGraph orchestrator. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
 
 # ============================================================
 # FRAMEWORK PATHS — relative to {framework-root} (read-only)

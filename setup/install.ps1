@@ -82,8 +82,29 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  Setup complete!" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
+# 6. Install eng_loop Python package
+$EngLoopDir = Join-Path $LoopRoot "eng_loop"
+if (Test-Path $EngLoopDir) {
+    Write-Host "  [info] Installing eng_loop package..." -ForegroundColor Cyan
+    try {
+        pip install -e $EngLoopDir 2>$null
+        Write-Host "  [ok]   eng_loop installed" -ForegroundColor Green
+    } catch {
+        Write-Host "  [warn] pip install failed — ensure Python 3.10+ and pip are available" -ForegroundColor Yellow
+        Write-Host "  [warn] Manual install: pip install -e $EngLoopDir" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  [warn] eng_loop/ not found — LangGraph orchestrator unavailable" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  Setup complete!" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor White
 Write-Host "    1. Review .eng\config.yaml and customize as needed" -ForegroundColor Gray
 Write-Host "    2. Commit your project (submodule ref + .gitignore)" -ForegroundColor Gray
-Write-Host "    3. Load ORCHESTRATOR.md and provide a work item" -ForegroundColor Gray
+Write-Host "    3. Run: eng-loop --work-item `"your task description`"" -ForegroundColor Gray
+Write-Host "    4. (Legacy) Load ORCHESTRATOR.md for prompt-based mode" -ForegroundColor Gray
 Write-Host ""

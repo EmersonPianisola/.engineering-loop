@@ -75,8 +75,26 @@ echo "============================================"
 echo "  Setup complete!"
 echo "============================================"
 echo ""
+# 6. Install eng_loop Python package
+ENG_LOOP_DIR="$LOOP_ROOT/eng_loop"
+if [ -d "$ENG_LOOP_DIR" ]; then
+    echo "  [info] Installing eng_loop package..."
+    pip install -e "$ENG_LOOP_DIR" 2>/dev/null || {
+        echo "  [warn] pip install failed — ensure Python 3.10+ and pip are available"
+        echo "  [warn] Manual install: pip install -e $ENG_LOOP_DIR"
+    }
+else
+    echo "  [warn] eng_loop/ not found — LangGraph orchestrator unavailable"
+fi
+
+echo ""
+echo "============================================"
+echo "  Setup complete!"
+echo "============================================"
+echo ""
 echo "  Next steps:"
 echo "    1. Review .eng/config.yaml and customize as needed"
 echo "    2. Commit your project (submodule ref + .gitignore)"
-echo "    3. Load ORCHESTRATOR.md and provide a work item"
+echo "    3. Run: eng-loop --work-item \"your task description\""
+echo "    4. (Legacy) Load ORCHESTRATOR.md for prompt-based mode"
 echo ""
