@@ -25,42 +25,43 @@ from eng_loop.routing import (
     route_arch_complete,
     route_qa_result,
 )
+from eng_loop.tools.progress import trace_node
 
 
 def build_graph() -> StateGraph:
     builder = StateGraph(PipelineState)
 
     # --- Register nodes ---
-    builder.add_node("init", init_node)
-    builder.add_node("init-ideate", init_ideate_node)
-    builder.add_node("init-bdd", init_bdd_node)
-    builder.add_node("init-refine", init_refine_node)
+    builder.add_node("init", trace_node("init")(init_node))
+    builder.add_node("init-ideate", trace_node("init.ideate")(init_ideate_node))
+    builder.add_node("init-bdd", trace_node("init.bdd")(init_bdd_node))
+    builder.add_node("init-refine", trace_node("init.refine")(init_refine_node))
 
-    builder.add_node("impl-design", impl_design_node)
-    builder.add_node("impl-code", impl_code_node)
-    builder.add_node("doc-update", doc_update_node)
+    builder.add_node("impl-design", trace_node("impl.design")(impl_design_node))
+    builder.add_node("impl-code", trace_node("impl.code")(impl_code_node))
+    builder.add_node("doc-update", trace_node("doc.update")(doc_update_node))
 
-    builder.add_node("verify", verify_node)
-    builder.add_node("e2e-execute", e2e_execute_node)
+    builder.add_node("verify", trace_node("verify")(verify_node))
+    builder.add_node("e2e-execute", trace_node("e2e.execute")(e2e_execute_node))
 
-    builder.add_node("deploy-prepare", deploy_prepare_node)
-    builder.add_node("smoke-test", smoke_test_node)
+    builder.add_node("deploy-prepare", trace_node("deploy.prepare")(deploy_prepare_node))
+    builder.add_node("smoke-test", trace_node("smoke.test")(smoke_test_node))
 
-    builder.add_node("doc-decisions", doc_decisions_node)
-    builder.add_node("doc-project", doc_project_node)
-    builder.add_node("post", post_node)
+    builder.add_node("doc-decisions", trace_node("doc.decisions")(doc_decisions_node))
+    builder.add_node("doc-project", trace_node("doc.project")(doc_project_node))
+    builder.add_node("post", trace_node("post")(post_node))
 
     # Design stages
     for node_name, stage_id in get_design_nodes():
-        builder.add_node(node_name, design_node(stage_id))
+        builder.add_node(node_name, trace_node(stage_id)(design_node(stage_id)))
 
     # Architecture stages
     for node_name, stage_id in get_arch_nodes():
-        builder.add_node(node_name, arch_node(stage_id))
+        builder.add_node(node_name, trace_node(stage_id)(arch_node(stage_id)))
 
     # QA stages
     for node_name, stage_id in get_qa_nodes():
-        builder.add_node(node_name, qa_node(stage_id))
+        builder.add_node(node_name, trace_node(stage_id)(qa_node(stage_id)))
 
     # --- Entry point ---
     builder.add_edge(START, "init")

@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from eng_loop.config import load_config, resolve_paths, ensure_directories
-from eng_loop.state import make_initial_state, load_state_template
+from eng_loop.state import make_initial_state, load_state_template, STAGE_ORDER
 from eng_loop.graph import compile_graph
 from eng_loop.tools.file_ops import save_json as save_json_file
+from eng_loop.tools.progress import log_iteration
 from eng_loop.model import create_model_from_config, DEFAULT_BASE_URL, DEFAULT_MODEL
 
 
@@ -76,30 +77,70 @@ def main():
     print()
 
     try:
+        prev_stage = ""
         for event in graph.stream(state, config=thread_config, stream_mode="values"):
             status = event.get("status", "running")
             current = event.get("current_stage", "")
             iteration = event.get("iteration", 0)
-            if current or status != "running":
-                print(f"[iter {iteration}] stage={current} status={status}")
+
+            if current and current != prev_stage:
+                log_iteration(iteration, current)
+                _print_progress_bar(event)
+                _save_state(event, paths)
+                prev_stage = current
+
+            if status not in ("running",):
+                log_iteration(iteration, current or "complete")
 
         final_state = event
         _print_result(final_state)
-        _save_state(final_state, paths)
+        _save_state(final_state, paths, verbose=True)
     except KeyboardInterrupt:
         state["status"] = "halted"
         state["blocking_condition"] = "user interrupted"
-        _save_state(state, paths)
+        _save_state(state, paths, verbose=True)
         print("\nLoop halted by user.")
         sys.exit(130)
     except Exception as e:
         state["status"] = "halted"
         state["blocking_condition"] = str(e)
-        _save_state(state, paths)
+        _save_state(state, paths, verbose=True)
         print(f"\nLoop halted: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+def _print_progress_bar(state: dict) -> None:
+    stages = state.get("stages", {})
+    complexity = state.get("complexity", "unset")
+    active = [s for s in STAGE_ORDER if _is_active(s, complexity, state.get("ui_project", False))]
+    total = len(active)
+    done = sum(1 for s in active if stages.get(s, {}).get("done", False))
+    current = state.get("current_stage", "").replace("-", ".", 99)
+
+    bar_len = 30
+    filled = int(bar_len * done / max(total, 1))
+    bar = "#" * filled + "-" * (bar_len - filled)
+
+    color = {"done": "\033[32m", "blocked": "\033[31m", "halted": "\033[31m"}.get(state.get("status", ""), "\033[36m")
+    reset = "\033[0m"
+    dim = "\033[2m"
+
+    sys.stdout.write(f"\r{color}[{bar}] {done}/{total} stages  {current}{reset}")
+    sys.stdout.flush()
+
+
+def _is_active(stage_id: str, complexity: str, ui_project: bool) -> bool:
+    from eng_loop.state import STAGE_MIN_COMPLEXITY, COMPLEXITY_ORDER
+    if complexity == "unset":
+        return True
+    min_c = STAGE_MIN_COMPLEXITY.get(stage_id)
+    if min_c and COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_c, 0):
+        return False
+    if stage_id in ("e2e.execute", "smoke.test") and not ui_project:
+        return False
+    return True
 
 
 def _check_model(config: dict[str, Any], quiet: bool = False) -> bool:
@@ -138,7 +179,7 @@ def _print_result(state: dict) -> None:
     print(f"{'='*60}")
 
 
-def _save_state(state: dict, paths: dict) -> None:
+def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
     saveable = {
         "iteration": state.get("iteration", 0),
         "status": state.get("status", "running"),
@@ -152,7 +193,9 @@ def _save_state(state: dict, paths: dict) -> None:
     }
     state_file = paths.get("state_file", "state.json")
     save_json_file(state_file, saveable)
-    print(f"\nState saved to: {state_file}")
+    if verbose:
+        print()
+        print(f"State saved to: {state_file}")
 
 
 if __name__ == "__main__":

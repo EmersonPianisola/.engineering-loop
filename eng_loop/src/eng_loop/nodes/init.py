@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from eng_loop.model import create_model_from_config
@@ -7,21 +8,40 @@ from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
 from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
-from eng_loop.tools.file_ops import save_json
+from eng_loop.tools.file_ops import save_json, read_file
+from eng_loop.tools.progress import (
+    log_model_invoke, log_model_done, log_stage_done,
+    log_stage_skip, log_stage_fail, log_complexity, log_blocked, log_decision,
+    log_artifact,
+)
+
+
+def _resolve_work_item(work_item: str) -> str:
+    from pathlib import Path
+
+    cleaned = work_item.strip().strip("'\"")
+    p = Path(cleaned)
+    if p.exists() and p.is_file():
+        return read_file(cleaned)
+    return cleaned
 
 
 def init_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.state import next_incomplete_stage
+    import time
+
+    stage_id = "init"
 
     config = state.get("config", {})
     paths = state.get("paths", {})
     stages = dict(state.get("stages", {}))
 
     ui_project = detect_ui_project(paths)
-    work_item = state.get("work_item", "")
+    work_item = _resolve_work_item(state.get("work_item", ""))
 
     complexity = classify_complexity(work_item, config)
     stages = deactivate_inactive_stages(stages, complexity, ui_project)
+    log_complexity(complexity, ui_project)
 
     stage_file = get_stage_file("init")
     skill_name = get_skill_name("init")
@@ -52,20 +72,25 @@ Validate the input and return JSON:
   "notes": "any observations"
 }}
 """
-    stage_id = "init"
     model = create_model_from_config(state.get("config", {}), stage_id)
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
     response = model.invoke([{"role": "user", "content": prompt}])
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
     content = response.content.strip()
 
-    import json
+    from eng_loop.tools.json_parse import extract_json
     try:
-        result = json.loads(content)
+        result = extract_json(content)
         valid = result.get("valid", False)
+        # If model refined the work item, accept it as valid even if valid=False
+        if not valid and result.get("work_item_refined"):
+            valid = True
     except (json.JSONDecodeError, TypeError):
         valid = False
         result = {}
-
-    if not valid:
+        log_blocked("input not ready for engineering")
         return Command(
             update={
                 "status": "blocked",
@@ -79,6 +104,7 @@ Validate the input and return JSON:
 
     stages["init"]["done"] = True
     stages["init"]["attempts"] = 1
+    log_stage_done(stage_id, result.get("notes", "validated"))
 
     refined = result.get("work_item_refined", work_item)
 
@@ -96,10 +122,13 @@ Validate the input and return JSON:
 
 
 def init_ideate_node(state: dict[str, Any]) -> Command[str]:
+    import time
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.ideate"
 
     if stages.get(stage_id, {}).get("done", False):
+        log_stage_skip(stage_id)
         return Command(goto="init-bdd")
 
     config = state.get("config", {})
@@ -108,6 +137,7 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
+        log_stage_fail(stage_id, "non-convergence")
         return Command(
             update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"},
             goto="__end__",
@@ -135,18 +165,23 @@ Return JSON:
 }}
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
     response = model.invoke([{"role": "user", "content": prompt}])
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
     content = response.content.strip()
 
-    import json
+    from eng_loop.tools.json_parse import extract_json
     try:
-        result = json.loads(content)
+        result = extract_json(content)
     except (json.JSONDecodeError, TypeError):
         result = {}
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
+    log_stage_done(stage_id, str(result.get("decomposed_tasks", ""))[:120])
 
     return Command(
         update={
@@ -159,10 +194,13 @@ Return JSON:
 
 
 def init_bdd_node(state: dict[str, Any]) -> Command[str]:
+    import time
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.bdd"
 
     if stages.get(stage_id, {}).get("done", False):
+        log_stage_skip(stage_id)
         return Command(goto="init-refine")
 
     config = state.get("config", {})
@@ -171,6 +209,7 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
+        log_stage_done(stage_id, "max attempts reached, proceeding")
         return Command(goto="init-refine")
 
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-bdd")
@@ -195,12 +234,16 @@ Return JSON:
 }}
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
     response = model.invoke([{"role": "user", "content": prompt}])
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
     content = response.content.strip()
 
-    import json
+    from eng_loop.tools.json_parse import extract_json
     try:
-        result = json.loads(content)
+        result = extract_json(content)
     except (json.JSONDecodeError, TypeError):
         result = {}
 
@@ -212,8 +255,11 @@ Return JSON:
     journey_content = result.get("journey_map", "")
     if journey_content:
         from eng_loop.tools.file_ops import write_file
-        write_file(f"{artifact_root}/bdd-journeys/journey.md", journey_content)
+        artifact_path = f"{artifact_root}/bdd-journeys/journey.md"
+        write_file(artifact_path, journey_content)
+        log_artifact(stage_id, artifact_path)
 
+    log_stage_done(stage_id, str(result.get("gherkin_scenarios", ""))[:120])
     return Command(
         update={"stages": stages, "current_stage": "init-refine"},
         goto="init-refine",
@@ -221,10 +267,13 @@ Return JSON:
 
 
 def init_refine_node(state: dict[str, Any]) -> Command[str]:
+    import time
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.refine"
 
     if stages.get(stage_id, {}).get("done", False):
+        log_stage_skip(stage_id)
         return Command(goto=_next_phase_node(state))
 
     config = state.get("config", {})
@@ -233,6 +282,7 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
+        log_stage_done(stage_id, "max attempts reached, proceeding")
         return Command(goto=_next_phase_node(state))
 
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-refine")
@@ -252,12 +302,16 @@ Return JSON:
 }}
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
     response = model.invoke([{"role": "user", "content": prompt}])
+    elapsed = time.monotonic() - t0
+    log_model_done(stage_id, elapsed)
     content = response.content.strip()
 
-    import json
+    from eng_loop.tools.json_parse import extract_json
     try:
-        result = json.loads(content)
+        result = extract_json(content)
     except (json.JSONDecodeError, TypeError):
         result = {}
 
@@ -267,6 +321,7 @@ Return JSON:
 
     refined = result.get("refined_work_item", state.get("work_item", ""))
     next_node = _next_phase_node(state)
+    log_stage_done(stage_id, refined[:120] if refined else "refined")
 
     return Command(
         update={
