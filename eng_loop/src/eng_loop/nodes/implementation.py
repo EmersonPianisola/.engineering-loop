@@ -17,6 +17,9 @@ from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file,
 
 
 def impl_design_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -54,29 +57,43 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
 ## ARCHITECTURE CONTEXT
 {state.get('stage_artifacts', {}).get('arch.solution', 'No architecture artifacts.')}
 
-Create a detailed implementation blueprint with file structure, contracts, data flows, and execution order.
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to explore the project structure:
+1. Use glob to find existing files and understand the project layout
+2. Use grep to search for relevant patterns in existing code
+3. Read key files to understand existing architecture and conventions
+4. Create a detailed implementation blueprint with file structure, contracts, data flows, and execution order
+
+Save the blueprint to {paths.get('artifact_root', '')}/blueprints/blueprint.md
+
 Return a JSON object with these fields: blueprint, tasks, file_structure, complete, decisions.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(ImplDesignOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        log_model_done(stage_id, time.monotonic() - t0)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=ImplDesignOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -84,12 +101,9 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
             )
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
             goto="__end__",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -123,7 +137,7 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
         from eng_loop.tools.decisions import record_decision
         record_decision({"decisions": new_decisions}, d)
 
-    log_stage_done(stage_id, f"blueprint: {len(blueprint)} chars, {len(result.get('tasks', []))} tasks")
+    log_stage_done(stage_id, f"blueprint: {len(blueprint)} chars, {len(result.get('tasks', []))} tasks, tools: {agent_result.tool_calls_made}")
 
     return Command(
         update={
@@ -138,6 +152,9 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
 
 
 def impl_code_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -185,30 +202,49 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
 ## CONFIRMED LESSONS
 {confirmed_lessons or "No lessons."}
 
-Execute in TDD mode: test first (must fail/red), implement code, verify pass/green, atomic commit per task.
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Execute in TDD mode:
+1. For each task in the blueprint:
+   a. Read existing files to understand context
+   b. Write test file first
+   c. Run test with bash — it must fail (red)
+   d. Write/implement code to satisfy the test
+   e. Run test with bash — it must pass (green)
+   f. Commit with bash: git add + git commit
+2. After all tasks: provide summary as JSON
+
+Use your tools: read files, write code, edit existing files, run tests with bash, search with grep/glob.
+The project root is {paths.get('project_root', '.')}. All file paths should be relative to it.
 
 Return a JSON object with these fields: implementation_summary, files_created, tests_passed, complete, decisions, diff.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(ImplCodeOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        log_model_done(stage_id, time.monotonic() - t0)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    # Get tools for this stage
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=ImplCodeOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -216,12 +252,9 @@ Return a JSON object with these fields: implementation_summary, files_created, t
             )
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
             goto="__end__",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -252,7 +285,7 @@ Return a JSON object with these fields: implementation_summary, files_created, t
     new_artifacts["impl.code"] = result.get("implementation_summary", "")
     new_artifacts["diff"] = result.get("diff", "")
 
-    log_stage_done(stage_id, f"files: {len(result.get('files_created', []))}, tests: {result.get('tests_passed')}")
+    log_stage_done(stage_id, f"files: {len(result.get('files_created', []))}, tests: {result.get('tests_passed')}, tools: {agent_result.tool_calls_made}")
 
     return Command(
         update={
@@ -267,6 +300,9 @@ Return a JSON object with these fields: implementation_summary, files_created, t
 
 
 def doc_update_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -301,29 +337,41 @@ def doc_update_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Update existing documentation files. Do NOT create new files.
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Use glob to find existing documentation files (README, CHANGELOG, docs/)
+2. Read each file to understand current content
+3. Use edit to update existing files with new information
+4. Do NOT create new files — only update what already exists
+
 Return a JSON object with these fields: files_updated, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(DocUpdateOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        log_model_done(stage_id, time.monotonic() - t0)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=DocUpdateOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -332,14 +380,11 @@ Return a JSON object with these fields: files_updated, complete.
         stages[stage_id]["done"] = True
         return Command(goto="verify", update={"current_stage": "verify", "iteration": state.get("iteration", 0) + 1})
 
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
-
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
 
-    log_stage_done(stage_id, f"updated: {result.get('files_updated', [])}")
+    log_stage_done(stage_id, f"updated: {result.get('files_updated', [])}, tools: {agent_result.tool_calls_made}")
 
     return Command(
         update={

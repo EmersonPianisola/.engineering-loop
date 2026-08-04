@@ -15,6 +15,9 @@ from eng_loop.templates import load_stage_procedure, get_stage_file
 
 
 def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -48,30 +51,43 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
 ## DIFF
 {state.get('stage_artifacts', {}).get('diff', '')}
 
-Execute deployment preparation checks.
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Read build config files (package.json, pyproject.toml, Makefile, etc.)
+2. Run build with bash: npm run build, poetry build, make build, etc.
+3. Run lint with bash: npm run lint, ruff check, etc.
+4. Run type check with bash: npm run typecheck, mypy, etc.
+5. Run final test suite with bash
+6. Verify env config and migrations
+
 Return a JSON object with these fields: build_status, lint_status, type_check_status, verdict (PASS or FAIL), errors, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(DeployPrepareOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=DeployPrepareOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -83,9 +99,6 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
             update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -123,7 +136,7 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
-    log_stage_done(stage_id, "PASS")
+    log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     next_node = _post_deploy(state)
     return Command(
@@ -137,6 +150,9 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
 
 
 def smoke_test_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -166,6 +182,16 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Build production binary with bash
+2. Write smoke test scripts
+3. Run tests against production build
+4. Capture console and network errors
+5. Save report to {paths.get('artifact_root', '')}/smoke-report.md
+
 Execute:
 1. Build production binary
 2. Define critical paths (login, navigation, CRUD, reports, logout)
@@ -176,26 +202,29 @@ Execute:
 Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, console_errors, network_errors, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(SmokeTestOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=SmokeTestOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -207,9 +236,6 @@ Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, 
             update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -247,7 +273,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
-    log_stage_done(stage_id, "PASS")
+    log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     return Command(
         update={

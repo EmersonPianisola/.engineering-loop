@@ -15,6 +15,9 @@ from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file,
 
 
 def verify_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -58,33 +61,47 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
-Execute verification:
-1. Spec-anchored check — each AC traced to file:line evidence
-2. Discrimination sensor — inject behavior-level faults, confirm tests kill them
-3. Coverage audit — ACs vs test coverage
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Execute verification using your tools:
+1. Read the source code files to understand what was implemented
+2. Spec-anchored check — trace each AC to file:line evidence by reading actual files
+3. Run tests with bash to confirm they pass
+4. Discrimination sensor — use grep to find test assertions, verify they cover the right behavior
+5. Coverage audit — compare ACs against test file contents
+6. Write validation report to {paths.get('artifact_root', '')}/validation.md
+
+Use read, bash, grep, and glob tools to examine actual code and run tests.
+Do NOT guess — read the files and run the tests.
 
 Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence, discrimination_sensor, coverage_audit, gaps, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(VerifyOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        log_model_done(stage_id, time.monotonic() - t0)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    # Get tools for this stage
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=VerifyOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -92,12 +109,9 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
             )
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
             goto="__end__",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -141,7 +155,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
-    log_stage_done(stage_id, "PASS")
+    log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     next_node = _post_verify(state)
     return Command(
@@ -155,6 +169,9 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
 
 
 def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -194,36 +211,52 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
 ## BLUEPRINT
 {state.get('stage_artifacts', {}).get('impl.design', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Read existing test files and page objects with read/glob
+2. Write/update E2E test files with write/edit
+3. Run tests with bash: npx playwright test or equivalent
+4. Capture console and network errors from test output
+5. Verify BDD→E2E 1:1 coverage using grep to find @e2e tags
+
 Execute:
 1. Infrastructure setup — Playwright, config, Page Objects
 2. Auth bypass detection + wiring
 3. Scenario derivation from BDD @e2e tags
 4. Four-layer assertions: DOM, Dimension, Console, Network
 5. Screenshot evidence capture
-6. BDD->E2E 1:1 coverage check
+6. BDD→E2E 1:1 coverage check
+
+Save the report to {paths.get('artifact_root', '')}/e2e-report.md
 
 Return a JSON object with these fields: verdict (PASS or FAIL), test_results, console_errors, network_errors, bdd_coverage, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(E2eOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        log_model_done(stage_id, time.monotonic() - t0)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=E2eOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -235,9 +268,6 @@ Return a JSON object with these fields: verdict (PASS or FAIL), test_results, co
             update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
             goto="impl-code",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -275,7 +305,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), test_results, co
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
-    log_stage_done(stage_id, "PASS")
+    log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     next_node = _post_e2e(state)
     return Command(

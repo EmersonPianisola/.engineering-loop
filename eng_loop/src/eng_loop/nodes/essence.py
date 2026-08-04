@@ -10,6 +10,9 @@ from langgraph.types import Command, interrupt
 
 
 def essence_gate_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_essence_tools
+
     stage_id = state.get("current_stage", "")
     if not stage_id:
         return Command(goto="__end__")
@@ -31,7 +34,63 @@ def essence_gate_node(state: dict[str, Any]) -> Command[str]:
         )
 
     essence_inputs = _gather_essence_inputs(stage_id, state)
-    essence_result = _run_essence_validation(essence_inputs, state)
+
+    # Run essence with agent tools (read-only: read + glob)
+    from eng_loop.templates import load_skill, load_stage_procedure
+
+    paths = state.get("paths", {})
+    skill_root = paths.get("framework_skill_root", "")
+    stage_root = paths.get("framework_stage_root", "")
+
+    skill_content = load_skill(skill_root, "essence")
+    stage_proc = load_stage_procedure(stage_root, stage_id.replace(".", "-").replace("_", "-"))
+
+    prompt = f"""You are the Essence Sidecar validator. Apply the Four Lenses to validate inputs for stage {stage_id}.
+
+## SKILL
+{skill_content}
+
+## STAGE PROCEDURE
+{stage_proc}
+
+## INPUTS TO VALIDATE
+Work item: {essence_inputs['work_item']}
+Complexity: {essence_inputs['complexity']}
+
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+## FOUR LENSES
+Lens 1: Subjective/ambiguous terms — identify and flag
+Lens 2: Hidden assumptions — surface them
+Lens 3: Literal traps — detect misinterpretations
+Lens 4: Conflicting priorities — identify tensions
+
+Use read/glob to examine relevant project files if needed for context.
+
+Return a JSON object with these fields: lenses_1_3 (list), lens_4 (null or string), suggested_adjustments (list).
+"""
+    model = create_model_from_config(config, stage_id)
+    tools = get_essence_tools(paths)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 10)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=f"{stage_id}.essence",
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    essence_result = {
+        "findings": {
+            "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
+            "lens_4": result.get("lens_4"),
+        },
+        "adjustments": result.get("suggested_adjustments", []),
+    }
 
     if essence_result.get("findings", {}).get("lenses_1_3"):
         max_retries = config.get("max_essence_retries_per_stage", 5)
@@ -70,84 +129,6 @@ def essence_gate_node(state: dict[str, Any]) -> Command[str]:
         update={"stages": new_stages},
         goto=_next_node_name(stage_id),
     )
-
-
-def _gather_essence_inputs(stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "stage_id": stage_id,
-        "work_item": state.get("work_item", ""),
-        "stage_artifacts": state.get("stage_artifacts", {}),
-        "complexity": state.get("complexity", "unset"),
-    }
-
-
-def _run_essence_validation(inputs: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
-    from eng_loop.templates import load_skill, load_stage_procedure
-
-    paths = state.get("paths", {})
-    skill_root = paths.get("framework_skill_root", "")
-    stage_root = paths.get("framework_stage_root", "")
-
-    skill_content = load_skill(skill_root, "essence")
-    stage_proc = load_stage_procedure(stage_root, inputs["stage_id"].replace(".", "-").replace("_", "-"))
-
-    model = create_model_from_config(state.get("config", {}), inputs["stage_id"])
-    prompt = f"""You are the Essence Sidecar validator. Apply the Four Lenses to validate inputs for stage {inputs['stage_id']}.
-
-## SKILL
-{skill_content}
-
-## STAGE PROCEDURE
-{stage_proc}
-
-## INPUTS TO VALIDATE
-Work item: {inputs['work_item']}
-Complexity: {inputs['complexity']}
-
-## FOUR LENSES
-Lens 1: Subjective/ambiguous terms — identify and flag
-Lens 2: Hidden assumptions — surface them
-Lens 3: Literal traps — detect misinterpretations
-Lens 4: Conflicting priorities — identify tensions
-
-Return a JSON object with these fields: lenses_1_3 (list), lens_4 (null or string), suggested_adjustments (list).
-"""
-    log_model_invoke(inputs["stage_id"] + ".essence")
-    t0 = time.monotonic()
-    try:
-        response = model.invoke([{"role": "user", "content": prompt}])
-        content = response.content.strip()
-        try:
-            result = json.loads(content)
-            return {
-                "findings": {
-                    "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
-                    "lens_4": result.get("lens_4"),
-                },
-                "adjustments": result.get("suggested_adjustments", []),
-            }
-        except json.JSONDecodeError:
-            # Try to extract JSON
-            import re
-            code_block = re.search(r'```(?:json)?\s*\n(.*?)\n```', content, re.DOTALL)
-            if code_block:
-                try:
-                    result = json.loads(code_block.group(1).strip())
-                    return {
-                        "findings": {
-                            "lenses_1_3": len(result.get("lenses_1_3", [])) > 0,
-                            "lens_4": result.get("lens_4"),
-                        },
-                        "adjustments": result.get("suggested_adjustments", []),
-                    }
-                except json.JSONDecodeError:
-                    pass
-            return {"findings": {"lenses_1_3": False, "lens_4": None}, "adjustments": []}
-    except Exception as e:
-        log_stage_fail(inputs["stage_id"] + ".essence", str(e))
-        return {"findings": {"lenses_1_3": False, "lens_4": None}, "adjustments": []}
-    finally:
-        log_model_done(inputs["stage_id"] + ".essence", time.monotonic() - t0)
 
 
 def _adjust_inputs_inline(essence_result: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:

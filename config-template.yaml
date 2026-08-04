@@ -132,6 +132,13 @@ max_subagent_invocations_per_stage: 3
 max_essence_retries_per_stage: 5
 
 # ============================================================
+# AGENT — sub-agent execution settings
+# ============================================================
+agent:
+  max_agent_iterations: 25    # Max tool-use iterations per stage agent
+  tool_timeout: 120            # Bash command timeout (seconds)
+
+# ============================================================
 # SELF-CONSTRUCTION
 # ============================================================
 skill_creator: "skill-creator"

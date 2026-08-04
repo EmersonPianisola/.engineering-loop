@@ -14,6 +14,9 @@ from eng_loop.templates import load_stage_procedure, get_stage_file
 
 
 def post_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -56,6 +59,15 @@ def post_node(state: dict[str, Any]) -> Command[str]:
 ## CONFIRMED LESSONS
 {len(confirmed) if confirmed else 0}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Run full test suite with bash
+2. Run lint/build with bash
+3. Commit changes with bash: git add + git commit
+4. Write final summary to {paths.get('artifact_root', '')}/post-loop-summary.md
+
 Execute:
 1. Skill improvement — extract lessons, update skills
 2. Lessons share — identify new confirmed lessons
@@ -64,25 +76,25 @@ Execute:
 Return a JSON object with these fields: summary, lessons_to_share, final_status, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(PostOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
-        # Post is the last stage, just proceed with what we have
-        result = {"summary": str(e), "final_status": "done", "complete": True, "lessons_to_share": 0}
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
 
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=PostOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
+        # Post is the last stage, proceed with what we have
+        result = {"summary": str(agent_result.error), "final_status": "done", "complete": True, "lessons_to_share": 0}
 
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)

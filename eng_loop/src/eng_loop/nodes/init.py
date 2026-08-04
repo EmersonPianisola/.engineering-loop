@@ -31,7 +31,8 @@ def _resolve_work_item(work_item: str) -> str:
 
 
 def init_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.state import next_incomplete_stage
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stage_id = "init"
 
@@ -66,36 +67,44 @@ def init_node(state: dict[str, Any]) -> Command[str]:
 ## COMPLEXITY CLASSIFICATION
 {complexity}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to explore the project:
+1. Use glob to understand the project structure
+2. Read key files (package.json, pyproject.toml, etc.) to understand the tech stack
+3. Validate the work item against project context
+
 Validate the input and return a JSON object with these fields: valid, work_item_refined, estimated_files, estimated_tasks, notes.
 """
     model = create_model_from_config(state.get("config", {}), stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(InitOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=InitOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
         log_blocked("input not ready for engineering")
         return Command(
             update={
                 "status": "blocked",
-                "blocking_condition": "input not ready for engineering",
+                "blocking_condition": f"init agent error: {agent_result.error}",
                 "stages": stages,
                 "complexity": complexity,
                 "ui_project": ui_project,
             },
             goto="__end__",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     valid = result.get("valid", False)
     if not valid and result.get("work_item_refined"):
@@ -134,6 +143,9 @@ Validate the input and return a JSON object with these fields: valid, work_item_
 
 
 def init_ideate_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.ideate"
 
@@ -167,29 +179,36 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use read/glob to explore the project for context if needed.
 Return a JSON object with these fields: ideation_results, decomposed_tasks, ready_for_next.
 """
-    model = create_model_from_config(state.get("config", {}), stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
+    model = create_model_from_config(config, stage_id)
 
-    try:
-        structured = model.with_structured_output(InitIdeateOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=InitIdeateOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -197,12 +216,9 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
             )
         stages[stage_id]["done"] = True
         return Command(
-            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+            update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
             goto="__end__",
         )
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -237,6 +253,9 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
 
 
 def init_bdd_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.bdd"
 
@@ -267,29 +286,36 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use read/glob to explore existing user stories, PRD, and UX artifacts if available.
 Return a JSON object with these fields: journey_map, gherkin_scenarios, complete.
 """
-    model = create_model_from_config(state.get("config", {}), stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
+    model = create_model_from_config(config, stage_id)
 
-    try:
-        structured = model.with_structured_output(InitBddOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=InitBddOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -297,9 +323,6 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
             )
         stages[stage_id]["done"] = True
         return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -321,6 +344,9 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
 
 
 def init_refine_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     stage_id = "init.refine"
 
@@ -349,29 +375,36 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use read to explore the project for context if needed.
 Return a JSON object with these fields: refined_work_item, ready_for_architecture.
 """
-    model = create_model_from_config(state.get("config", {}), stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
+    model = create_model_from_config(config, stage_id)
 
-    try:
-        structured = model.with_structured_output(InitRefineOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=InitRefineOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -380,9 +413,6 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
         stages[stage_id]["done"] = True
         next_node = _next_phase_node(state)
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True

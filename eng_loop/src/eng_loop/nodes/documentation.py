@@ -14,6 +14,9 @@ from eng_loop.templates import load_stage_procedure, get_stage_file
 
 
 def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -44,30 +47,40 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
 ## WORK ITEM
 {state.get('work_item', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Read existing decision artifacts and stage outputs
+2. Write the consolidated decision log to {paths.get('artifact_root', '')}/decision-log.md
+
 Consolidate into MADR format.
 Return a JSON object with these fields: decision_log, decisions_count, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(DocDecisionsOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=DocDecisionsOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -75,9 +88,6 @@ Return a JSON object with these fields: decision_log, decisions_count, complete.
             )
         stages[stage_id]["done"] = True
         return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
-
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -89,7 +99,7 @@ Return a JSON object with these fields: decision_log, decisions_count, complete.
     write_file(f"{artifact_root}/decision-log.md", decision_log)
     log_artifact(stage_id, f"{artifact_root}/decision-log.md")
 
-    log_stage_done(stage_id, f"{result.get('decisions_count', 0)} decisions")
+    log_stage_done(stage_id, f"{result.get('decisions_count', 0)} decisions, tools: {agent_result.tool_calls_made}")
 
     return Command(
         update={
@@ -103,6 +113,9 @@ Return a JSON object with these fields: decision_log, decisions_count, complete.
 
 
 def doc_project_node(state: dict[str, Any]) -> Command[str]:
+    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     stages = dict(state.get("stages", {}))
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -136,30 +149,41 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
 ## DECISION LOG
 {decision_log}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to:
+1. Explore the project structure with glob
+2. Read key source files to understand architecture
+3. Write documentation files to the project
+
 Generate project documentation.
 Return a JSON object with these fields: readme, setup_guide, architecture_overview, user_manual, complete.
 """
     model = create_model_from_config(config, stage_id)
-    log_model_invoke(stage_id)
-    t0 = time.monotonic()
 
-    try:
-        structured = model.with_structured_output(DocProjectOutput)
-        response = structured.invoke([{"role": "user", "content": prompt}])
-        if hasattr(response, "model_dump"):
-            result = response.model_dump()
-        else:
-            result = dict(response)
-    except Exception as e:
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
-        log_stage_fail(stage_id, f"LLM error: {e}")
+    tools = get_tools_for_stage(stage_id, paths, config)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
+
+    agent_result: AgentResult = run_agent(
+        model=model,
+        tools=tools,
+        prompt=prompt,
+        stage_id=stage_id,
+        output_schema=DocProjectOutput,
+        max_iterations=max_agent_iterations,
+    )
+
+    result = agent_result.data
+
+    if agent_result.error:
+        log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
             return Command(
                 update={
                     "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                     "current_stage": stage_id,
                     "iteration": state.get("iteration", 0) + 1,
                 },
@@ -168,14 +192,11 @@ Return a JSON object with these fields: readme, setup_guide, architecture_overvi
         stages[stage_id]["done"] = True
         return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
 
-    elapsed = time.monotonic() - t0
-    log_model_done(stage_id, elapsed)
-
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
     stages[stage_id]["output"] = str(result)
 
-    log_stage_done(stage_id, "documentation generated")
+    log_stage_done(stage_id, f"documentation generated, tools: {agent_result.tool_calls_made}")
 
     return Command(
         update={

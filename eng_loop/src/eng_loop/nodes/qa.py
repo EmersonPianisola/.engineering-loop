@@ -23,6 +23,9 @@ QA_STAGES = {
 
 def qa_node(stage_id: str):
     def node_fn(state: dict[str, Any]) -> Command[str]:
+        from eng_loop.tools.agent_runner import run_agent, AgentResult
+        from eng_loop.tools.agent_tools import get_tools_for_stage
+
         stages = dict(state.get("stages", {}))
         config = state.get("config", {})
         paths = state.get("paths", {})
@@ -62,30 +65,42 @@ def qa_node(stage_id: str):
 ## DIFF
 {state.get('stage_artifacts', {}).get('diff', '')}
 
+## PROJECT ROOT
+{paths.get('project_root', '.')}
+
+Use your tools to examine the actual code:
+- Read source files to inspect implementation
+- Use grep to search for security patterns, API endpoints, performance anti-patterns
+- Use bash to run security scanners, lint tools, or performance analysis tools
+- Use glob to find relevant files
+
 Execute the QA review.
 Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete.
 """
         model = create_model_from_config(config, stage_id)
-        log_model_invoke(stage_id)
-        t0 = time.monotonic()
 
-        try:
-            structured = model.with_structured_output(QaOutput)
-            response = structured.invoke([{"role": "user", "content": prompt}])
-            if hasattr(response, "model_dump"):
-                result = response.model_dump()
-            else:
-                result = dict(response)
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            log_model_done(stage_id, elapsed)
-            log_stage_fail(stage_id, f"LLM error: {e}")
+        tools = get_tools_for_stage(stage_id, paths, config)
+        max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
+
+        agent_result: AgentResult = run_agent(
+            model=model,
+            tools=tools,
+            prompt=prompt,
+            stage_id=stage_id,
+            output_schema=QaOutput,
+            max_iterations=max_agent_iterations,
+        )
+
+        result = agent_result.data
+
+        if agent_result.error:
+            log_stage_fail(stage_id, agent_result.error)
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             if stages[stage_id]["attempts"] < max_attempts:
                 return Command(
                     update={
                         "stages": stages,
-                        "errors": list(state.get("errors", [])) + [f"{stage_id} LLM error: {e}"],
+                        "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
                     },
@@ -94,12 +109,9 @@ Return a JSON object with these fields: verdict (PASS or FAIL), findings, critic
             stages[stage_id]["done"] = True
             next_node = _resolve_next_qa(stage_id, state)
             return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} LLM error"},
+                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
                 goto=next_node,
             )
-
-        elapsed = time.monotonic() - t0
-        log_model_done(stage_id, elapsed)
 
         # Evidence gate
         is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -138,7 +150,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), findings, critic
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
         stages[stage_id]["output"] = str(result)
-        log_stage_done(stage_id, "PASS")
+        log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
         next_node = _resolve_next_qa(stage_id, state)
         return Command(
