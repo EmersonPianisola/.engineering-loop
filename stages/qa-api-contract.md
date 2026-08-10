@@ -70,6 +70,19 @@ description: 'API contract validation. Frontend-backend contract compliance. Act
 - Discrepancies found → `done = false`, reset `impl.code.done = false`
 - Report includes: discrepancy type, location, contract reference, actual implementation
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the API contract validation report with pass/fail per check. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.qa.api-contract.done = true` (or `false` on failure)
+   - `stages.qa.api-contract.attempts += 1`
+   - `stages.qa.api-contract.artifact_path = "artifacts/..."` (your output path)
+   - `stages.qa.api-contract.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"qa.api-contract","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"qa.api-contract","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

@@ -275,6 +275,19 @@ Output to `{artifact-root}/smoke-report-{slug}.md`:
 | Network Errors | {count} |
 ```
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the smoke test report with verdict, per-step results, screenshots, and error tables. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.smoke.test.done = true` (or `false` on failure)
+   - `stages.smoke.test.attempts += 1`
+   - `stages.smoke.test.artifact_path = "artifacts/..."` (your output path)
+   - `stages.smoke.test.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"smoke.test","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"smoke.test","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

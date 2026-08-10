@@ -149,6 +149,9 @@ Canonical state format per `{reference-root}/logging.md`. Maintain and update th
 | stages.init.done | false |
 | stages.init.attempts | 0 |
 | stages.init.essence_checked | false |
+| stages.init.ideate.done | false |
+| stages.init.ideate.attempts | 0 |
+| stages.init.ideate.essence_checked | false |
 | stages.init.bdd.done | false |
 | stages.init.bdd.attempts | 0 |
 | stages.init.bdd.essence_checked | false |
@@ -173,15 +176,15 @@ Canonical state format per `{reference-root}/logging.md`. Maintain and update th
 | stages.design.visual-design.done | false |
 | stages.design.visual-design.attempts | 0 |
 | stages.design.visual-design.essence_checked | false |
-| stages.architecture.requirements.done | false |
-| stages.architecture.requirements.attempts | 0 |
-| stages.architecture.requirements.essence_checked | false |
-| stages.architecture.solution.done | false |
-| stages.architecture.solution.attempts | 0 |
-| stages.architecture.solution.essence_checked | false |
-| stages.architecture.review.done | false |
-| stages.architecture.review.attempts | 0 |
-| stages.architecture.review.essence_checked | false |
+| stages.arch.requirements.done | false |
+| stages.arch.requirements.attempts | 0 |
+| stages.arch.requirements.essence_checked | false |
+| stages.arch.solution.done | false |
+| stages.arch.solution.attempts | 0 |
+| stages.arch.solution.essence_checked | false |
+| stages.arch.review.done | false |
+| stages.arch.review.attempts | 0 |
+| stages.arch.review.essence_checked | false |
 | stages.impl.design.done | false |
 | stages.impl.design.attempts | 0 |
 | stages.impl.design.essence_checked | false |
@@ -229,6 +232,7 @@ Derived from `CORE.md` + `skill-index.md`. Each stage loads its procedure from `
 | # | ID | Stage File | Skill(s) | Min Complexity |
 |---|----|-----------|----------|----------------|
 | 0 | `init` | `init.md` | `bmad-integration` | — |
+| 0.25 | `init.ideate` | `init-ideate.md` | `bmad-ideation` | — |
 | 0.5 | `init.bdd` | `init-bdd.md` | `bmad-bdd-mapper` | `large` |
 | 0.75 | `init.refine` | `init-refine.md` | essence + `bmad-brainstorming` | — |
 | 1.1 | `design.user-research` | `design-user-research.md` | `bmad-user-research` | `large` |
@@ -254,72 +258,122 @@ Derived from `CORE.md` + `skill-index.md`. Each stage loads its procedure from `
 | 13 | `doc.project` | `doc-project.md` | arc42 + C4 Model (self-constructed) | `medium` |
 | 14 | `post` | `post-loop.md` | orchestrator (finalize) | — |
 
-## THE LOOP ALGORITHM
+## THE LOOP ALGORITHM — FILESYSTEM-DRIVEN AUTO-RESUME
+
+The orchestrator maintains minimal context by reading state from disk each iteration. Sub-agents write artifacts to disk and return a single JSON line. The orchestrator NEVER reads artifact content into its conversation context.
 
 ```
 # INITIALIZATION (per above)
 roots = detect_roots()
 config = merge_configs()
-paths = resolve_paths(config)
 state = initialize_state()
 lessons = load_lessons()
 ensure_directories()
 
-run_stage(init)                      # Phase 0: validate, auto-size, discover
-
-WHILE any active stage is not done:
+# AUTO-RESUME LOOP
+WHILE state.status == "running":
     state.iteration++
 
-    # Identify first incomplete stage (order matters)
+    # READ STATE FROM DISK — source of truth
+    state = read({loop-root}/state.json)
+
+    # Identify first incomplete active stage (order from stage registry)
     stage = first_stage_with(done: false)
+
+    # NO incomplete stage → loop complete
+    IF stage is null:
+        state.status = "done"
+        state.completed_at = now()
+        state.total_iterations = state.iteration
+        write(state.json)
+        run_stage(post)
+        EXIT
 
     # ESSENCE GATE — always runs before stage
     IF NOT stage.essence_checked:
         essence_inputs = gather_essence_inputs(stage.id)
         invoke_sub_agent("essence", essence_inputs, "Four Lenses validation")
-        IF essence.findings (Lenses 1-3):
+        # Essence returns: {"status": "pass" | "fail" | "tension"}
+        IF essence.status == "fail":
             adjust_inputs_inline()
-            stage.essence_checked = false  # re-run essence
-            STOP — wait for essence result
-        IF essence.Lens_4_tension:
+            # Do NOT increment attempts — essence is pre-stage gate
+            CONTINUE loop  # Auto-resume: re-check essence
+        IF essence.status == "tension":
             escalate_to_user()
-            capture_decision(context.md)   # Record user decision
+            capture_decision(context.md)
             AWAIT user resolution
+            CONTINUE loop
+        # Essence passed
         stage.essence_checked = true
+        state.stages[stage.id].essence_checked = true
+        write(state.json)
+        CONTINUE loop  # Auto-resume: proceed to stage invocation
 
-    # Check constraint
-    IF stage.attempts >= config.constraints[max_{stage}_attempts]:
+    # CHECK CONSTRAINT — prevent infinite loops
+    max_attempts = config.constraints["max_" + stage.id.replace(".", "_") + "_attempts"]
+    IF stage.attempts >= max_attempts:
         state.status = "blocked"
-        state.blocking_condition = "{stage} non-convergence"
+        state.blocking_condition = "{stage.id} non-convergence"
+        write(state.json)
         EXIT
 
-    # Load stage procedure
+    # LOAD STAGE PROCEDURE — from disk, progressive disclosure
     procedure = load(stage.id)       # from {stage-root}/{stage-file}.md
 
-    # Determine sub-agent + context slice
+    # DETERMINE SUB-AGENT + CONTEXT SLICE
     skill = stage_registry[stage.id].skill
     context_slice = slice_context(stage.id)  # per {reference-root}/hardware-management.md
 
-    # Increment attempts
+    # INCREMENT ATTEMPTS + WRITE STATE
     stage.attempts++
+    state.stages[stage.id].attempts = stage.attempts
+    write(state.json)
 
-    # Invoke sub-agent
+    # INVOKE SUB-AGENT — contract enforced via {reference-root}/sub-agent-contract.md
+    # Sub-agent writes artifacts to disk, updates state.json, returns single JSON line:
+    #   {"stage": "{id}", "status": "done" | "failed", "artifact": "path"}
     invoke_sub_agent(skill, context_slice, procedure)
 
-    # STOP — wait for sub-agent response
+    # WAIT FOR SUB-AGENT RESPONSE (single JSON line)
 
-    # CONTINUOUS DECISIONS — extract AD-NNN from stage output
-    extract_decisions(stage.output)
+    # READ UPDATED STATE FROM DISK — sub-agent has already updated state.json
+    state = read({loop-root}/state.json)
+
+    # CHECK SUB-AGENT RESULT
+    IF stage.status == "failed":
+        state.stages[stage.id].error = stage.error
+        write(state.json)
+        # Determine if upstream reset is needed (verify, qa stages reset impl.code)
+        IF stage.id in ["verify", "e2e.execute", "smoke.test", "qa.security", "qa.api-contract", "qa.performance"]:
+            state.stages["impl.code"].done = false
+            state.stages["impl.code"].error = "reset by " + stage.id + " failure"
+            write(state.json)
+        CONTINUE loop  # Auto-resume: loop will pick up reset stage
 
     # UPDATE HANDOFF — update STATE.md ## Handoff
-    update_handoff(stage.id, stage.output)
+    update_handoff(stage.id)
 
-    # Post-iteration maintenance
+    # POST-ITERATION MAINTENANCE
     check_all_constraints()
     compact_if_needed()
     cap_findings()
     log_state()
+
+    # AUTO-RESUME — loop continues to next iteration
+    CONTINUE loop
 ```
+
+### Context Invariant
+
+The orchestrator's conversation context NEVER contains artifact content. Each iteration consists of:
+1. `read(state.json)` — ~40 lines
+2. `task(essence, ...)` or `task(sub_agent, ...)` — ~10 lines
+3. Sub-agent response — 1 JSON line
+4. `write(state.json)` — ~10 lines
+
+**Total context per iteration: ~60 lines.** After 10 iterations: ~600 lines. After 20: ~1200 lines.
+
+This is the primary defense against context inflation and stage-skipping.
 
 ## STAGE-SPECIFIC DELEGATION
 
@@ -328,8 +382,19 @@ WHILE any active stage is not done:
 - **Sub-agent:** `bmad-integration`
 - **Task:** Phase 0 (validate input) + Phase 1 (skill discovery) + auto-size classification
 - **Context:** work item + planning artifacts (PRD, brief, UX, architecture spine)
-- **On success:** all stages `done: false`, complexity set, advance to init.bdd (if active)
+- **On success:** all stages `done: false`, complexity set, advance to init.ideate (if ad-hoc) or init.bdd (if active)
 - **On failure:** `status: blocked`, `blocking_condition: input not ready`, EXIT
+
+### INIT.IDEATE — BMAD Ideation + Decomposition
+
+- **Sub-agent:** `bmad-ideation`
+- **Task:** Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition
+- **Context:** raw user request (ad-hoc work items only)
+- **Active only when:** work item is ad-hoc (no BMad spec, no explicit path)
+- **Limit:** `max_init_ideate_attempts`
+- **On success:** `done: true`, `state.work_item` enriched with title, ACs, code_map, edge_cases
+- **On structured input:** early-exit, `done: true`
+- **Artifact:** `{artifact-root}/ideation/ideation-{slug}.md`, `sdd-{slug}.md`, `flows-{slug}.md`
 
 ### INIT.BDD — BDD Journey Mapping
 
@@ -544,6 +609,7 @@ Configured via `config.yaml` → `essence:`. Runs BEFORE every stage.
 | Stage | Essence Validates |
 |-------|-------------------|
 | `init` | Work item completeness, clarity of intent |
+| `init.ideate` | Raw user request: clarity, scope, intent for ideation |
 | `init.bdd` | PRD features, UX flows, user stories sufficient for journey mapping |
 | `init.refine` | Raw user request: clarity, scope, intent |
 | `arch.requirements` | Work item + planning artifacts provide sufficient context |
@@ -583,23 +649,21 @@ When `config.graphify.enabled == true` and `graphify-out/graph.json` exists:
 
 ## OUTPUT FORMAT
 
-Each orchestrator response MUST contain exactly these two sections:
+Each orchestrator response MUST contain the state read and sub-agent invocation:
 
-```xml
-<state_update>
-[Updated state table — increment iteration, update stage done/attempts/essence_checked]
-</state_update>
-
-<sub_agent_invocation>
-- TARGET_STAGE: [stage ID, e.g. impl.code]
-- ASSIGNED_SKILL: [skill name, e.g. domain-skill]
-- CONTEXT_LIMIT: [from config.yaml hardware.agent_context_limit]
-- CONTEXT_TO_LOAD: [file paths for this stage's context slice]
-- TASK: [clear instruction for the sub-agent to execute only this stage]
-</sub_agent_invocation>
+```
+State: {stage.id} — attempts: {n}, essence: {pass|pending}
+Invoking: {skill} via task tool
 ```
 
-**STOP GENERATION immediately after outputting `<sub_agent_invocation>`.** Do not simulate the sub-agent's response. **IMMEDIATELY invoke the sub-agent via the `task` tool with the provided parameters.**
+**STOP GENERATION immediately after invoking the sub-agent.** Do not simulate the sub-agent's response. **IMMEDIATELY invoke the sub-agent via the `task` tool.**
+
+### Sub-Agent Contract
+
+Every sub-agent invoked by this orchestrator MUST follow `{reference-root}/sub-agent-contract.md`:
+- Write artifacts to disk
+- Update `{loop-root}/state.json`
+- Return single JSON line: `{"stage":"{id}","status":"done|failed","artifact":"path"}`
 
 ## ANTI-PATTERNS (Orchestrator-Specific)
 
@@ -607,24 +671,28 @@ Each orchestrator response MUST contain exactly these two sections:
 |---|---|
 | Execute work directly | NEVER implement code, write tests, or design architectures (except POST-LOOP finalize) |
 | Multiple stages per response | NEVER invoke more than one stage per response |
+| Skip state.json read | ALWAYS read state.json from disk before each loop iteration |
+| Read artifact content | NEVER load artifact content into conversation context — sub-agents write to disk |
 | Skip constraint checks | ALWAYS verify attempts against config.yaml limits before invoking |
 | Full context to sub-agents | ALWAYS use context slicing — never pass all artifacts to one sub-agent |
-| Assume downstream completion | NEVER assume a later stage is done; check state table |
+| Assume downstream completion | NEVER assume a later stage is done; check state.json |
 | Skip stages on user request | User requests are focus directives, not skip directives — full active loop is mandatory |
 | Skip essence gate | ALWAYS run Essence Sidecar BEFORE every stage |
 | Essence after stage | Essence runs BEFORE stage, not after — it validates inputs, not outputs |
-| Skip logging | ALWAYS update state table and iteration log every iteration |
 | Skip decision recording | ALWAYS extract AD-NNN decisions after each stage |
 | Defer decisions to doc phase | Decisions are recorded CONTINUOUSLY, not deferred |
 | Skip lessons | ALWAYS distill lessons from Verifier failures |
 | Hardcode paths | ALWAYS resolve paths from config — never use hardcoded paths |
 | Write to framework dir | NEVER write project artifacts to `{framework-root}` — use `{loop-root}` |
+| Interpret sub-agent response | Sub-agent returns 1 JSON line — read state.json for actual state, not response text |
+| Skip auto-resume | ALWAYS continue loop after sub-agent completes — do not wait for user input |
 
 ## PROGRESSIVE DISCLOSURE
 
 - Load stages by ID from `{stage-root}/` only when needed.
 - Load references by ID from `{reference-root}/` only when needed.
 - Load skills from `{skill-root}/` only when invoking a sub-agent.
+- Load sub-agent contract from `{reference-root}/sub-agent-contract.md` for every invocation.
 - Index of all stages and references: `CORE.md`.
 
 ```
@@ -632,6 +700,7 @@ ORCHESTRATOR (you)
 │
 ├── INIT → bmad-integration + auto-size
 │
+├── init.ideate → bmad-ideation (Party Mode + SDD)
 ├── init.bdd → BDD journey mapper          [large+]
 ├── init.refine → essence + brainstorming
 │

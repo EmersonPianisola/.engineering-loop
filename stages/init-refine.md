@@ -65,3 +65,18 @@ This stage exists for documentation only — mark done immediately and proceed.
 - **Never assume the user's intent** — always present refinements for confirmation
 - **Never skip essence validation** — every refinement must be checked for clarity
 - **Never proceed with a vague work item** — if the user's idea is too abstract, propose breaking it into smaller work items
+
+## State Update Contract
+
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+> **NOTE:** This stage is deprecated and early-exits. Set `done: true` immediately.
+
+1. Update `{loop-root}/state.json`:
+   - `stages.init.refine.done = true`
+   - `stages.init.refine.attempts += 1`
+   - `stages.init.refine.error = null`
+2. Your response MUST be a single JSON line:
+   - Success: `{"stage":"init.refine","status":"done","artifact":null}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

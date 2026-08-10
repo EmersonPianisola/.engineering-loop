@@ -71,6 +71,19 @@ description: 'Security review. OWASP WSTG-based security audit. Active for mediu
 - High findings → `done = false`, auto-fix inline, re-validate
 - Medium/low → auto-fix inline, log, `done = true`
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the security audit report with findings categorized by severity. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.qa.security.done = true` (or `false` on failure)
+   - `stages.qa.security.attempts += 1`
+   - `stages.qa.security.artifact_path = "artifacts/..."` (your output path)
+   - `stages.qa.security.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"qa.security","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"qa.security","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

@@ -162,6 +162,19 @@ For each failure (surviving mutant, spec gap, uncovered AC, SPEC_DEVIATION):
 - Bounded to `max_verify_attempts` (default: 3)
 - After 3 iterations still FAIL → escalate to user
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the validation report with verdict, per-AC evidence, sensor results, and gap list. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.verify.done = true` (or `false` on failure)
+   - `stages.verify.attempts += 1`
+   - `stages.verify.artifact_path = "artifacts/..."` (your output path)
+   - `stages.verify.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"verify","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"verify","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

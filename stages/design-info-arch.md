@@ -27,3 +27,20 @@ Information architecture procedure (sitemaps, wireframes, navigation).
 - Output: `sitemaps.md`, `wireframes.md`, `navigation-spec.md`.
 - Gate: every persona has a named path through IA; all journeys land on covered surfaces; every surface has a wireframe.
 - State: `done: true` when IA artifacts are documented.
+
+## State Update Contract
+
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.design.info-arch.done = true` (or `false` on failure)
+   - `stages.design.info-arch.attempts += 1`
+   - `stages.design.info-arch.artifact_path = "artifacts/..."` (your output path)
+   - `stages.design.info-arch.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"design.info-arch","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"design.info-arch","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

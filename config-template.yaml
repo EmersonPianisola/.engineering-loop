@@ -1,6 +1,6 @@
 name: engineering-loop
-version: 10.4.0
-description: 'LangGraph orchestrator with Pydantic structured output + evidence gates. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
+version: 10.5.0
+description: 'Filesystem-driven orchestrator with auto-resume. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
 
 # ============================================================
 # MODEL — local OpenAI-compatible endpoint (llama.cpp, vLLM, etc.)

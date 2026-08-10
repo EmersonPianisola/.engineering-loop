@@ -27,3 +27,20 @@ Design system procedure (tokens, components, guidelines).
 - Output: `design-tokens.md`, `component-library.md`, `design-guidelines.md`.
 - Gate: all tokens defined with values + usage rules; every component in wireframes has a library entry; governance model clear.
 - State: `done: true` when design system artifacts are documented.
+
+## State Update Contract
+
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.design.design-system.done = true` (or `false` on failure)
+   - `stages.design.design-system.attempts += 1`
+   - `stages.design.design-system.artifact_path = "artifacts/..."` (your output path)
+   - `stages.design.design-system.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"design.design-system","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"design.design-system","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

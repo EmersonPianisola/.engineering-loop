@@ -101,6 +101,19 @@ Decisions have been recorded continuously as AD-NNN entries in `STATE.md` throug
 
 All pass → `done = true`. Gaps → `done = false` (loop re-runs).
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the consolidated decision log document in MADR format. End your generation immediately after the decision log block. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.doc.decisions.done = true` (or `false` on failure)
+   - `stages.doc.decisions.attempts += 1`
+   - `stages.doc.decisions.artifact_path = "artifacts/..."` (your output path)
+   - `stages.doc.decisions.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"doc.decisions","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"doc.decisions","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

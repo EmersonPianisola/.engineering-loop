@@ -253,6 +253,19 @@ Only if the work item is user-facing:
 
 All pass → `done = true`. Gaps → `done = false` (loop re-runs).
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the documentation files to be created/updated. End your generation immediately after the last document block. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.doc.project.done = true` (or `false` on failure)
+   - `stages.doc.project.attempts += 1`
+   - `stages.doc.project.artifact_path = "artifacts/..."` (your output path)
+   - `stages.doc.project.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"doc.project","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"doc.project","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

@@ -364,6 +364,19 @@ Output to `{artifact-root}/e2e-report-{slug}.md`:
 | Network Errors | {count} |
 ```
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the E2E report with verdict, per-test results, console/network errors, and BDD→E2E coverage table. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.e2e.execute.done = true` (or `false` on failure)
+   - `stages.e2e.execute.attempts += 1`
+   - `stages.e2e.execute.artifact_path = "artifacts/..."` (your output path)
+   - `stages.e2e.execute.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"e2e.execute","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"e2e.execute","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

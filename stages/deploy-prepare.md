@@ -79,6 +79,19 @@ description: 'Deploy preparation. Build, lint, environment configuration, migrat
 - Build/lint/type errors → `done = false`, reset `impl.code.done = false`
 - Missing config → `done = false`, document missing items
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the deploy preparation report with pass/fail per check. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.deploy.prepare.done = true` (or `false` on failure)
+   - `stages.deploy.prepare.attempts += 1`
+   - `stages.deploy.prepare.artifact_path = "artifacts/..."` (your output path)
+   - `stages.deploy.prepare.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"deploy.prepare","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"deploy.prepare","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

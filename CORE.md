@@ -1,11 +1,11 @@
 ---
 name: engineering-loop
-version: 10.4.0
+version: 10.5.0
 type: framework
-description: 'LangGraph orchestrator with Pydantic structured output + evidence gates. Auto-sizes depth by complexity. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'Filesystem-driven orchestrator with auto-resume. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v10.4
+# Engineering Loop v10.5
 
 Persistent while-loop engine enforced by **LangGraph StateGraph** (Python) with **Pydantic structured output** and **evidence gates**. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
@@ -131,6 +131,7 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | `ui-testing` | UI Testing Patterns | `{reference-root}/ui-testing-patterns.md` |
 | `decisions` | Decision template (AD-NNN) | `{reference-root}/decision-log.md` |
 | `lessons` | Lessons lifecycle | `{reference-root}/lessons.md` |
+| `contract` | Sub-Agent Contract (filesystem-driven) | `{reference-root}/sub-agent-contract.md` |
 
 ---
 
@@ -140,7 +141,7 @@ See `skill-index.md` for full registry.
 
 ---
 
-## THE LOOP
+## THE LOOP — FILESYSTEM-DRIVEN AUTO-RESUME
 
 ```
 # INITIALIZATION
@@ -155,58 +156,45 @@ ensure_directories()
 state = initialize_state()           # all done: false, attempts: 0
 run_stage(init)                      # Phase 0: validate, auto-size, discover
 
-WHILE any active stage is not done:
+WHILE state.status == "running":
     state.iteration++
+    state = read({loop-root}/state.json)  # READ FROM DISK
 
-    # Identify first incomplete stage (order matters)
     stage = first_stage_with(done: false)
-
-    # ESSENCE GATE — always runs before stage
-    IF NOT stage.essence_checked:
-        essence_inputs = gather_essence_inputs(stage.id)
-        invoke_sub_agent("essence", essence_inputs, "Four Lenses validation")
-        IF essence.findings (Lenses 1-3):
-            adjust_inputs_inline()
-            stage.essence_checked = false  # re-run essence
-            STOP — wait for essence result
-        IF essence.Lens_4_tension:
-            escalate_to_user()
-            capture_user_decision(context.md)
-            AWAIT user resolution
-        stage.essence_checked = true
-
-    # Check constraint
-    IF stage.attempts >= config.constraints[max_{stage}_attempts]:
-        state.status = "blocked"
-        state.blocking_condition = "{stage} non-convergence"
+    IF stage is null:
+        state.status = "done"
+        write(state.json)
+        run_stage(post)
         EXIT
 
-    # Load stage procedure
-    procedure = load(stage.id)       # from {stage-root}/{stage-file}.md
+    # ESSENCE GATE
+    IF NOT stage.essence_checked:
+        invoke_sub_agent("essence", ...)
+        IF fail: CONTINUE loop  # Auto-resume
+        IF tension: AWAIT user, CONTINUE loop
+        stage.essence_checked = true
+        write(state.json)
+        CONTINUE loop
 
-    # Determine sub-agent + context slice
-    skill = stage_registry[stage.id].skill
-    context_slice = slice_context(stage.id)  # per {reference-root}/hardware-management.md
+    # CONSTRAINT CHECK
+    IF stage.attempts >= max:
+        state.status = "blocked"
+        write(state.json)
+        EXIT
 
-    # Increment attempts
+    # INVOKE SUB-AGENT (contract: writes artifact + state.json, returns 1 JSON line)
     stage.attempts++
-
-    # Invoke sub-agent
+    write(state.json)
     invoke_sub_agent(skill, context_slice, procedure)
 
-    # STOP — wait for sub-agent response
+    # READ UPDATED STATE FROM DISK
+    state = read({loop-root}/state.json)
 
-    # Continuous decisions — record any AD-NNN from stage output
-    extract_decisions(stage.output)
-
-    # Post-iteration maintenance
-    check_all_constraints()
-    compact_if_needed()
-    cap_findings()
-    log_state()
+    # AUTO-RESUME — loop continues
+    CONTINUE loop
 ```
 
-The loop does not "advance." It re-checks every active stage each iteration. A stage reset to `done: false` by a downstream finding is picked up naturally on the next iteration.
+**Context invariant:** Orchestrator reads state from disk each iteration. Sub-agents write artifacts to disk and return 1 JSON line. Orchestrator NEVER loads artifact content into conversation context. See `{reference-root}/sub-agent-contract.md`.
 
 ## Loop Safety
 

@@ -50,6 +50,19 @@ description: 'Phase 5 (Skill Improvement + Lessons) + Phase 6 (Finalize). Runs o
 8. Append to `{log_root}/index.md`.
 9. Report summary to user.
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the finalized work item status, completion log summary, and lessons summary. End your generation immediately after the summary. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.post.done = true` (or `false` on failure)
+   - `stages.post.attempts += 1`
+   - `stages.post.artifact_path = "artifacts/..."` (your output path)
+   - `stages.post.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"post","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"post","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.

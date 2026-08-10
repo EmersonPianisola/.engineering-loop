@@ -74,6 +74,19 @@ description: 'Performance check. Load targets, bundle size, response time. Activ
 - High findings → `done = false`, document for optimization sprint
 - Medium/low → log as optimization backlog, `done = true`
 
-## Expected Output
+## State Update Contract
 
-Your final response MUST strictly contain the performance report with metrics and findings. End your generation immediately after the report. Do not write "Next steps".
+**MANDATORY.** Follow `{reference-root}/sub-agent-contract.md`. Before returning your response:
+
+1. Write all artifacts to their designated paths in `{artifact-root}/`
+2. Update `{loop-root}/state.json`:
+   - `stages.qa.performance.done = true` (or `false` on failure)
+   - `stages.qa.performance.attempts += 1`
+   - `stages.qa.performance.artifact_path = "artifacts/..."` (your output path)
+   - `stages.qa.performance.error = null` (or failure description)
+3. Record AD-NNN decisions in `{loop-root}/STATE.md ## Decisions` (if applicable)
+4. Your response MUST be a single JSON line:
+   - Success: `{"stage":"qa.performance","status":"done","artifact":"artifacts/..."}`
+   - Failure: `{"stage":"qa.performance","status":"failed","error":"reason"}`
+
+DO NOT include artifact content, summaries, or "Next steps" in your response.
