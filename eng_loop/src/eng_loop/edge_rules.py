@@ -81,6 +81,25 @@ class EdgeRulesEngine:
                 result.append(rule)
         return result
 
+    def get_applicable_rules(
+        self,
+        active_node_ids: set[str],
+    ) -> list[EdgeRule]:
+        """Return rules with valid source/target nodes, WITHOUT evaluating conditions.
+
+        Used for building conditional edges — all possible targets must be declared
+        upfront so the branch lookup succeeds at runtime, regardless of which
+        condition evaluates to True.
+        """
+        result = []
+        for rule in self._rules:
+            if rule.from_node not in active_node_ids and rule.from_node != "*":
+                continue
+            if rule.to_node not in active_node_ids and rule.to_node not in ("__end__",):
+                continue
+            result.append(rule)
+        return result
+
     def get_next_nodes(
         self,
         from_node: str,

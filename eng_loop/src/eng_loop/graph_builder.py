@@ -96,8 +96,12 @@ class GraphBuilder:
             logger.info("  Node registered: %s (%s)", spec.node_name, spec.description)
 
         # 4. Resolve and add edges
-        resolved_rules = self.rules.resolve(active_node_names | {"__start__"}, state)
-        self._add_edges(builder, resolved_rules, active_node_names, state, topology)
+        # Use get_applicable_rules (not resolve) so ALL conditional targets are
+        # declared upfront. Conditions are evaluated at runtime in _route(), not
+        # at build time — otherwise edges like init->__end__ get filtered out when
+        # status="running" and cause KeyError at runtime.
+        applicable_rules = self.rules.get_applicable_rules(active_node_names | {"__start__"})
+        self._add_edges(builder, applicable_rules, active_node_names, state, topology)
 
         # 5. Handle parallel QA if enabled
         if self.parallel_qa:
