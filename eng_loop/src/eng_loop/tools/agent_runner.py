@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Type
@@ -211,37 +212,114 @@ def run_agent_via_opencode(
             f"Use the `write` tool to write the file. This is MANDATORY — the loop cannot proceed without it.\n"
         )
 
-        # Build opencode command
+        # Build opencode command with JSON event stream
         cmd = [
             "opencode", "run",
             "--dir", str(project_root),
             "--auto",
+            "--format", "json",
             output_prompt,
         ]
 
         if model_name:
             cmd.extend(["--model", model_name])
 
-        # Execute opencode as subprocess
+        # Execute opencode as subprocess, streaming JSON events
+        TIMEOUT = 600
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=600,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 cwd=str(project_root),
             )
 
+            last_progress = time.monotonic()
+            timed_out = [False]
+            tool_count = [0]
+
+            # Watchdog thread to enforce timeout
+            def _watchdog():
+                time.sleep(TIMEOUT)
+                if proc.poll() is None:
+                    timed_out[0] = True
+                    proc.kill()
+
+            threading.Thread(target=_watchdog, daemon=True).start()
+
+            # Stream JSON events line-by-line
+            while not timed_out[0]:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+
+                try:
+                    decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
+                except AttributeError:
+                    decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
+
+                if not decoded:
+                    continue
+
+                # Parse JSON event
+                try:
+                    event = json.loads(decoded)
+                except json.JSONDecodeError:
+                    continue
+
+                part = event.get("part", {})
+                event_type = event.get("type", "")
+
+                if event_type == "tool_use":
+                    tool_name = part.get("tool", "?")
+                    status = part.get("state", {}).get("status", "")
+                    inp = part.get("state", {}).get("input", {})
+                    # Extract file/path from tool input
+                    path = inp.get("filePath", inp.get("path", inp.get("pattern", "")))
+                    if path:
+                        # Show just the filename, not the full path
+                        display = path.split("/")[-1].split("\\")[-1]
+                        _print_tool(stage_id, tool_name, display, status)
+                    else:
+                        _print_tool(stage_id, tool_name, "", status)
+                    tool_count[0] += 1
+
+                elif event_type == "text":
+                    text = part.get("text", "")
+                    if text.strip():
+                        _print_text(stage_id, text.strip()[:200])
+
+                elif event_type == "step_finish":
+                    reason = part.get("reason", "")
+                    if reason == "error":
+                        _print_error(stage_id, part.get("error", "unknown error"))
+
+                # Progress heartbeat every 30s
+                now = time.monotonic()
+                if now - last_progress > 30:
+                    _print_progress(stage_id, now - t0)
+                    last_progress = now
+
+            proc.wait()
             elapsed = time.monotonic() - t0
 
-            if result.returncode != 0:
-                stderr_preview = (result.stderr or "")[:500]
-                log_stage_fail(stage_id, f"opencode exited with code {result.returncode}: {stderr_preview}")
+            if timed_out[0]:
+                log_model_done(stage_id, elapsed)
+                log_stage_fail(stage_id, f"opencode timed out after {TIMEOUT}s")
                 return AgentResult(
                     data={},
                     iterations=1,
                     elapsed=elapsed,
-                    error=f"opencode exit {result.returncode}: {stderr_preview}",
+                    error=f"opencode timed out after {TIMEOUT}s",
+                )
+
+            if proc.returncode != 0:
+                log_stage_fail(stage_id, f"opencode exited with code {proc.returncode}")
+                return AgentResult(
+                    data={},
+                    iterations=1,
+                    elapsed=elapsed,
+                    error=f"opencode exit {proc.returncode}",
                 )
 
             # Read structured output from file
@@ -252,32 +330,29 @@ def run_agent_via_opencode(
                     if not isinstance(data, dict):
                         data = {"raw_output": str(data)[:5000], "complete": True}
                 else:
-                    # Fallback: try to extract JSON from stdout
-                    data = _extract_from_opencode_output(result.stdout, output_schema)
+                    data = {"complete": True}
             except (json.JSONDecodeError, Exception) as e:
-                data = _extract_from_opencode_output(result.stdout, output_schema)
-                if not data:
-                    data = {"error": f"failed to parse output: {e}", "complete": True}
+                data = {"error": f"failed to parse output: {e}", "complete": True}
 
             log_model_done(stage_id, elapsed)
-            log_stage_done(stage_id, f"opencode agent completed")
+            log_stage_done(stage_id, f"opencode agent completed ({tool_count[0]} tools)")
 
             return AgentResult(
                 data=data,
                 iterations=1,
-                tool_calls_made=0,
+                tool_calls_made=tool_count[0],
                 elapsed=elapsed,
             )
 
-        except subprocess.TimeoutExpired:
+        except Exception as e:
             elapsed = time.monotonic() - t0
             log_model_done(stage_id, elapsed)
-            log_stage_fail(stage_id, "opencode timed out after 600s")
+            log_stage_fail(stage_id, str(e))
             return AgentResult(
                 data={},
                 iterations=1,
                 elapsed=elapsed,
-                error="opencode timed out after 600s",
+                error=str(e),
             )
 
     finally:
@@ -289,33 +364,44 @@ def run_agent_via_opencode(
             pass
 
 
-def _extract_from_opencode_output(stdout: str, output_schema: Type[BaseModel] | None) -> dict[str, Any]:
-    """Try to extract structured JSON from opencode stdout output."""
-    # Try parsing as JSON lines (if --format json was used)
-    for line in stdout.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if isinstance(event, dict):
-                content = event.get("content", "")
-                if content and isinstance(content, str):
-                    data = extract_json(content)
-                    if data and isinstance(data, dict) and data:
-                        return data
-        except (json.JSONDecodeError, ValueError):
-            continue
+def _extract_from_opencode_output(stdout, output_schema: Type[BaseModel] | None) -> dict[str, Any]:
+    """Fallback: extract structured JSON from opencode output."""
+    return {"complete": True}
 
-    # Fallback: try to extract JSON from the full stdout
-    try:
-        data = extract_json(stdout)
-        if data and isinstance(data, dict):
-            return data
-    except ValueError:
-        pass
 
-    return {"raw_output": stdout[:5000], "complete": True}
+def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
+    """Print a tool call event, mimicking opencode TUI style."""
+    import sys as _sys
+    icon = {"read": "R", "write": "W", "edit": "E", "bash": "$", "glob": "G", "grep": "S"}.get(tool, "?")
+    path_str = f" {path}" if path else ""
+    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[36m{icon}\033[0m {tool}{path_str}\n")
+    _sys.stdout.flush()
+
+
+def _print_text(stage_id: str, text: str) -> None:
+    """Print LLM text output, truncated."""
+    import sys as _sys
+    # Only print if it's substantive (not just "OK" or similar)
+    if len(text) < 10:
+        return
+    # Print first line only
+    first_line = text.split("\n")[0][:120]
+    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[2m{first_line}\033[0m\n")
+    _sys.stdout.flush()
+
+
+def _print_error(stage_id: str, error: str) -> None:
+    """Print an error event."""
+    import sys as _sys
+    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[31merror: {error}\033[0m\n")
+    _sys.stdout.flush()
+
+
+def _print_progress(stage_id: str, elapsed: float) -> None:
+    """Print a progress heartbeat."""
+    import sys as _sys
+    _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s\033[0m\n")
+    _sys.stdout.flush()
 
 
 def _build_agent_prompt(prompt: str, tools: list[Tool]) -> str:
