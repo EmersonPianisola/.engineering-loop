@@ -13,7 +13,7 @@ Framework files (git-tracked) must never be modified at runtime. Project files (
 | `config-template.yaml` | `config.yaml` |
 | `state-template.json` | `state.json` |
 | `stages/`, `skills/`, `references/` | `artifacts/` |
-| `ORCHESTRATOR.md`, `CORE.md` | `STATE.md`, `context.md` |
+| `ORCHESTRATOR.md`, `CORE.md`, `START.md` | `STATE.md`, `context.md` |
 
 See `.gitignore` for the full list. If you're editing a file that should be project-specific, you're in the wrong place — that belongs in the consumer project.
 

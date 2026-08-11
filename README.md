@@ -6,6 +6,8 @@ description: 'Comprehensive framework documentation.'
 
 # Engineering Loop v10.4
 
+**New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
+
 Persistent **while-loop engine** for AI-assisted software development. LangGraph-based orchestrator enforces flow programmatically with Pydantic structured output and evidence gates. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
 
 | | |

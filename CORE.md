@@ -7,6 +7,8 @@ description: 'Filesystem-driven orchestrator with auto-resume. Sub-agent contrac
 
 # Engineering Loop v10.5
 
+**Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
+
 Persistent while-loop engine enforced by **LangGraph StateGraph** (Python) with **Pydantic structured output** and **evidence gates**. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
 **Orchestrator:** `eng_loop/` (LangGraph Python, Pydantic schemas, CLI: `eng-loop`)
