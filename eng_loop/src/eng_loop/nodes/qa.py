@@ -89,6 +89,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), findings, critic
             stage_id=stage_id,
             output_schema=QaOutput,
             max_iterations=max_agent_iterations,
+            config=config,
         )
 
         result = agent_result.data

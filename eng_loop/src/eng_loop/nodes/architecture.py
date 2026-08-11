@@ -92,6 +92,7 @@ Return a JSON object with these fields: architecture_output, complete, decisions
             stage_id=stage_id,
             output_schema=ArchOutput,
             max_iterations=max_agent_iterations,
+            config=config,
         )
 
         result = agent_result.data

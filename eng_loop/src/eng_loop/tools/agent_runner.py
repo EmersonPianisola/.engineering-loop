@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Type
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -42,14 +46,37 @@ def run_agent(
     output_schema: Type[BaseModel] | None = None,
     max_iterations: int = 25,
     system_message: str = "",
+    *,
+    config: dict[str, Any] | None = None,
 ) -> AgentResult:
     """Run an agentic loop: LLM calls tools until work is complete, then extracts structured output.
 
-    Flow:
+    When ENG_AGENT_BACKEND=opencode, delegates to opencode CLI which uses native tools.
+    Otherwise, uses LangChain tool-calling loop.
+
+    Flow (LangChain mode):
     1. Bind tools to model
     2. Loop: invoke → check for tool_calls → execute tools → append results
     3. When no more tool calls: extract structured output via final invocation
+
+    Flow (opencode mode):
+    1. Invoke opencode run with stage prompt as subprocess
+    2. opencode executes with native tools (read, write, edit, bash, glob, grep)
+    3. Parse structured output from result file
     """
+    backend = os.environ.get("ENG_AGENT_BACKEND", "langchain")
+    if backend == "opencode" and config:
+        project_root = config.get("paths", {}).get("project_root", ".")
+        model_cfg = config.get("model", {})
+        return run_agent_via_opencode(
+            prompt=prompt,
+            stage_id=stage_id,
+            output_schema=output_schema,
+            project_root=project_root,
+            model_name=model_cfg.get("model", ""),
+        )
+
+    # Original LangChain tool-calling loop
     log_model_invoke(stage_id)
     t0 = time.monotonic()
 
@@ -147,6 +174,148 @@ def run_agent(
         elapsed=elapsed,
         error=f"exceeded max_iterations ({max_iterations})",
     )
+
+
+def run_agent_via_opencode(
+    prompt: str,
+    stage_id: str,
+    output_schema: Type[BaseModel] | None = None,
+    project_root: str = ".",
+    model_name: str = "",
+) -> AgentResult:
+    """Run a stage by invoking opencode CLI as a subprocess.
+
+    Python controls the graph, opencode executes with native tools.
+    The agent writes structured output to a temp file for Python to read.
+    """
+    log_model_invoke(stage_id)
+    t0 = time.monotonic()
+
+    # Create temp file for structured output
+    fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
+    os.close(fd)
+
+    try:
+        # Build schema field list for the output instruction
+        schema_fields = ""
+        if output_schema:
+            schema_fields = ", ".join(f"`{f}`" for f in output_schema.model_fields.keys())
+
+        # Append structured output instruction to prompt
+        output_prompt = (
+            f"{prompt}\n\n"
+            f"## OUTPUT FORMAT\n"
+            f"When your work is complete, write your result as a JSON object to this file:\n"
+            f"**{output_file}**\n\n"
+            f"The JSON must contain these fields: {schema_fields or 'your result data'}.\n"
+            f"Use the `write` tool to write the file. This is MANDATORY — the loop cannot proceed without it.\n"
+        )
+
+        # Build opencode command
+        cmd = [
+            "opencode", "run",
+            "--dir", str(project_root),
+            "--auto",
+            output_prompt,
+        ]
+
+        if model_name:
+            cmd.extend(["--model", model_name])
+
+        # Execute opencode as subprocess
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=str(project_root),
+            )
+
+            elapsed = time.monotonic() - t0
+
+            if result.returncode != 0:
+                stderr_preview = (result.stderr or "")[:500]
+                log_stage_fail(stage_id, f"opencode exited with code {result.returncode}: {stderr_preview}")
+                return AgentResult(
+                    data={},
+                    iterations=1,
+                    elapsed=elapsed,
+                    error=f"opencode exit {result.returncode}: {stderr_preview}",
+                )
+
+            # Read structured output from file
+            try:
+                if Path(output_file).exists():
+                    raw = Path(output_file).read_text(encoding="utf-8")
+                    data = json.loads(raw)
+                    if not isinstance(data, dict):
+                        data = {"raw_output": str(data)[:5000], "complete": True}
+                else:
+                    # Fallback: try to extract JSON from stdout
+                    data = _extract_from_opencode_output(result.stdout, output_schema)
+            except (json.JSONDecodeError, Exception) as e:
+                data = _extract_from_opencode_output(result.stdout, output_schema)
+                if not data:
+                    data = {"error": f"failed to parse output: {e}", "complete": True}
+
+            log_model_done(stage_id, elapsed)
+            log_stage_done(stage_id, f"opencode agent completed")
+
+            return AgentResult(
+                data=data,
+                iterations=1,
+                tool_calls_made=0,
+                elapsed=elapsed,
+            )
+
+        except subprocess.TimeoutExpired:
+            elapsed = time.monotonic() - t0
+            log_model_done(stage_id, elapsed)
+            log_stage_fail(stage_id, "opencode timed out after 600s")
+            return AgentResult(
+                data={},
+                iterations=1,
+                elapsed=elapsed,
+                error="opencode timed out after 600s",
+            )
+
+    finally:
+        # Clean up temp file
+        try:
+            if Path(output_file).exists():
+                os.unlink(output_file)
+        except OSError:
+            pass
+
+
+def _extract_from_opencode_output(stdout: str, output_schema: Type[BaseModel] | None) -> dict[str, Any]:
+    """Try to extract structured JSON from opencode stdout output."""
+    # Try parsing as JSON lines (if --format json was used)
+    for line in stdout.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+            if isinstance(event, dict):
+                content = event.get("content", "")
+                if content and isinstance(content, str):
+                    data = extract_json(content)
+                    if data and isinstance(data, dict) and data:
+                        return data
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    # Fallback: try to extract JSON from the full stdout
+    try:
+        data = extract_json(stdout)
+        if data and isinstance(data, dict):
+            return data
+    except ValueError:
+        pass
+
+    return {"raw_output": stdout[:5000], "complete": True}
 
 
 def _build_agent_prompt(prompt: str, tools: list[Tool]) -> str:

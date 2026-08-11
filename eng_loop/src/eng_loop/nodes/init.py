@@ -89,6 +89,7 @@ Validate the input and return a JSON object with these fields: valid, work_item_
         stage_id=stage_id,
         output_schema=InitOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -197,6 +198,7 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
         stage_id=stage_id,
         output_schema=InitIdeateOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -304,6 +306,7 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
         stage_id=stage_id,
         output_schema=InitBddOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -393,6 +396,7 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
         stage_id=stage_id,
         output_schema=InitRefineOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

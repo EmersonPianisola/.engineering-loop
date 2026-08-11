@@ -87,6 +87,7 @@ Return a JSON object with these fields: summary, lessons_to_share, final_status,
         stage_id=stage_id,
         output_schema=PostOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

@@ -76,6 +76,7 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
         stage_id=stage_id,
         output_schema=DeployPrepareOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -213,6 +214,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, 
         stage_id=stage_id,
         output_schema=SmokeTestOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

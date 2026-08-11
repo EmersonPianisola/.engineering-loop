@@ -157,6 +157,9 @@ eng-loop -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
 # Dynamic graph (v11, recommended)
 eng-loop --dynamic-graph -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
 
+# Hybrid mode: Python graph + OpenCode native tools
+eng-loop --dynamic-graph --opencode-agent -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
+
 # Dynamic graph with parallel QA
 eng-loop --dynamic-graph --parallel-qa -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
 
@@ -352,6 +355,42 @@ The LLM reads `ORCHESTRATOR.md`, which instructs it to:
 
 This solves the problem of LLM ignoring the loop: the graph is built by Python, the LLM follows it.
 
+### Hybrid Mode (Python graph + OpenCode tools)
+
+The `--opencode-agent` flag enables **hybrid execution**: Python (LangGraph) controls the graph, routing, state, and evidence gates, while **OpenCode CLI** executes each stage with native tools.
+
+```bash
+eng-loop --dynamic-graph --opencode-agent -w "Add OAuth2 login" -f .eng -l .eng -p .
+```
+
+Or via `config.yaml`:
+```yaml
+agent:
+  backend: "opencode"
+```
+
+**Architecture:**
+
+```
+Python (LangGraph)              opencode run (subprocess)
+┌─────────────────────┐         ┌──────────────────────────┐
+│ Graph routing       │  prompt │ Native tools:            │
+│ State management    │ ──────> │ read, write, edit,       │
+│ Stage sequencing    │         │ bash, glob, grep         │
+│ Evidence gates      │  <────  │ Session context          │
+│ Complexity sizing   │ result  │ Permission sandbox       │
+└─────────────────────┘         └──────────────────────────┘
+```
+
+**Why use hybrid mode?**
+
+| Python CLI (`--dynamic-graph`) | Hybrid (`--opencode-agent`) |
+|---|---|
+| LangChain tool-calling loop | OpenCode native tools |
+| Independent LLM agent instance | Full OpenCode session context |
+| Python-implemented tools | Permission sandbox, agent plugins |
+| No access to OpenCode features | All OpenCode capabilities |
+
 ---
 
 ## LangGraph Orchestrator
@@ -516,6 +555,7 @@ model_overrides:
 eng-loop --work-item "description"   Run the loop (static graph)
   --dynamic-graph                     Use dynamic graph construction (v11)
   --parallel-qa                       Run QA stages in parallel (requires --dynamic-graph)
+  --opencode-agent                    Hybrid mode: Python controls graph, OpenCode executes stages (requires --dynamic-graph)
   --build-topology                    Build graph topology and output as markdown (for LLM mode)
   -f, --framework-root                Framework root (default: .)
   -l, --loop-root                     Loop root (default: .)
@@ -1551,6 +1591,7 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v10.3.0 | 2026-08-01 | **LangGraph orchestrator**: Programmatic flow control, 26 stage nodes, local model support (OpenAI-compatible), CLI (`eng-loop`), markdown as prompt templates, per-stage model overrides |
 | v10.4.0 | 2026-08-04 | **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies), automatic retry on failure, iteration counter tracking, `json_parse.py`, `evidence_gate.py`, `schemas.py`, `stage_runner.py` |
 | v11.0.0 | 2026-08-10 | **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`, `--build-topology`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |
+| v11.1.0 | 2026-08-11 | **Hybrid agent backend**: `--opencode-agent` flag enables Python graph control + OpenCode native tool execution. `run_agent_via_opencode()` invokes `opencode run` as subprocess. Config: `agent.backend: "opencode"`. All node handlers updated to pass `config` to `run_agent()`. `_extract_from_opencode_output()` for robust JSON extraction from OpenCode output |
 
 ---
 

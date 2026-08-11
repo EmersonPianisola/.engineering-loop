@@ -80,6 +80,7 @@ Return a JSON object with these fields: lenses_1_3 (list), lens_4 (null or strin
         prompt=prompt,
         stage_id=f"{stage_id}.essence",
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

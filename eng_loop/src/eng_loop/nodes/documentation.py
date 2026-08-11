@@ -69,6 +69,7 @@ Return a JSON object with these fields: decision_log, decisions_count, complete.
         stage_id=stage_id,
         output_schema=DocDecisionsOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -172,6 +173,7 @@ Return a JSON object with these fields: readme, setup_guide, architecture_overvi
         stage_id=stage_id,
         output_schema=DocProjectOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

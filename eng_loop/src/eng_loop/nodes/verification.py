@@ -90,6 +90,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
         stage_id=stage_id,
         output_schema=VerifyOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -245,6 +246,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), test_results, co
         stage_id=stage_id,
         output_schema=E2eOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data

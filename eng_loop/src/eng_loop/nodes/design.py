@@ -97,6 +97,7 @@ Return a JSON object with these fields: design_output, artifacts, complete, deci
             stage_id=stage_id,
             output_schema=DesignOutput,
             max_iterations=max_agent_iterations,
+            config=config,
         )
 
         result = agent_result.data

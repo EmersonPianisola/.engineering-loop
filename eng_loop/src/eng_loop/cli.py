@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ def main():
     parser.add_argument("--dynamic-graph", action="store_true", help="Use dynamic graph construction (v11)")
     parser.add_argument("--parallel-qa", action="store_true", help="Run QA stages in parallel (requires --dynamic-graph)")
     parser.add_argument("--build-topology", action="store_true", help="Build dynamic graph topology and output as markdown (for LLM orchestrator)")
+    parser.add_argument("--opencode-agent", action="store_true", help="Use opencode CLI as agent backend (Python controls graph, opencode executes with native tools)")
     args = parser.parse_args()
 
     framework_root = Path(args.framework_root).resolve()
@@ -37,6 +39,12 @@ def main():
     config = load_config(framework_root, loop_root)
     paths = resolve_paths(config, framework_root, loop_root, project_root)
     ensure_directories(paths)
+
+    # Set agent backend env var for hybrid mode
+    if args.opencode_agent:
+        os.environ["ENG_AGENT_BACKEND"] = "opencode"
+    elif config.get("agent", {}).get("backend", "langchain") == "opencode":
+        os.environ["ENG_AGENT_BACKEND"] = "opencode"
 
     # Apply CLI overrides
     if args.model_base_url:
@@ -81,6 +89,8 @@ def main():
             print("Mode: Dynamic graph + parallel QA")
         else:
             print("Mode: Dynamic graph")
+        if args.opencode_agent:
+            print("Agent backend: opencode (hybrid mode)")
 
         from eng_loop.graph_builder import GraphBuilder
         graph_builder = GraphBuilder(parallel_qa=parallel_qa)

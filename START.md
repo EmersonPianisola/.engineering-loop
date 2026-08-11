@@ -21,6 +21,19 @@ eng-loop --dynamic-graph --parallel-qa -w "descrição do trabalho" -f .eng -l .
 eng-loop -w "descrição do trabalho" -f .eng -l .eng -p .
 ```
 
+### CLI — Modo Hibrido (Python controla grafo, OpenCode executa stages)
+
+```bash
+# Flag --opencode-agent: Python controla grafo/routing/state, OpenCode executa com tools nativas
+eng-loop --dynamic-graph --opencode-agent -w "descrição do trabalho" -f .eng -l .eng -p .
+
+# Ou via config.yaml:
+# agent:
+#   backend: "opencode"
+```
+
+Python (LangGraph) controla **grafo, routing, state, evidence gates**. OpenCode executa cada stage com **tools nativas** (read, write, edit, bash, glob, grep), **session context** e **permission sandbox**.
+
 ### CLI — Gerar Topology (para modo LLM)
 
 ```bash
@@ -44,6 +57,7 @@ Carregue `ORCHESTRATOR.md` na sessão do seu AI agent. O orquestrador instrui a 
 |------|----------|
 | `--dynamic-graph` | Ativa grafo dinâmico (v11) — só nós necessários |
 | `--parallel-qa` | QA stages em paralelo (fan-out/fan-in) |
+| `--opencode-agent` | Modo hibrido: Python controla grafo, OpenCode executa stages com tools nativas |
 | `--build-topology` | Gera topology markdown para modo LLM |
 | `--check-model` | Verifica conectividade do modelo |
 | `--dry-run` | Valida configuração e sai |

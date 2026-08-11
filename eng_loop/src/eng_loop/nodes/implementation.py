@@ -82,6 +82,7 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
         stage_id=stage_id,
         output_schema=ImplDesignOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -233,6 +234,7 @@ Return a JSON object with these fields: implementation_summary, files_created, t
         stage_id=stage_id,
         output_schema=ImplCodeOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
@@ -360,6 +362,7 @@ Return a JSON object with these fields: files_updated, complete.
         stage_id=stage_id,
         output_schema=DocUpdateOutput,
         max_iterations=max_agent_iterations,
+        config=config,
     )
 
     result = agent_result.data
