@@ -18,7 +18,8 @@ Read settings from `{loop-root}/config.yaml` under `hardware:`.
 | `context_safety_margin` | 0.15 | Reserve 15% (30K buffer) |
 | `max_parallel_agents` | 3 | Max concurrent sub-agents |
 | `agent_context_limit` | 66666 | Max tokens per sub-agent |
-| `stage_timeout_seconds` | 300 | Max seconds per stage |
+| `idle_timeout_seconds` | 180 | Kill opencode only when model produces no output for this long |
+| `stage_timeout_seconds` | 600 | Hard fallback — last resort when idle detection fails |
 | `max_artifact_size_lines` | 300 | Cap artifact file size |
 | `max_findings_buffer` | 50 | Cap accumulated findings |
 | `compact_log_after_iteration` | 3 | Compact log after N iterations |
@@ -77,7 +78,21 @@ compact_log():
 
 ## Stage Timeout
 
-If a stage exceeds `stage_timeout_seconds`:
+Timeout is not a hard cutoff — it monitors the model's actual response stream.
+
+### Idle Timeout (primary)
+
+The opencode subprocess streams JSON events. Python tracks `last_activity` on each event. If no events arrive for `idle_timeout_seconds` (default 180s), the process is killed. This means:
+
+- If the model is actively producing tokens, the stage runs indefinitely
+- If the model hangs (stops producing output), the stage is terminated after 180s of silence
+- Tool execution time does NOT count as idle — only model silence triggers timeout
+
+### Hard Timeout (fallback)
+
+`stage_timeout_seconds` is a last-resort watchdog. If for some reason the idle detection fails (e.g., subprocess hangs without producing or stopping output), the hard timeout kills the process after 600s.
+
+When either timeout fires:
 
 1. Set `status: halted`, `blocking_condition: stage timeout exceeded`
 2. Save current state to log

@@ -109,7 +109,8 @@ hardware:
   context_safety_margin: 0.15
   max_parallel_agents: 3
   agent_context_limit: 66666
-  stage_timeout_seconds: 300
+  idle_timeout_seconds: 180     # Kill only when model produces no tokens for this long
+  stage_timeout_seconds: 600   # Hard fallback — last resort when idle detection fails
   max_artifact_size_lines: 300
   max_findings_buffer: 50
   compact_log_after_iteration: 3

@@ -75,6 +75,7 @@ def run_agent(
             output_schema=output_schema,
             project_root=project_root,
             model_name=model_cfg.get("model", ""),
+            config=config,
         )
 
     # Original LangChain tool-calling loop
@@ -183,14 +184,24 @@ def run_agent_via_opencode(
     output_schema: Type[BaseModel] | None = None,
     project_root: str = ".",
     model_name: str = "",
+    *,
+    config: dict[str, Any] | None = None,
 ) -> AgentResult:
     """Run a stage by invoking opencode CLI as a subprocess.
 
     Python controls the graph, opencode executes with native tools.
     The agent writes structured output to a temp file for Python to read.
+
+    Timeout strategy: monitor streaming events. Only kill when the model
+    stops producing tokens (idle timeout). Hard timeout is last-resort fallback.
     """
     log_model_invoke(stage_id)
     t0 = time.monotonic()
+
+    # Read timeout config: idle (no-progress) and hard fallback
+    hardware = (config or {}).get("hardware", {})
+    HARD_TIMEOUT = hardware.get("stage_timeout_seconds", 600)
+    IDLE_TIMEOUT = hardware.get("idle_timeout_seconds", 180)
 
     # Create temp file for structured output
     fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
@@ -224,8 +235,6 @@ def run_agent_via_opencode(
         if model_name:
             cmd.extend(["--model", model_name])
 
-        # Execute opencode as subprocess, streaming JSON events
-        TIMEOUT = 600
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -234,20 +243,21 @@ def run_agent_via_opencode(
                 cwd=str(project_root),
             )
 
+            last_activity = time.monotonic()
             last_progress = time.monotonic()
             timed_out = [False]
             tool_count = [0]
 
-            # Watchdog thread to enforce timeout
-            def _watchdog():
-                time.sleep(TIMEOUT)
+            # Hard fallback watchdog — only fires if everything else fails
+            def _hard_watchdog():
+                time.sleep(HARD_TIMEOUT)
                 if proc.poll() is None:
                     timed_out[0] = True
                     proc.kill()
 
-            threading.Thread(target=_watchdog, daemon=True).start()
+            threading.Thread(target=_hard_watchdog, daemon=True).start()
 
-            # Stream JSON events line-by-line
+            # Stream JSON events line-by-line, monitoring for idle model
             while not timed_out[0]:
                 line = proc.stdout.readline()
                 if not line:
@@ -259,7 +269,19 @@ def run_agent_via_opencode(
                     decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
 
                 if not decoded:
+                    # No output — check for idle timeout
+                    now = time.monotonic()
+                    idle_seconds = now - last_activity
+                    if idle_seconds > IDLE_TIMEOUT:
+                        _print_progress(stage_id, now - t0)
+                        _print_warning(stage_id, f"model idle for {idle_seconds:.0f}s, killing process")
+                        timed_out[0] = True
+                        proc.kill()
+                        break
                     continue
+
+                # Activity detected — reset idle timer
+                last_activity = time.monotonic()
 
                 # Parse JSON event
                 try:
@@ -305,12 +327,12 @@ def run_agent_via_opencode(
 
             if timed_out[0]:
                 log_model_done(stage_id, elapsed)
-                log_stage_fail(stage_id, f"opencode timed out after {TIMEOUT}s")
+                log_stage_fail(stage_id, f"opencode timed out (hard fallback after {HARD_TIMEOUT}s)")
                 return AgentResult(
                     data={},
                     iterations=1,
                     elapsed=elapsed,
-                    error=f"opencode timed out after {TIMEOUT}s",
+                    error=f"opencode timed out after {HARD_TIMEOUT}s",
                 )
 
             if proc.returncode != 0:
@@ -401,6 +423,13 @@ def _print_progress(stage_id: str, elapsed: float) -> None:
     """Print a progress heartbeat."""
     import sys as _sys
     _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s\033[0m\n")
+    _sys.stdout.flush()
+
+
+def _print_warning(stage_id: str, message: str) -> None:
+    """Print a warning message."""
+    import sys as _sys
+    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[33mwarn: {message}\033[0m\n")
     _sys.stdout.flush()
 
 
