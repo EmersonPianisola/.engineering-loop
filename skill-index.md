@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v10.5.0
+**Framework:** Engineering Loop v11.0.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -74,4 +74,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-01 | all | v10.3.0 — Shared lessons from kapa: L-001 (page-level E2E tests required, API-only tests miss SSR errors), L-002 (navigation links must be clicked and destination verified, not just asserted visible) |
 | 2026-08-01 | all | v10.3.1 — **LangGraph orchestrator**: Programmatic flow control via `StateGraph` (28 nodes), local model support (OpenAI-compatible), CLI (`eng-loop`), markdown stages as prompt templates, per-stage model overrides, `interrupt()` for Lens 4 escalation |
 | 2026-08-04 | all | v10.4.0 — **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies in `json_parse.py`), automatic retry on failure, iteration counter tracking, `stage_runner.py` shared helper |
-| 2026-08-10 | all | v10.5.0 — **Filesystem-driven auto-resume**: sub-agent contract (`sub-agent-contract.md`), state.json as single source of truth, sub-agents write artifacts to disk and return 1 JSON line, orchestrator reads state from disk each iteration, context invariant (~60 lines per iteration), `artifact_path` and `error` fields in state template |
+| 2026-08-10 | all | v11.0.0 — **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |

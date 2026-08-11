@@ -1,6 +1,6 @@
 name: engineering-loop
-version: 10.5.0
-description: 'Filesystem-driven orchestrator with auto-resume. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
+version: 11.0.0
+description: 'Dynamic graph orchestrator with LangGraph. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
 
 # ============================================================
 # MODEL — local OpenAI-compatible endpoint (llama.cpp, vLLM, etc.)
@@ -164,3 +164,11 @@ graphify:
   build_on_commit: false
   update_after_impl: true
   skip_if_small: true
+
+# ============================================================
+# DYNAMIC GRAPH — construct graph per work item (v11)
+# ============================================================
+dynamic_graph:
+  enabled: false             # Set true for dynamic graph construction
+  parallel_qa: false         # Run QA stages in parallel (fan-out/fan-in)
+  log_topology: true         # Save graph topology to state.json

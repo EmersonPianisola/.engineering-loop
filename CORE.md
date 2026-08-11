@@ -1,21 +1,22 @@
 ---
 name: engineering-loop
-version: 10.5.0
+version: 11.0.0
 type: framework
-description: 'Filesystem-driven orchestrator with auto-resume. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'Dynamic graph orchestrator. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v10.5
+# Engineering Loop v11.0
 
 **Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
 
-Persistent while-loop engine enforced by **LangGraph StateGraph** (Python) with **Pydantic structured output** and **evidence gates**. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
+Persistent while-loop engine with **dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, and tags. Only the nodes required for the task are instantiated. Parallel QA fan-out/fan-in available. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
-**Orchestrator:** `eng_loop/` (LangGraph Python, Pydantic schemas, CLI: `eng-loop`)
+**Orchestrator:** `eng_loop/` (LangGraph Python, Dynamic Graph Builder, CLI: `eng-loop --dynamic-graph`)
 **Legacy:** `ORCHESTRATOR.md` (prompt-based, deprecated)
 **Model:** Any OpenAI-compatible local endpoint (llama.cpp, vLLM, Ollama)
 **Structured Output:** 27 Pydantic schemas, one per stage, enforced via `model.with_structured_output()`
 **Evidence Gates:** Quality validation after every stage; failures trigger automatic retry
+**Dynamic Graph:** `eng_loop/graph_builder.py` — constructs graph per work item. Enable via `--dynamic-graph` or `config.dynamic_graph.enabled`
 
 ```
                         INIT (Phase 0)

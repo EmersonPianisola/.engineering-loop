@@ -1,8 +1,45 @@
-# AGENTS.md — Engineering Loop v10 Framework Repo
+# AGENTS.md — Engineering Loop v11 Framework Repo
 
 ## What This Repo Is
 
 Framework documentation for an AI-assisted development loop engine. Consumer projects install it as a git submodule at `.eng/`. This repo contains **only framework code** — stages, skills, references, templates, and install scripts. No application code, no tests, no build system.
+
+## Dual-Mode Architecture (v11)
+
+The loop runs in two modes:
+
+| Mode | How | Enforcement |
+|------|-----|-------------|
+| **Python CLI** | `eng-loop --dynamic-graph` | LangGraph executes compiled graph — deterministic |
+| **LLM Prompt** | LLM reads `ORCHESTRATOR.md` | LLM builds topology via Python, then follows generated plan |
+
+### Python CLI Mode (deterministic)
+
+```bash
+eng-loop --dynamic-graph -w "Add OAuth2 login"
+eng-loop --dynamic-graph --parallel-qa -w "Add OAuth2 login"
+```
+
+LangGraph compiles the graph from active nodes only. The LLM has no choice about routing.
+
+### LLM Prompt Mode (topology-enforced)
+
+The LLM reads `ORCHESTRATOR.md`, which instructs it to:
+1. Run `eng-loop --build-topology -w "work item"` — Python generates the graph
+2. Read `{artifact-root}/graph-topology.md` — the execution plan
+3. Follow the plan exactly — active stages, routing rules, constraints
+
+This solves the problem of LLM ignoring the loop: the graph is built by Python, the LLM follows it.
+
+### Dynamic Graph Components
+
+- `node_registry.py` — 26 stages registered as `NodeSpec` with metadata
+- `edge_rules.py` — Declarative `EdgeRule` connections between nodes
+- `graph_builder.py` — `GraphBuilder` class that builds and compiles the graph
+- `graph.py` — Delegates to `GraphBuilder` when dynamic mode is enabled; static mode preserved
+- `cli.py --build-topology` — Generates topology markdown for LLM orchestrator
+
+Parallel QA (`--parallel-qa` or `config.dynamic_graph.parallel_qa: true`) enables fan-out/fan-in for `qa.security`, `qa.api-contract`, `qa.performance`.
 
 ## Key Constraint: Read-Only Framework vs. Project Files
 

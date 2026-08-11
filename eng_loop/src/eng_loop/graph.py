@@ -5,6 +5,11 @@ from typing import Any
 from langgraph.graph import StateGraph, START, END
 
 from eng_loop.state import PipelineState
+from eng_loop.graph_builder import GraphBuilder, GraphTopology, build_dynamic_graph
+from eng_loop.node_registry import build_registry
+from eng_loop.edge_rules import build_edge_rules
+
+# Legacy imports — kept for backward compatibility with existing tests
 from eng_loop.nodes.design import DESIGN_STAGES, get_design_nodes, design_node
 from eng_loop.nodes.architecture import ARCH_STAGES, get_arch_nodes, arch_node
 from eng_loop.nodes.qa import QA_STAGES, get_qa_nodes, qa_node
@@ -29,6 +34,10 @@ from eng_loop.tools.progress import trace_node
 
 
 def build_graph() -> StateGraph:
+    """Build the static graph (legacy mode — all 28 nodes, hardcoded edges).
+
+    Used when dynamic_graph is disabled. Preserves exact v10 behavior.
+    """
     builder = StateGraph(PipelineState)
 
     # --- Register nodes ---
@@ -174,9 +183,28 @@ def _post_init_refine(state: dict[str, Any]) -> str:
 def compile_graph(
     config: dict[str, Any] | None = None,
     checkpointer: Any | None = None,
+    dynamic: bool = False,
+    state: dict[str, Any] | None = None,
 ) -> Any:
-    builder = build_graph()
-    kwargs: dict[str, Any] = {}
-    if checkpointer:
-        kwargs["checkpointer"] = checkpointer
-    return builder.compile(**kwargs)
+    """Compile the graph.
+
+    Args:
+        config: Framework configuration.
+        checkpointer: Optional LangGraph checkpointer for persistence.
+        dynamic: If True, use dynamic graph construction (v11).
+        state: Required when dynamic=True — used to determine active nodes.
+
+    Returns:
+        Compiled LangGraph graph (or tuple with topology if dynamic).
+    """
+    if dynamic and state is not None:
+        parallel_qa = (config or {}).get("dynamic_graph", {}).get("parallel_qa", False)
+        builder = GraphBuilder(parallel_qa=parallel_qa)
+        compiled, topology = builder.compile(state, config, checkpointer)
+        return compiled, topology
+    else:
+        builder = build_graph()
+        kwargs: dict[str, Any] = {}
+        if checkpointer:
+            kwargs["checkpointer"] = checkpointer
+        return builder.compile(**kwargs)

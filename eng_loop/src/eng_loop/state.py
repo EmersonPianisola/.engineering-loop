@@ -99,6 +99,7 @@ class PipelineState(dict[str, Any]):
     work_item: str = ""
     ideation: str | None = None
     ui_project: bool = False
+    tags: list[str] = []
     stages: Annotated[dict[str, Any], _merge_dict] = {}  # type: ignore[assignment]
     decisions: Annotated[list[str], add] = []  # type: ignore[assignment]
     stage_artifacts: Annotated[dict[str, str], _merge_dict] = {}  # type: ignore[assignment]
@@ -107,6 +108,10 @@ class PipelineState(dict[str, Any]):
     messages: Annotated[list, add_messages] = []  # type: ignore[assignment]
     config: dict[str, Any] = {}
     paths: dict[str, str] = {}
+    # Dynamic graph topology (populated by GraphBuilder)
+    graph_topology: dict[str, Any] = {}
+    active_nodes: list[str] = []
+    parallel_groups: dict[str, list[str]] = {}
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -119,6 +124,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "work_item": "",
         "ideation": None,
         "ui_project": False,
+        "tags": [],
         "stages": init_stages(),
         "decisions": [],
         "stage_artifacts": {},
@@ -127,6 +133,9 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "messages": [],
         "config": config,
         "paths": paths,
+        "graph_topology": {},
+        "active_nodes": [],
+        "parallel_groups": {},
     }
 
 
