@@ -174,12 +174,17 @@ class GraphBuilder:
             if from_name not in active_names:
                 continue
 
-            # Map choice label → target node name
-            choices: dict[str, str] = {}
+            # Map choice label → target node name (convert sentinels to LangGraph constants)
+            choices: dict[str, Any] = {}
             for rule in cond_rules:
                 label = rule.to_node
                 to_name = self._to_node_name(rule.to_node)
-                choices[label] = to_name
+                if to_name == "__end__":
+                    choices[label] = END
+                elif to_name == "__start__":
+                    choices[label] = START
+                else:
+                    choices[label] = to_name
 
             rules_capture = list(cond_rules)
             builder.add_conditional_edges(
