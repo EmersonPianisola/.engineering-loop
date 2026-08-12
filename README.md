@@ -4,22 +4,25 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v11.0
+# Engineering Loop v11.1
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Self-improves through lessons learned across projects.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects.
 
 | | |
 |---|---|
-| **Version** | 11.0.0 |
+| **Version** | 11.1.0 |
 | **Architecture** | Multi-project via git submodule |
 | **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
-| **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, Python builds graph) |
+| **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, compliance gate, Python builds graph) |
 | **Stages** | 26 stages across 7 phases |
 | **Skills** | 11 built-in + 7 self-constructed at runtime |
 | **Structured Output** | Pydantic schemas per stage, evidence gates |
-| **Dynamic Graph** | `GraphBuilder` constructs graph per work item |
+| **Dynamic Graph** | `GraphBuilder` constructs graph per work item + work type |
+| **Work Types** | `feature`, `bugfix`, `operational` — different topologies per type |
+| **Compliance** | `--check-compliance` gate between stages (LLM mode) + tool scope enforcement (CLI mode) |
+| **Edge Bypass** | Automatic bypass of inactive intermediate nodes |
 | **Entry point** | `CORE.md` |
 | **CLI** | `eng-loop --dynamic-graph --work-item "..."` |
 | **Configuration** | `config-template.yaml` (framework) + `config.yaml` (project) |
@@ -175,20 +178,21 @@ The orchestrator:
 5. Executes the LangGraph pipeline with Essence gates
 6. Saves state (including graph topology) to `.eng/state.json` after each iteration
 
-### LLM Prompt Mode (Topology-Enforced)
+### LLM Prompt Mode (Topology-Enforced + Compliance Gate)
 
 Load `ORCHESTRATOR.md` in your AI agent session. The orchestrator instructs the LLM to:
 1. Run `eng-loop --build-topology -w "work item"` — Python generates the dynamic graph
 2. Read `{artifact-root}/graph-topology.md` — the execution plan with active stages, routing rules, constraints
-3. Follow the plan exactly — active stages, routing rules, constraints
+3. **Before each stage:** Run `eng-loop --check-compliance --requested-stage <stage>` — validates transition
+4. Follow the plan exactly — active stages, routing rules, constraints
 
-This solves the problem of LLM ignoring the loop: the graph is built by Python, the LLM follows it.
+This solves the problem of LLM ignoring the loop: the graph is built by Python, the compliance gate enforces transitions, and the LLM follows the validated plan.
 
 ---
 
-## Dynamic Graph (v11)
+## Dynamic Graph (v11.1)
 
-v11 introduces **dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, and tags. Only the nodes required for the task are instantiated.
+v11 introduces **dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated.
 
 ### How It Works
 
@@ -199,11 +203,12 @@ WORK ITEM
 ┌──────────────────────────┐
 │    GraphBuilder           │  ← Analyzes work item context
 │  (classify complexity)    │
+│  (classify work type)     │  ← v11.1: feature / bugfix / operational
 └──────────┬───────────────┘
            │
     ┌──────▼───────────┐
     │   NodeRegistry    │  ← Filters 26 nodes → active subset
-    │   + EdgeRules     │  ← Resolves edges for active nodes
+    │   + EdgeRules     │  ← Resolves edges + bypasses inactive intermediaries
     └───────────────────┘
            │
     ┌──────▼───────────┐
@@ -213,6 +218,18 @@ WORK ITEM
            │
     EXECUTION
 ```
+
+### Work Type Classification (v11.1)
+
+The graph builder classifies each work item into one of three types:
+
+| Type | Description | Topology Effect |
+|------|-------------|----------------|
+| **feature** | New functionality | Full loop: design → arch → impl → verify → QA → deploy |
+| **bugfix** | Fix existing behavior | Skips design stages (6), keeps impl + verify |
+| **operational** | Run existing code (tests, deploys) | Skips impl, design, arch, verify; runs e2e → deploy → smoke → post |
+
+Classification uses two-tier keyword matching (multi-word phrases + single words) for both Portuguese and English. When an operational work item like `"Execute todos os testes E2E"` is detected, the graph only instantiates the 7 stages needed for execution — not the 11+ stages for feature development.
 
 ### Components
 
@@ -294,6 +311,14 @@ The `--build-topology` flag generates a markdown execution plan:
 | **Large (UI)** | 28 nodes | ~24 nodes | ~14% |
 | **Complex (UI)** | 28 nodes | 26 nodes | ~7% |
 
+### Graph Size by Work Type (v11.1)
+
+| Work Type | Active Stages (small + UI) | Description |
+|-----------|--------------------------|-------------|
+| **feature** | 11 stages | Full loop: init → impl → verify → e2e → deploy → post |
+| **bugfix** | ~11 stages | Skips design stages, keeps impl + verify |
+| **operational** | 7 stages | Skips impl, design, arch, verify; runs e2e → deploy → post |
+
 ### Parallel QA
 
 With `--parallel-qa`, the three QA stages (`security`, `api-contract`, `performance`) execute in parallel via LangGraph fan-out/fan-in:
@@ -335,7 +360,7 @@ The loop runs in two modes:
 | Mode | How | Enforcement |
 |------|-----|-------------|
 | **Python CLI** | `eng-loop --dynamic-graph` | LangGraph executes compiled graph — deterministic |
-| **LLM Prompt** | LLM reads `ORCHESTRATOR.md` | LLM builds topology via Python, then follows generated plan |
+| **LLM Prompt** | LLM reads `ORCHESTRATOR.md` | LLM builds topology via Python, compliance gate enforces transitions |
 
 ### Python CLI Mode (deterministic)
 
@@ -344,16 +369,17 @@ eng-loop --dynamic-graph -w "Add OAuth2 login"
 eng-loop --dynamic-graph --parallel-qa -w "Add OAuth2 login"
 ```
 
-LangGraph compiles the graph from active nodes only. The LLM has no choice about routing.
+LangGraph compiles the graph from active nodes only. The LLM has no choice about routing. Tool scope enforcement blocks tool calls outside the current stage's permitted scope.
 
-### LLM Prompt Mode (topology-enforced)
+### LLM Prompt Mode (topology-enforced + compliance gate)
 
 The LLM reads `ORCHESTRATOR.md`, which instructs it to:
 1. Run `eng-loop --build-topology -w "work item"` — Python generates the graph
 2. Read `{artifact-root}/graph-topology.md` — the execution plan
-3. Follow the plan exactly — active stages, routing rules, constraints
+3. **Before each stage:** Run `eng-loop --check-compliance --requested-stage <stage>` — validates transition
+4. Follow the plan exactly — active stages, routing rules, constraints
 
-This solves the problem of LLM ignoring the loop: the graph is built by Python, the LLM follows it.
+This solves the problem of LLM ignoring the loop: the graph is built by Python, the compliance gate enforces transitions, and the LLM follows the validated plan.
 
 ### Hybrid Mode (Python graph + OpenCode tools)
 
@@ -395,19 +421,19 @@ Python (LangGraph)              opencode run (subprocess)
 
 ## LangGraph Orchestrator
 
-v10.3 migrated to programmatic flow control. v11 added dynamic graph construction.
+v10.3 migrated to programmatic flow control. v11 added dynamic graph construction. v11.1 added work type classification, compliance enforcement, and edge bypass.
 
 ### Why LangGraph
 
-| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) |
-|---|---|---|---|
-| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated |
-| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time |
-| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode |
-| `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress | `NodeRegistry` (26 NodeSpec) filtered by complexity/UI/tags |
-| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` |
-| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items |
-| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility |
+| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) | v11.1 (Enforcement) |
+|---|---|---|---|---|
+| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated | Work type classification (feature/bugfix/operational) |
+| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time | Compliance gate (`--check-compliance`) enforces transitions |
+| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode | Edge bypass skips inactive intermediate nodes automatically |
+| `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress | `NodeRegistry` (26 NodeSpec) filtered by complexity/UI/tags | Tool scope enforcement blocks out-of-scope tool calls |
+| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` | Smart error summarization protects context from stack traces |
+| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items | Operational work items generate 7-stage graphs instead of 11+ |
+| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility | Stage scope rules (ALLOWED/FORBIDDEN) per stage |
 
 ### How Structured Output Works
 
@@ -435,8 +461,8 @@ After the LLM returns structured output, the evidence gate validates quality bef
 
 ```
 LLM Response → Pydantic Schema → Evidence Gate → Stage Done?
-                              ↓ (invalid)
-                        Retry (bounded by max_attempts)
+                            ↓ (invalid)
+                      Retry (bounded by max_attempts)
 ```
 
 Evidence gates enforce stage-specific criteria:
@@ -448,56 +474,83 @@ Evidence gates enforce stage-specific criteria:
 
 If evidence fails, the stage retries automatically (up to `max_{stage}_attempts`). If all attempts are exhausted, the stage forces through with a warning.
 
+### Tool Scope Enforcement (v11.1)
+
+During the agentic loop, each tool call is validated against the current stage's permitted tools:
+
+```
+LLM Tool Call → Scope Check → Execute Tool
+            ↓ (out of scope)
+    BLOCKED: "Tool 'X' not permitted in stage 'Y'"
+```
+
+This prevents the LLM from modifying files outside its stage's scope (e.g., editing `playwright.config.js` during `e2e.execute`). Each stage has defined ALLOWED and FORBIDDEN actions.
+
+### Smart Error Summarization (v11.1)
+
+When a tool call returns a large error output (>2000 chars), the framework extracts key signal before injecting into context:
+
+- **Test output**: Extracts summary line (X failed, Y passed)
+- **Python traceback**: Extracts last frame (file:line + exception)
+- **JSON error**: Extracts error.message
+- **Generic**: Extracts last 10 non-empty lines
+
+This protects the context window from being flooded with stack traces while preserving diagnostic signal.
+
 ### Architecture
 
 ```
 eng_loop/
-├── state.py          # PipelineState schema, 26 stages, reducers
-├── config.py         # YAML loader, deep merge, path resolution
-├── graph.py          # Delegates to GraphBuilder in dynamic mode; static mode preserved
-├── graph_builder.py  # Dynamic graph construction per work item
-├── node_registry.py  # NodeSpec + registry of 26 stages
-├── edge_rules.py     # Declarative edge rules (~40 rules)
-├── routing.py        # Conditional edge functions (retry, block, advance)
-├── model.py          # Model factory (OpenAI-compatible local endpoints)
-├── schemas.py        # 27 Pydantic schemas (one per stage) for structured output
-├── templates.py      # Markdown → prompt loader (stages/ → prompt templates)
-├── cli.py            # Entry point (eng-loop CLI)
-├── nodes/            # One node per stage group
-│   ├── essence.py    # Four Lenses gate (pre-stage)
-│   ├── init.py       # init, ideate, bdd, refine
-│   ├── design.py     # 6 design stages (factory)
-│   ├── architecture.py  # requirements, solution, review
-│   ├── implementation.py  # impl.design, impl.code, doc.update
-│   ├── verification.py  # verify, e2e.execute
-│   ├── qa.py         # security, api-contract, performance
-│   ├── deploy.py     # deploy.prepare, smoke.test
-│   ├── documentation.py  # doc.decisions, doc.project
-│   └── post.py       # post-loop finalize
+├── state.py                  # PipelineState schema, 26 stages, reducers
+├── config.py                 # YAML loader, deep merge, path resolution
+├── graph.py                  # Delegates to GraphBuilder in dynamic mode; static mode preserved
+├── graph_builder.py          # Dynamic graph construction per work item + work type
+├── node_registry.py          # NodeSpec + registry of 26 stages
+├── edge_rules.py             # Declarative edge rules (~40 rules) + bypass resolution
+├── routing.py                # Conditional edge functions (retry, block, advance)
+├── model.py                  # Model factory (OpenAI-compatible local endpoints)
+├── schemas.py                # 27 Pydantic schemas (one per stage) for structured output
+├── templates.py              # Markdown → prompt loader (stages/ → prompt templates)
+├── cli.py                    # Entry point (eng-loop CLI) + compliance checker
+├── nodes/                    # One node per stage group
+│   ├── essence.py            # Four Lenses gate (pre-stage)
+│   ├── init.py               # init, ideate, bdd, refine
+│   ├── design.py             # 6 design stages (factory)
+│   ├── architecture.py       # requirements, solution, review
+│   ├── implementation.py     # impl.design, impl.code, doc.update
+│   ├── verification.py       # verify, e2e.execute
+│   ├── qa.py                 # security, api-contract, performance
+│   ├── deploy.py             # deploy.prepare, smoke.test
+│   ├── documentation.py      # doc.decisions, doc.project
+│   └── post.py               # post-loop finalize
 └── tools/
-    ├── file_ops.py       # read/write/json helpers
-    ├── json_parse.py     # Robust JSON extraction (3 strategies)
-    ├── evidence_gate.py  # Stage output quality validation
-    ├── stage_runner.py   # Shared stage execution helper
-    ├── context_slice.py  # Context slicing per stage
-    ├── decisions.py      # AD-NNN extraction/recording
-    ├── lessons.py        # Lessons lifecycle
-    ├── autosizing.py     # Complexity classification
-    └── progress.py       # Terminal logging, node tracing
+    ├── file_ops.py           # read/write/json helpers
+    ├── json_parse.py         # Robust JSON extraction (3 strategies)
+    ├── evidence_gate.py      # Stage output quality validation
+    ├── stage_runner.py       # Shared stage execution helper
+    ├── context_slice.py      # Context slicing per stage
+    ├── decisions.py          # AD-NNN extraction/recording
+    ├── lessons.py            # Lessons lifecycle
+    ├── autosizing.py         # Complexity + work type classification
+    ├── topology_compliance.py # Stage transition validation (v11.1)
+    ├── agent_runner.py       # Agentic loop + tool scope enforcement + error summarization
+    └── progress.py           # Terminal logging, node tracing
 ```
 
 ### How It Works
 
 1. **`eng-loop --work-item "..."`** starts the CLI
 2. Config is loaded and merged (`config-template.yaml` + `config.yaml`)
-3. **`GraphBuilder`** analyzes work item context, classifies complexity, filters active nodes
-4. `StateGraph` is compiled with only active nodes (dynamic) or all nodes (static)
-5. Each node loads its stage procedure from `stages/*.md` as a prompt template
-6. The node invokes the model with `model.with_structured_output(StageSchema)` — Pydantic enforces output shape
-7. **Evidence gate** validates output quality; failures trigger automatic retry
-8. Declarative `EdgeRule` connections handle routing: advance, retry, reset, or block
-9. State (including graph topology) is persisted to `state.json` after each iteration
-10. **Iteration counter** tracks total loop progress; bounded by `max_loop_iterations`
+3. **`GraphBuilder`** analyzes work item context, classifies complexity and work type, filters active nodes
+4. **Edge bypass** resolves inactive intermediate nodes automatically (v11.1)
+5. `StateGraph` is compiled with only active nodes (dynamic) or all nodes (static)
+6. Each node loads its stage procedure from `stages/*.md` as a prompt template
+7. The node invokes the model with `model.with_structured_output(StageSchema)` — Pydantic enforces output shape
+8. **Tool scope enforcement** blocks tool calls outside the current stage's permitted scope (v11.1)
+9. **Evidence gate** validates output quality; failures trigger automatic retry
+10. Declarative `EdgeRule` connections handle routing: advance, retry, reset, or block
+11. State (including graph topology) is persisted to `state.json` after each iteration
+12. **Iteration counter** tracks total loop progress; bounded by `max_loop_iterations`
 
 ### Execution Flow Per Stage
 
@@ -557,6 +610,8 @@ eng-loop --work-item "description"   Run the loop (static graph)
   --parallel-qa                       Run QA stages in parallel (requires --dynamic-graph)
   --opencode-agent                    Hybrid mode: Python controls graph, OpenCode executes stages (requires --dynamic-graph)
   --build-topology                    Build graph topology and output as markdown (for LLM mode)
+  --check-compliance                  Validate stage transition against topology (for LLM mode)
+  --requested-stage                   Stage ID to validate (required with --check-compliance)
   -f, --framework-root                Framework root (default: .)
   -l, --loop-root                     Loop root (default: .)
   -p, --project-root                  Project root (default: .)
@@ -722,7 +777,9 @@ A stage reset to `done: false` by a downstream finding (e.g., a security vulnera
 
 ## Auto-Sizing
 
-Complexity determines depth — not a fixed pipeline. The orchestrator classifies each work item before the loop begins using configurable heuristics.
+Complexity and work type determine depth — not a fixed pipeline. The orchestrator classifies each work item before the loop begins using configurable heuristics.
+
+### Complexity Levels
 
 | Level | Files | Tasks | Design | Architecture | QA Stages | Verify | Example |
 |-------|-------|-------|--------|-------------|-----------|--------|---------|
@@ -730,6 +787,18 @@ Complexity determines depth — not a fixed pipeline. The orchestrator classifie
 | **Medium** | ≤ 10 | ≤ 8 | Inline | Requirements + Solution | Security + API contract | Full | Clear feature, moderate scope |
 | **Large** | > 10 | > 8 | 6 formal stages | Requirements + Solution + Review | Security + API contract + Performance | Full | Multi-component, new APIs |
 | **Complex** | — | — | 6 formal stages + Discuss | Full + Architecture Review | Full + Performance | Full + Lessons | New domain, high ambiguity |
+
+### Work Type Classification (v11.1)
+
+In addition to complexity, the work type determines which phases are active:
+
+| Type | What it does | Stages deactivated |
+|------|-------------|-------------------|
+| **feature** | New functionality | None (full loop) |
+| **bugfix** | Fix existing behavior | Design stages (6 stages) |
+| **operational** | Run existing code (tests, deploys) | impl, design, arch, verify |
+
+Classification uses two-tier keyword matching (multi-word phrases + single words) for Portuguese and English. Example: `"Execute todos os testes E2E"` → `operational` → 7 stages instead of 11.
 
 ### Heuristics
 
@@ -740,10 +809,11 @@ The auto-sizing algorithm evaluates:
 - External integrations required
 - Work item ambiguity level
 - Acceptance criteria count
+- Work type keywords (v11.1)
 
 A stage with `min_complexity` above the work item level is **deactivated** (marked `done: true` by default, skipped by the loop). Deactivated stages cannot be reactivated mid-loop, and the user cannot override auto-sizing — the heuristics are deterministic.
 
-In v11, auto-sizing is handled by the `GraphBuilder` — complexity is classified by Python before graph construction, and only nodes meeting the complexity threshold are instantiated.
+In v11.1, auto-sizing is handled by the `GraphBuilder` — complexity and work type are classified by Python before graph construction, and only nodes meeting both criteria are instantiated.
 
 ---
 
@@ -1171,6 +1241,15 @@ The orchestrator deep-merges: template → project. Project values win.
 | `max_arch_solution_attempts` | 2 | Solution design max iterations |
 | `max_arch_review_attempts` | 2 | Architecture review max iterations |
 | `max_impl_design_attempts` | 2 | Implementation blueprint max iterations |
+
+### Compliance (v11.1)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `compliance.enabled` | `true` | Enable compliance gate between stages |
+| `compliance.mode` | `gate` | `gate` = blocking, `advisory` = warning only |
+| `compliance.check_before_stage` | `true` | Run `--check-compliance` before each stage |
+| `compliance.enforce_tool_scope` | `true` | Block tool calls not permitted for current stage |
 | `max_impl_code_attempts` | 3 | Code implementation max iterations |
 | `max_verify_attempts` | 3 | Verification max iterations |
 | `max_e2e_execute_attempts` | 3 | E2E testing max iterations |
@@ -1261,6 +1340,7 @@ The orchestrator deep-merges: template → project. Project values win.
 | `iteration` | integer | Current loop iteration count |
 | `status` | enum | `running` / `done` / `blocked` / `halted` |
 | `complexity` | enum | `unset` / `small` / `medium` / `large` / `complex` |
+| `work_type` | enum | `feature` / `bugfix` / `operational` (v11.1) |
 | `work_item` | object | Validated work item data |
 | `decisions` | array | AD-NNN decision records |
 | `graph_topology` | object | Compiled graph topology (v11 dynamic graph) |
@@ -1384,9 +1464,11 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 │   │       ├── context_slice.py # Context slicing per stage
 │   │       ├── decisions.py     # AD-NNN extraction/recording
 │   │       ├── lessons.py       # Lessons lifecycle
-│   │       ├── autosizing.py    # Complexity classification
-│   │       └── progress.py      # Terminal logging, node tracing
-│   └── tests/                   # Unit tests
+│   │       ├── autosizing.py        # Complexity + work type classification
+│   │       ├── topology_compliance.py # Stage transition validation (v11.1)
+│   │       ├── agent_runner.py      # Agentic loop + tool scope + error summarization
+│   │       └── progress.py          # Terminal logging, node tracing
+│   └── tests/                       # Unit tests
 │
 └── setup/                       # Installation scripts
     ├── install.sh               # Linux / Mac / WSL setup (+ pip install)
@@ -1425,6 +1507,15 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 - **Never break the loop prematurely** — only exit via all stages done or constraint breach
 - **Never reset attempt counters mid-loop** — counters persist across all iterations
 - **Never skip stages on user request** — user requests are focus directives, not skip directives
+- **Never skip the compliance gate** — `--check-compliance` must run before every stage transition (LLM mode)
+
+### LLM Orchestrator Drift (v11.1)
+
+- **Never skip stages because complexity is "small"** — auto-sizing determines active stages, you execute all of them
+- **Never abandon the stage procedure to debug directly** — if debugging is needed, do it within the stage's sub-agent scope
+- **Never modify project files outside your stage's allowed scope** — each stage has defined ALLOWED/FORBIDDEN actions
+- **Never assume a stage is "not needed" based on your judgment** — the topology is authoritative
+- **Never proceed past a compliance violation** — the gate exists to catch exactly these situations
 
 ### Essence Gate
 
@@ -1591,7 +1682,7 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v10.3.0 | 2026-08-01 | **LangGraph orchestrator**: Programmatic flow control, 26 stage nodes, local model support (OpenAI-compatible), CLI (`eng-loop`), markdown as prompt templates, per-stage model overrides |
 | v10.4.0 | 2026-08-04 | **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies), automatic retry on failure, iteration counter tracking, `json_parse.py`, `evidence_gate.py`, `schemas.py`, `stage_runner.py` |
 | v11.0.0 | 2026-08-10 | **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`, `--build-topology`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |
-| v11.1.0 | 2026-08-11 | **Hybrid agent backend**: `--opencode-agent` flag enables Python graph control + OpenCode native tool execution. `run_agent_via_opencode()` invokes `opencode run` as subprocess. Config: `agent.backend: "opencode"`. All node handlers updated to pass `config` to `run_agent()`. `_extract_from_opencode_output()` for robust JSON extraction from OpenCode output |
+| v11.1.0 | 2026-08-11 | **Dynamic graph enforcement**: Work type classification (feature/bugfix/operational) generates different topologies. Compliance gate (`--check-compliance`) validates stage transitions. Edge bypass skips inactive intermediate nodes automatically. Tool scope enforcement blocks out-of-scope tool calls. Smart error summarization protects context from stack traces. Stage scope rules (ALLOWED/FORBIDDEN) per stage. Topology markdown includes checklist, deactivated stages, stage scope. `topology_compliance.py`, `autosizing.py` extended, `agent_runner.py` middleware |
 
 ---
 
@@ -1607,6 +1698,8 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | `eng_loop/src/eng_loop/tools/json_parse.py` | Robust JSON extraction (3 strategies) |
 | `eng_loop/src/eng_loop/tools/evidence_gate.py` | Stage output quality validation |
 | `eng_loop/src/eng_loop/tools/stage_runner.py` | Shared stage execution helper |
+| `eng_loop/src/eng_loop/tools/topology_compliance.py` | Stage transition validation (v11.1) |
+| `eng_loop/src/eng_loop/tools/agent_runner.py` | Agentic loop + tool scope enforcement + error summarization |
 | `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
 | `CORE.md` | Framework index — stage registry, references, skills |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |

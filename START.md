@@ -47,7 +47,8 @@ Gera `artifacts/graph-topology.md` com o plano de execução (stages ativas, reg
 Carregue `ORCHESTRATOR.md` na sessão do seu AI agent. O orquestrador instrui a LLM a:
 1. Rodar `eng-loop --build-topology -w "work item"` — Python gera o grafo dinâmico
 2. Ler `artifacts/graph-topology.md` — o plano de execução
-3. Seguir o plano exatamente — stages ativas, roteamento, constraints
+3. **Antes de cada stage:** rodar `eng-loop --check-compliance --requested-stage <stage>` — valida transição
+4. Seguir o plano exatamente — stages ativas, roteamento, constraints
 
 ---
 
@@ -59,6 +60,7 @@ Carregue `ORCHESTRATOR.md` na sessão do seu AI agent. O orquestrador instrui a 
 | `--parallel-qa` | QA stages em paralelo (fan-out/fan-in) |
 | `--opencode-agent` | Modo hibrido: Python controla grafo, OpenCode executa stages com tools nativas |
 | `--build-topology` | Gera topology markdown para modo LLM |
+| `--check-compliance` | Valida transição de stage (modo LLM, obrigatorio) |
 | `--check-model` | Verifica conectividade do modelo |
 | `--dry-run` | Valida configuração e sai |
 | `-w, --work-item` | Descrição do trabalho |
@@ -78,10 +80,11 @@ eng-loop --dynamic-graph -w "Add user authentication with JWT tokens" -f .eng -l
 
 O loop executa automaticamente:
 1. **Classifica complexidade** — small / medium / large / complex
-2. **Constrói grafo dinâmico** — só stages ativas para essa complexidade
-3. **INIT** — valida entrada, auto-size, skills
-4. **Stages ativas** — design, arquitetura, impl, verify, QA, deploy, doc
-5. **POST-LOOP** — finaliza, compartilha lições
+2. **Classifica tipo de trabalho** — feature / bugfix / operational
+3. **Constrói grafo dinâmico** — só stages ativas para essa complexidade + tipo
+4. **INIT** — valida entrada, auto-size, skills
+5. **Stages ativas** — design, arquitetura, impl, verify, QA, deploy, doc
+6. **POST-LOOP** — finaliza, compartilha lições
 
 ### Stage Específica (Focus Directive)
 
@@ -103,7 +106,7 @@ eng-loop --dry-run -f .eng -l .eng -p .
 
 ## Grafo Dinâmico — Stages por Complexidade
 
-O grafo é construído baseado na complexidade do work item:
+O grafo é construído baseado na complexidade e tipo de trabalho do work item:
 
 | Nível | Stages Ativas | Design | Arch | QA | Exemplo |
 |-------|--------------|--------|------|----|---------|
@@ -111,6 +114,18 @@ O grafo é construído baseado na complexidade do work item:
 | **Medium** | ~20/26 | Inline | Requirements + Solution | Security + API contract | Feature clara, <8 tarefas |
 | **Large** | ~24/26 | 6 stages formais | + Review | Full | Multi-componente, novas APIs |
 | **Complex** | 26/26 | Formal + Discuss | Full + Review | Full + Performance | Novo domínio, ambiguidade |
+
+### Tipos de Trabalho (v11.1)
+
+O tipo de trabalho determina quais fases sao ativas:
+
+| Tipo | O que faz | Stages desativadas |
+|------|-----------|-------------------|
+| **feature** | Nova funcionalidade | Nenhuma (loop completo) |
+| **bugfix** | Corrigir comportamento | Design stages (6 stages) |
+| **operational** | Rodar codigo existente (testes, deploy) | impl, design, arch, verify |
+
+Exemplo: `"Execute todos os testes E2E contra Firebase"` → `operational` → 7 stages (init → e2e → deploy → smoke → post)
 
 ---
 
@@ -124,6 +139,8 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 | `model.model` | `qwable-v2` | Nome do modelo |
 | `dynamic_graph.enabled` | `false` | Ativa grafo dinâmico |
 | `dynamic_graph.parallel_qa` | `false` | QA stages em paralelo |
+| `compliance.enabled` | `true` | Ativa gate de compliance entre stages |
+| `compliance.mode` | `gate` | `gate` (bloqueia) ou `advisory` (avisa) |
 | `constraints` | (veja template) | Limites de iteração por stage |
 | `hardware` | (veja template) | Janela de contexto, timeouts |
 
