@@ -96,6 +96,7 @@ class PipelineState(dict[str, Any]):
     status: Literal["running", "done", "blocked", "halted"] = "running"
     blocking_condition: str = ""
     complexity: Literal["unset", "small", "medium", "large", "complex"] = "unset"
+    work_type: str = "feature"
     work_item: str = ""
     ideation: str | None = None
     ui_project: bool = False
@@ -121,6 +122,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "status": "running",
         "blocking_condition": "",
         "complexity": "unset",
+        "work_type": "feature",
         "work_item": "",
         "ideation": None,
         "ui_project": False,
@@ -145,7 +147,7 @@ def get_max_attempts(config: dict[str, Any], stage_id: str) -> int:
     return constraints.get(key, 2)
 
 
-def is_stage_active(stage_id: str, complexity: str, ui_project: bool) -> bool:
+def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type: str = "feature") -> bool:
     if complexity == "unset":
         return True
 
@@ -157,18 +159,29 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool) -> bool:
     if stage_id in ("e2e.execute", "smoke.test"):
         return ui_project
 
+    # Work type exclusions
+    from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
+    if work_type == "operational" and stage_id in OPERATIONAL_EXCLUDED_STAGES:
+        return False
+    if work_type == "bugfix" and stage_id in (
+        "design.user-research", "design.personas", "design.info-arch",
+        "design.interaction", "design.design-system", "design.visual-design",
+    ):
+        return False
+
     return True
 
 
-def get_active_stages(complexity: str, ui_project: bool) -> list[str]:
-    return [s for s in STAGE_ORDER if is_stage_active(s, complexity, ui_project)]
+def get_active_stages(complexity: str, ui_project: bool, work_type: str = "feature") -> list[str]:
+    return [s for s in STAGE_ORDER if is_stage_active(s, complexity, ui_project, work_type)]
 
 
 def next_incomplete_stage(state: dict[str, Any]) -> str | None:
     complexity = state.get("complexity", "unset")
     ui_project = state.get("ui_project", False)
+    work_type = state.get("work_type", "feature")
     for sid in STAGE_ORDER:
-        if not is_stage_active(sid, complexity, ui_project):
+        if not is_stage_active(sid, complexity, ui_project, work_type):
             continue
         stage = state["stages"].get(sid, {})
         if not stage.get("done", False):

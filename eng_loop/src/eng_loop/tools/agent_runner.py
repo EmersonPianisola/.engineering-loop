@@ -116,7 +116,27 @@ def run_agent(
                 for tc in response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc.get("args", {})
+
+                    # Phase 4: Compliance — verify tool is allowed for this stage
+                    allowed_tools = _get_allowed_tools(stage_id, tools)
+                    if tool_name not in allowed_tools:
+                        messages.append(response)
+                        messages.append(ToolMessage(
+                            content=(
+                                f"BLOCKED: Tool '{tool_name}' is not permitted in stage '{stage_id}'. "
+                                f"Allowed tools: {allowed_tools}. "
+                                f"Report your current status and failure reason using an allowed tool."
+                            ),
+                            tool_call_id=tc["id"],
+                        ))
+                        tool_calls_total += 1
+                        continue
+
                     tool_result = _execute_tool(tools, tool_name, tool_args)
+
+                    # Phase 5: Summarize large error outputs to protect context
+                    if _is_error_output(tool_result) and len(tool_result) > 2000:
+                        tool_result = _summarize_error(tool_result)
 
                     messages.append(response)
                     messages.append(ToolMessage(
@@ -565,6 +585,89 @@ def _compact_messages(messages: list[Any]) -> list[Any]:
     kept.extend(messages[-25:])
 
     return kept
+
+
+def _get_allowed_tools(stage_id: str, tools: list[Tool]) -> list[str]:
+    """Get the list of tool names that are allowed for a stage."""
+    return [t.name for t in tools]
+
+
+def _is_error_output(text: str) -> bool:
+    """Heuristic: does this output look like an error or stack trace?"""
+    if len(text) < 100:
+        return False
+    error_indicators = [
+        "Traceback", "Error:", "Exception", "FAILED", "failed",
+        "STATUS_ACCESS_VIOLATION", "ERR_", "ECONNREFUSED",
+        "SyntaxError", "TypeError", "ReferenceError",
+        "Exit code", "exit 1", "npm ERR", "E2E test",
+    ]
+    return any(kw in text for kw in error_indicators)
+
+
+def _summarize_error(text: str, max_lines: int = 10) -> str:
+    """Extract key signal from large error output.
+
+    Strategies:
+    1. If JSON error: extract error.message
+    2. If test output: extract summary line (X failed, Y passed)
+    3. If Python traceback: extract last frame (file:line + exception)
+    4. Generic: extract last N non-empty lines
+    """
+    import json as _json
+    import re
+
+    lines = text.strip().split("\n")
+
+    # Strategy 1: JSON error
+    try:
+        data = _json.loads(text)
+        if "error" in data or "message" in data or "errors" in data:
+            msg = data.get("message", data.get("error", str(data)))
+            return f"[ERROR_SUMMARY — JSON error]\n{msg}"
+    except (_json.JSONDecodeError, TypeError):
+        pass
+
+    # Strategy 2: Test summary (Playwright, pytest, jest, npm test)
+    test_match = re.search(
+        r"(\d+)\s*(failed|passed|skipped|pending)",
+        text, re.IGNORECASE,
+    )
+    if test_match:
+        # Extract all test summary lines
+        summary_lines = [
+            l.strip() for l in lines
+            if re.search(r"\d+\s*(failed|passed|skipped|pending|error)", l, re.IGNORECASE)
+        ]
+        if summary_lines:
+            return f"[ERROR_SUMMARY — test output truncated]\n" + "\n".join(summary_lines[:5])
+
+    # Strategy 3: Python traceback — extract last meaningful frame
+    traceback_lines = []
+    in_traceback = False
+    for line in lines:
+        if "Traceback" in line:
+            in_traceback = True
+        if in_traceback:
+            traceback_lines.append(line.strip())
+        if re.match(r"^\w+Error:", line) or re.match(r"^\w+Exception:", line):
+            # End of traceback — exception line
+            traceback_lines.append(line.strip())
+            break
+
+    if traceback_lines:
+        # Get last 5 lines of traceback
+        return (
+            f"[ERROR_SUMMARY — traceback truncated from {len(traceback_lines)} lines]\n"
+            + "\n".join(traceback_lines[-max_lines:])
+        )
+
+    # Strategy 4: Generic — last N non-empty lines
+    non_empty = [l for l in lines if l.strip()]
+    return (
+        f"[ERROR_SUMMARY — output truncated from {len(lines)} lines]\n"
+        + "\n".join(non_empty[-max_lines:])
+    )
 
 
 __all__ = ["run_agent", "AgentResult"]

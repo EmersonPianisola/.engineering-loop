@@ -16,6 +16,17 @@ description: 'Global anti-patterns that apply across all stages. Updated for v9.
 - **Never skip stages on user request** — user requests for a specific step are focus directives, not skip directives. All active stages must run.
 - **Always respect auto-sizing** — deactivated stages cannot be reactivated mid-loop
 
+## LLM Orchestrator Drift (v11.1)
+
+- **Never skip stages because complexity is "small"** — auto-sizing determines active stages, you execute all of them
+- **Never skip the compliance gate** — `--check-compliance` must run before every stage transition
+- **Never abandon the stage procedure to debug directly** — if debugging is needed, do it within the stage's sub-agent scope
+- **Never modify project files outside your stage's allowed scope** — each stage has defined ALLOWED/FORBIDDEN actions
+- **Never assume a stage is "not needed" based on your judgment** — the topology is authoritative
+- **Never proceed past a compliance violation** — the gate exists to catch exactly these situations
+- **Never edit config files during E2E execution** — `e2e.execute` can only modify files in `e2e/`
+- **Never kill system processes from a stage** — report infrastructure issues as FAIL, don't self-repair
+
 ## Skill Usage
 
 - **Never use a generic sub-agent for implementation** — always route through a specialized skill

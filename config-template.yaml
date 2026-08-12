@@ -176,3 +176,12 @@ dynamic_graph:
   enabled: false             # Set true for dynamic graph construction
   parallel_qa: false         # Run QA stages in parallel (fan-out/fan-in)
   log_topology: true         # Save graph topology to state.json
+
+# ============================================================
+# COMPLIANCE — enforcement of topology rules (v11.1)
+# ============================================================
+compliance:
+  enabled: true              # Enable compliance gate between stages
+  mode: "gate"               # "gate" = blocking, "advisory" = warning only
+  check_before_stage: true   # Run --check-compliance before each stage
+  enforce_tool_scope: true   # Block tool calls not permitted for current stage

@@ -3,6 +3,7 @@
   "status": "running",
   "blocking_condition": "",
   "complexity": "unset",
+  "work_type": "feature",
   "work_item": null,
   "ideation": null,
   "ui_project": false,

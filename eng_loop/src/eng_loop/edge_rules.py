@@ -120,6 +120,115 @@ class EdgeRulesEngine:
     def get_rules_for_node(self, from_node: str) -> list[EdgeRule]:
         return [r for r in self._rules if r.matches(from_node)]
 
+    def resolve_with_bypass(
+        self,
+        active_node_ids: set[str],
+        state: dict[str, Any],
+    ) -> list[EdgeRule]:
+        """Resolve rules, bypassing inactive intermediate nodes.
+
+        When a rule targets an inactive node, follows the chain of outgoing
+        rules from that node until reaching an active target or __end__.
+        Returns the resolved rules with inactive intermediaries skipped.
+
+        Loopback edges (fail → retry) are NEVER bypassed — they are failure
+        recovery paths, not forward-progress edges. If a loopback target is
+        inactive, the rule is dropped entirely.
+
+        Example: init-ideate -> init-bdd -> init-refine
+        If init-bdd is inactive, resolves to: init-ideate -> init-refine
+        """
+        resolved = []
+        visited_bypasses: set[tuple[str, str]] = set()
+
+        for rule in self._rules:
+            # Skip rules whose source is not active (and not wildcard)
+            if rule.from_node not in active_node_ids and rule.from_node != "*":
+                continue
+
+            target = rule.to_node
+
+            # If target is active or __end__, keep as-is
+            if target in active_node_ids or target == "__end__":
+                resolved.append(rule)
+                continue
+
+            # Loopback edges target inactive node — drop them entirely.
+            # They are fail-recovery paths; if the recovery target is gone,
+            # the stage should fall through to __end__ or another path.
+            if rule.edge_type == "loopback":
+                continue
+
+            # Target is inactive — bypass it using only forward-progress edges
+            bypass_target = self._find_bypass_target(
+                target, active_node_ids, state, visited=set(),
+                allow_loopback=False,
+            )
+
+            if bypass_target and (bypass_target in active_node_ids or bypass_target == "__end__"):
+                new_rule = EdgeRule(
+                    from_node=rule.from_node,
+                    to_node=bypass_target,
+                    condition=rule.condition,
+                    edge_type="bypass",
+                    priority=rule.priority,
+                    description=f"BYPASS: {rule.description} (skipped inactive {target})",
+                )
+                bypass_key = (rule.from_node, bypass_target)
+                if bypass_key not in visited_bypasses:
+                    resolved.append(new_rule)
+                    visited_bypasses.add(bypass_key)
+
+        return resolved
+
+    def _find_bypass_target(
+        self,
+        inactive_node: str,
+        active_node_ids: set[str],
+        state: dict[str, Any],
+        visited: set[str] | None = None,
+        allow_loopback: bool = False,
+    ) -> str | None:
+        """Follow outgoing rules from an inactive node to find the next active target.
+
+        Recursively traverses inactive nodes until an active one is found.
+        Only follows forward-progress edges (fixed, conditional, bypass).
+        Loopback edges are excluded unless allow_loopback=True.
+        Returns None if no path to an active node exists.
+        """
+        if visited is None:
+            visited = set()
+
+        if inactive_node in visited:
+            return None  # Prevent infinite loops
+        visited.add(inactive_node)
+
+        # Get outgoing rules from this inactive node
+        outgoing = self.get_rules_for_node(inactive_node)
+        if not outgoing:
+            return None
+
+        # Filter out loopback edges unless explicitly allowed
+        if not allow_loopback:
+            outgoing = [r for r in outgoing if r.edge_type != "loopback"]
+
+        # Prefer fixed edges, then conditional edges that evaluate to True
+        for rule in sorted(outgoing, key=lambda r: (0 if r.edge_type == "fixed" else 1, -r.priority)):
+            target = rule.to_node
+
+            if target in active_node_ids or target == "__end__":
+                return target
+
+            # Target is also inactive — recurse
+            if rule.condition is None or rule.evaluate(state):
+                result = self._find_bypass_target(
+                    target, active_node_ids, state, visited, allow_loopback,
+                )
+                if result:
+                    return result
+
+        return None
+
 
 def _stage_done(state: dict[str, Any], stage_id: str) -> bool:
     stages = state.get("stages", {})

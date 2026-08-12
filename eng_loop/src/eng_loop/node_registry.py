@@ -15,6 +15,7 @@ class NodeSpec:
     min_complexity: str = "small"
     requires_ui: bool = False
     requires_tags: list[str] = field(default_factory=list)
+    excluded_for_work_types: list[str] = field(default_factory=list)
     parallel_group: str | None = None
     depends_on: list[str] = field(default_factory=list)
     model_override: dict[str, Any] | None = None
@@ -49,6 +50,7 @@ class NodeRegistry:
         complexity: str = "small",
         ui_project: bool = False,
         tags: list[str] | None = None,
+        work_type: str = "feature",
     ) -> list[NodeSpec]:
         """Return only the nodes that should be active for the given context."""
         tags = tags or []
@@ -57,6 +59,8 @@ class NodeRegistry:
             if not complexity_meets(complexity, spec.min_complexity):
                 continue
             if spec.requires_ui and not ui_project:
+                continue
+            if work_type in spec.excluded_for_work_types:
                 continue
             for tag in spec.requires_tags:
                 if tag not in tags:

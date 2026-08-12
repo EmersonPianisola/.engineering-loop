@@ -90,3 +90,131 @@ def detect_ui_project(paths: dict[str, Any]) -> bool:
             if os.path.exists(os.path.join(project_root, indicator)):
                 return True
     return False
+
+
+# ──────────────────────────────────────────────
+# Work Type Classification
+# ──────────────────────────────────────────────
+
+WORK_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "operational": [
+        "run tests", "execute tests", "run test", "execute test",
+        "rodar testes", "executar testes", "rodar test", "executar test",
+        "run e2e", "execute e2e", "rodar e2e", "executar e2e",
+        "run build", "execute build",
+        "deploy", "deployar", "migrate", "seed", "rollback",
+        "backup", "monitor", "check health", "verify deployment",
+        "run lint", "run typecheck", "npm test", "pytest",
+        "playwright test", "vitest", "jest",
+        "garantir que esteja funcionando", "garantir funcionamento",
+        "production readiness", "entregue ao cliente",
+        "test suite", "full test", "all tests", "run the test",
+    ],
+    "operational_single": [
+        "testes", "test", "e2e", "build", "deploy", "lint",
+        "typecheck", "rodar", "executar",
+        "firebase", "production", "staging", "suite",
+    ],
+    "bugfix": [
+        "fix", "repair", "corrigir", "broken", "bug",
+        "fix bug", "fix error", "fix test", "fix tests",
+        "corrigir erro", "corrigir bug", "corrigir teste",
+        "resolve issue", "patch", "hotfix",
+    ],
+    "bugfix_single": [
+        "erro", "error", "falha", "fail", "failing",
+    ],
+    "feature": [
+        "implement", "create", "add feature", "build", "develop",
+        "implementar", "criar", "adicionar", "desenvolver",
+        "new feature", "nova funcionalidade", "novo recurso",
+        "add support", "implement support",
+    ],
+}
+
+
+def classify_work_type(work_item: str) -> str:
+    """Classify work item as operational, bugfix, or feature.
+
+    Operational: run existing code (tests, builds, deploys).
+    Bugfix: fix broken behavior.
+    Feature: create new functionality (default).
+
+    Uses two-tier matching:
+    1. Multi-word phrases (high confidence, weight=2)
+    2. Single words (lower confidence, weight=1)
+    """
+    text_lower = work_item.lower()
+
+    # Tier 1: Multi-word phrase matches (weight=2)
+    operational_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["operational"] if kw in text_lower)
+    bugfix_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["bugfix"] if kw in text_lower)
+    feature_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["feature"] if kw in text_lower)
+
+    # Tier 2: Single-word matches (weight=1) — only if no phrase matched
+    operational_single = sum(1 for kw in WORK_TYPE_KEYWORDS["operational_single"] if kw in text_lower)
+    bugfix_single = sum(1 for kw in WORK_TYPE_KEYWORDS["bugfix_single"] if kw in text_lower)
+
+    operational_score = operational_phrase + operational_single
+    bugfix_score = bugfix_phrase + bugfix_single
+    feature_score = feature_phrase
+
+    # Operational: needs phrase match (>=2) OR strong single-word signal (>=4)
+    if operational_phrase >= 2 or (operational_single >= 4 and operational_score > bugfix_score and operational_score > feature_score):
+        return "operational"
+
+    # Bugfix: needs phrase match or single-word signal
+    if bugfix_phrase >= 2 or (bugfix_score >= 3 and bugfix_score > feature_score):
+        return "bugfix"
+
+    return "feature"
+
+
+def is_operational_work(work_item: str) -> bool:
+    return classify_work_type(work_item) == "operational"
+
+
+# Stages to deactivate for operational work (no new code creation needed)
+OPERATIONAL_EXCLUDED_STAGES: list[str] = [
+    "impl.design",
+    "impl.code",
+    "doc.update",
+    "verify",
+    "arch.requirements",
+    "arch.solution",
+    "arch.review",
+    "design.user-research",
+    "design.personas",
+    "design.info-arch",
+    "design.interaction",
+    "design.design-system",
+    "design.visual-design",
+    "doc.decisions",
+    "doc.project",
+]
+
+
+def deactivate_for_work_type(stages: dict[str, Any], work_type: str) -> dict[str, Any]:
+    """Deactivate stages that don't apply for the given work type."""
+    if work_type == "feature":
+        return stages
+
+    result = dict(stages)
+    excluded = []
+
+    if work_type == "operational":
+        excluded = OPERATIONAL_EXCLUDED_STAGES
+    elif work_type == "bugfix":
+        # Bugfix: skip design stages, keep impl but skip heavy architecture
+        excluded = [
+            "design.user-research", "design.personas", "design.info-arch",
+            "design.interaction", "design.design-system", "design.visual-design",
+        ]
+
+    for sid in excluded:
+        if sid in result:
+            result[sid]["done"] = True
+            result[sid]["attempts"] = 0
+            result[sid]["essence_checked"] = False
+
+    return result

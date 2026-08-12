@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--parallel-qa", action="store_true", help="Run QA stages in parallel (requires --dynamic-graph)")
     parser.add_argument("--build-topology", action="store_true", help="Build dynamic graph topology and output as markdown (for LLM orchestrator)")
     parser.add_argument("--opencode-agent", action="store_true", help="Use opencode CLI as agent backend (Python controls graph, opencode executes with native tools)")
+    parser.add_argument("--check-compliance", action="store_true", help="Validate stage transition against topology (for LLM orchestrator)")
+    parser.add_argument("--requested-stage", type=str, default="", help="Stage ID to validate (required with --check-compliance)")
     args = parser.parse_args()
 
     framework_root = Path(args.framework_root).resolve()
@@ -62,6 +64,10 @@ def main():
 
     if args.build_topology:
         _build_topology(args.work_item, config, paths)
+        return
+
+    if args.check_compliance:
+        _check_compliance(args, paths)
         return
 
     # Validate model connectivity before starting
@@ -152,17 +158,19 @@ def main():
 
 def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str]) -> None:
     """Build dynamic graph topology and output as markdown for LLM orchestrator."""
-    from eng_loop.tools.autosizing import classify_complexity, detect_ui_project
+    from eng_loop.tools.autosizing import classify_complexity, classify_work_type, detect_ui_project
     from eng_loop.graph_builder import GraphBuilder
 
-    # Classify complexity from work item
+    # Classify from work item
     complexity = classify_complexity(work_item, config)
+    work_type = classify_work_type(work_item)
     ui_project = detect_ui_project(paths)
 
     # Build state for graph builder
     state = make_initial_state(config, paths)
     state["work_item"] = work_item
     state["complexity"] = complexity
+    state["work_type"] = work_type
     state["ui_project"] = ui_project
 
     parallel_qa = config.get("dynamic_graph", {}).get("parallel_qa", False)
@@ -170,7 +178,7 @@ def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str
     _, topology = builder.build(state)
 
     # Generate markdown output
-    md = _topology_to_markdown(topology, work_item, complexity, ui_project, config)
+    md = _topology_to_markdown(topology, work_item, complexity, work_type, ui_project, config)
 
     # Save to file
     topology_file = paths.get("artifact_root", "artifacts") + "/graph-topology.md"
@@ -190,11 +198,13 @@ def _topology_to_markdown(
     topology: "GraphTopology",
     work_item: str,
     complexity: str,
+    work_type: str,
     ui_project: bool,
     config: dict[str, Any],
 ) -> str:
     """Convert graph topology to markdown instructions for LLM orchestrator."""
-    from eng_loop.state import STAGE_ORDER, STAGE_MIN_COMPLEXITY
+    from eng_loop.state import STAGE_ORDER, STAGE_MIN_COMPLEXITY, get_active_stages
+    from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
 
     lines = []
     lines.append("# DYNAMIC GRAPH TOPOLOGY — GENERATED EXECUTION PLAN")
@@ -202,12 +212,23 @@ def _topology_to_markdown(
     lines.append("> **This graph was built by the framework based on your work item.**")
     lines.append("> **You MUST follow this execution plan. Do not skip stages, do not change order.**")
     lines.append("> **Routing is deterministic — follow the edges as defined.**")
+    lines.append("> **Before each stage, run `eng-loop --check-compliance --requested-stage <stage>` to validate.**")
     lines.append("")
     lines.append("## Context")
     lines.append(f"- **Work Item:** {work_item}")
     lines.append(f"- **Complexity:** {complexity}")
+    lines.append(f"- **Work Type:** {work_type}")
     lines.append(f"- **UI Project:** {ui_project}")
     lines.append(f"- **Active Nodes:** {topology.nodes_included}/{topology.total_available}")
+    lines.append("")
+
+    # Work type explanation
+    work_type_descriptions = {
+        "feature": "New functionality — full loop (design, architecture, implementation, verification, QA, deploy)",
+        "bugfix": "Fix existing behavior — skips design stages, keeps implementation + verification",
+        "operational": "Run existing code (tests, deploys) — skips implementation, design, architecture",
+    }
+    lines.append(f"**Work Type: {work_type}** — {work_type_descriptions.get(work_type, '')}")
     lines.append("")
 
     # Active stages
@@ -307,8 +328,61 @@ def _topology_to_markdown(
         lines.append(f"| `{stage_id}` | {max_att} |")
 
     lines.append("")
+
+    # Deactivated stages
+    all_stages = get_active_stages(complexity, ui_project, "feature")
+    deactivated = [s for s in STAGE_ORDER if s not in topology.active_nodes]
+    if deactivated:
+        lines.append("## DEACTIVATED STAGES (auto-sizing)")
+        lines.append("")
+        for s in deactivated:
+            min_c = STAGE_MIN_COMPLEXITY.get(s, "small")
+            reason = ""
+            if s in OPERATIONAL_EXCLUDED_STAGES and work_type == "operational":
+                reason = "excluded for operational work"
+            elif s in ("design.user-research", "design.personas", "design.info-arch",
+                       "design.interaction", "design.design-system", "design.visual-design") and work_type == "bugfix":
+                reason = "excluded for bugfix work"
+            elif min_c != "small":
+                reason = f"min_complexity={min_c}, current={complexity}"
+            elif s in ("e2e.execute", "smoke.test") and not ui_project:
+                reason = "requires UI project"
+            lines.append(f"- `{s}` — {reason}")
+        lines.append("")
+
+    # Stage checklist
+    lines.append("## STAGE CHECKLIST")
+    lines.append("")
+    lines.append("Mark each stage as `[x]` when `done: true` in state.json.")
+    lines.append("NEVER mark a stage without passing the compliance gate first.")
+    lines.append("")
+    for i, node_id in enumerate(topology.active_nodes, 1):
+        lines.append(f"- [ ] {i}. `{node_id}`")
+    lines.append("")
+
+    # Stage scope
+    stage_scope = {
+        "init": "ALLOWED: read project files, explore structure. FORBIDDEN: write code, modify config.",
+        "init.ideate": "ALLOWED: read project files. FORBIDDEN: write code, modify config.",
+        "init.refine": "ALLOWED: read project files. FORBIDDEN: write code, modify config.",
+        "impl.design": "ALLOWED: read code, write blueprint artifacts. FORBIDDEN: modify source code.",
+        "impl.code": "ALLOWED: read/write code, run tests, edit config, git operations.",
+        "doc.update": "ALLOWED: read/write documentation files. FORBIDDEN: modify source code.",
+        "verify": "ALLOWED: read code, run tests, read artifacts. FORBIDDEN: modify source code.",
+        "e2e.execute": "ALLOWED: read/write e2e/ files, run tests. FORBIDDEN: modify src/, edit playwright.config.js env, kill processes.",
+        "deploy.prepare": "ALLOWED: run build/lint commands, read files. FORBIDDEN: modify source code.",
+        "smoke.test": "ALLOWED: read/write e2e/ files, run tests against production build.",
+        "post": "ALLOWED: read/write artifacts, git operations. FORBIDDEN: modify source code.",
+    }
+    lines.append("## STAGE SCOPE")
+    lines.append("")
+    for node_id in topology.active_nodes:
+        scope = stage_scope.get(node_id, "Standard stage scope.")
+        lines.append(f"- **`{node_id}`**: {scope}")
+    lines.append("")
+
     lines.append("---")
-    lines.append("*Generated by Engineering Loop v11 GraphBuilder*")
+    lines.append("*Generated by Engineering Loop v11.1 GraphBuilder*")
 
     return "\n".join(lines)
 
@@ -387,6 +461,7 @@ def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
         "status": state.get("status", "running"),
         "blocking_condition": state.get("blocking_condition", ""),
         "complexity": state.get("complexity", "unset"),
+        "work_type": state.get("work_type", "feature"),
         "work_item": state.get("work_item", ""),
         "ideation": state.get("ideation"),
         "ui_project": state.get("ui_project", False),
@@ -398,6 +473,27 @@ def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
     if verbose:
         print()
         print(f"State saved to: {state_file}")
+
+
+def _check_compliance(args: argparse.Namespace, paths: dict[str, str]) -> None:
+    """Validate stage transition against topology."""
+    from eng_loop.tools.topology_compliance import check_compliance_from_files
+
+    state_file = args.state_file or paths.get("state_file", "state.json")
+
+    if not args.requested_stage:
+        print("ERROR: --requested-stage is required with --check-compliance")
+        sys.exit(1)
+
+    if not Path(state_file).exists():
+        print(f"ERROR: State file not found: {state_file}")
+        sys.exit(1)
+
+    result = check_compliance_from_files(state_file, args.requested_stage)
+    print(result.to_json())
+
+    if not result.ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

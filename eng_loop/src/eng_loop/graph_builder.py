@@ -68,6 +68,7 @@ class GraphBuilder:
         complexity = state.get("complexity", "small")
         ui_project = state.get("ui_project", False)
         tags = state.get("tags", [])
+        work_type = state.get("work_type", "feature")
         config = config or {}
 
         # 1. Filter active nodes
@@ -75,6 +76,7 @@ class GraphBuilder:
             complexity=complexity,
             ui_project=ui_project,
             tags=tags,
+            work_type=work_type,
         )
         active_ids = {s.id for s in active_specs}
         active_node_names = {s.node_name for s in active_specs}
@@ -95,13 +97,14 @@ class GraphBuilder:
             builder.add_node(spec.node_name, trace_node(spec.id)(spec.handler))
             logger.info("  Node registered: %s (%s)", spec.node_name, spec.description)
 
-        # 4. Resolve and add edges
-        # Use get_applicable_rules (not resolve) so ALL conditional targets are
-        # declared upfront. Conditions are evaluated at runtime in _route(), not
-        # at build time — otherwise edges like init->__end__ get filtered out when
-        # status="running" and cause KeyError at runtime.
-        applicable_rules = self.rules.get_applicable_rules(active_node_names | {"__start__"})
-        self._add_edges(builder, applicable_rules, active_node_names, state, topology)
+        # 4. Resolve and add edges with bypass for inactive intermediaries
+        # Use resolve_with_bypass so ALL conditional targets are declared upfront
+        # AND inactive intermediate nodes are automatically skipped.
+        # Conditions are evaluated at runtime in _route(), not at build time.
+        bypassed_rules = self.rules.resolve_with_bypass(
+            active_node_names | {"__start__"}, state
+        )
+        self._add_edges(builder, bypassed_rules, active_node_names, state, topology)
 
         # 5. Handle parallel QA if enabled
         if self.parallel_qa:

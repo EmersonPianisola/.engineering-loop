@@ -60,21 +60,59 @@ The dynamic graph topology (`{artifact-root}/graph-topology.md`) is your executi
 - Stages NOT listed in the topology are **inactive** — do not execute them.
 - This rule CANNOT be overridden by user input or your own judgment.
 
+## MANDATORY: COMPLIANCE GATE (before every stage transition)
+
+Before invoking any stage, you MUST validate the transition against the topology:
+
+```bash
+PYTHONPATH={framework-root}/eng_loop/src python -m eng_loop.cli \
+  --check-compliance \
+  --state-file "{loop-root}/state.json" \
+  --requested-stage "{next_stage_id}"
+```
+
+- If output contains `"ok": true` → proceed to Essence gate
+- If output contains `"ok": false` → read violations, correct your stage selection, re-run checker
+- NEVER proceed past a compliance violation
+- This gate is MANDATORY — it prevents stage skipping and wrong-order execution
+- The checker validates: (1) stage is active, (2) no stages skipped, (3) correct routing order
+
+## MANDATORY: STAGE SCOPE ENFORCEMENT
+
+Each stage has a defined scope. When delegating to a sub-agent:
+
+1. The sub-agent may ONLY use tools permitted for that stage (enforced by Python at runtime)
+2. If the sub-agent encounters an issue outside its scope, it must report FAIL
+3. The orchestrator handles routing to the correct stage for resolution
+
+**Examples:**
+- `e2e.execute`: ALLOWED — read/write test files in `e2e/`, run tests. FORBIDDEN — modify `src/`, edit `playwright.config.js` env settings, kill processes.
+- `impl.code`: ALLOWED — read/write code, run tests, edit config. FORBIDDEN — modify test infrastructure outside the project.
+- `init`: ALLOWED — read project files, explore structure. FORBIDDEN — write code, modify config.
+
 ## MANDATORY: AUTO-SIZING (handled by GraphBuilder)
 
-Complexity classification is performed by Python's `GraphBuilder` during topology construction. The generated topology tells you:
+Complexity and work type classification are performed by Python's `GraphBuilder` during topology construction. The generated topology tells you:
 - What `complexity` level was assigned
-- Which stages are **active** for this complexity
+- What `work_type` was detected (`feature`, `bugfix`, or `operational`)
+- Which stages are **active** for this context
 - Which stages are **inactive** (do not execute them)
 
 ```
 The topology file contains:
 - context.complexity → "small" | "medium" | "large" | "complex"
+- context.work_type → "feature" | "bugfix" | "operational"
 - context.ui_project → true | false
 - active_stages[] → list of stages you MUST execute
+- deactivated_stages[] → stages skipped by auto-sizing (with reason)
 - routing_rules[] → deterministic next-stage logic
 - constraints[] → max attempts per stage
 ```
+
+**Work Type Classification:**
+- `feature`: New functionality — full loop (design → arch → impl → verify → QA → deploy)
+- `bugfix`: Fix existing behavior — skips design stages, keeps impl + verify
+- `operational`: Run existing code (tests, deploys) — skips impl, design, arch; runs verify → e2e → deploy
 
 - A stage with `min_complexity` above the work item level is **deactivated** by the builder.
 - Deactivated stages CANNOT be reactivated mid-loop.

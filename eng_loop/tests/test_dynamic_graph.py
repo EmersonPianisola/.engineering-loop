@@ -193,6 +193,7 @@ def test_topology_markdown_generation():
     state = make_initial_state({}, {})
     state["complexity"] = "small"
     state["ui_project"] = False
+    state["work_type"] = "feature"
 
     builder = GraphBuilder()
     _, topology = builder.build(state)
@@ -201,6 +202,7 @@ def test_topology_markdown_generation():
         topology,
         "Fix typo in README",
         "small",
+        "feature",
         False,
         {},
     )
@@ -212,8 +214,18 @@ def test_topology_markdown_generation():
     assert "## ROUTING RULES" in md
     assert "## CONSTRAINTS" in md
     assert "impl.code" in md
+    assert "Work Type: feature" in md
+    assert "## STAGE CHECKLIST" in md
+    assert "## STAGE SCOPE" in md
+    assert "## DEACTIVATED STAGES" in md
     assert "verify" in md
-    assert "design.user-research" not in md  # Not active for small
+    # design.user-research is deactivated for small, appears in DEACTIVATED section
+    assert "design.user-research" in md
+    # Verify it's in the deactivated section, not active
+    deactivated_idx = md.index("## DEACTIVATED STAGES")
+    active_idx = md.index("## ACTIVE STAGES")
+    assert deactivated_idx > active_idx  # Active comes first
+    assert md.index("design.user-research") > deactivated_idx  # In deactivated section
 
 
 def test_node_spec_attributes():
