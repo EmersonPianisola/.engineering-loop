@@ -38,9 +38,9 @@ class StallDetector:
 
     def __init__(
         self,
-        window_size: int = 5,
+        window_size: int = 10,
         exact_threshold: int = 3,
-        same_tool_threshold: int = 5,
+        same_tool_threshold: int = 10,
         no_progress_threshold: int = 8,
         productive_tools: set[str] | None = None,
         enabled: bool = True,
@@ -217,9 +217,9 @@ def create_stall_detector(config: dict | None = None) -> StallDetector:
 
     return StallDetector(
         enabled=enabled,
-        window_size=stall_cfg.get("window_size", 5),
+        window_size=stall_cfg.get("window_size", 10),
         exact_threshold=stall_cfg.get("exact_repeat_threshold", 3),
-        same_tool_threshold=stall_cfg.get("same_tool_threshold", 5),
+        same_tool_threshold=stall_cfg.get("same_tool_threshold", 10),
         no_progress_threshold=stall_cfg.get("no_progress_threshold", 8),
         productive_tools=set(stall_cfg.get("productive_tools", ["write", "edit", "bash"])),
     )

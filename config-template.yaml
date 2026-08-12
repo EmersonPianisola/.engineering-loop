@@ -143,9 +143,9 @@ agent:
   # Use --opencode-agent CLI flag to enable, or set backend: "opencode" here
   stall_detection:
     enabled: true
-    window_size: 5              # Number of recent calls to observe
+    window_size: 10             # Number of recent calls to observe
     exact_repeat_threshold: 3   # Same tool + same args N times = stall
-    same_tool_threshold: 5      # Same tool N times (any args) = stall
+    same_tool_threshold: 10     # Same tool N times (any args) = stall
     no_progress_threshold: 8    # N calls without write/edit/bash = stall
     productive_tools:
       - write
