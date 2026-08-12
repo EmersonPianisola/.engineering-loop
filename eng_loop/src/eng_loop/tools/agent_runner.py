@@ -17,7 +17,9 @@ from pydantic import BaseModel
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
+    log_stall_warning,
 )
+from eng_loop.tools.stall_detector import create_stall_detector, StallDetector
 
 
 class AgentResult:
@@ -96,6 +98,10 @@ def run_agent(
 
     tool_calls_total = 0
 
+    # Stall detector — catches repetitive tool calls before max_iterations is exhausted
+    agent_cfg = config.get("agent", {}) if config else {}
+    stall_detector: StallDetector = create_stall_detector(agent_cfg)
+
     for iteration in range(1, max_iterations + 1):
         try:
             response = model_with_tools.invoke(messages)
@@ -145,6 +151,24 @@ def run_agent(
                     ))
                     tool_calls_total += 1
 
+                    # Record for stall detection
+                    stall_detector.record(tool_name, tool_args)
+
+                # Stall detection — abort early if agent is spinning
+                stall_report = stall_detector.check()
+                if stall_report:
+                    elapsed = time.monotonic() - t0
+                    log_model_done(stage_id, elapsed)
+                    log_stage_fail(stage_id, stall_report.message)
+                    return AgentResult(
+                        data={},
+                        conversation=list(messages),
+                        tool_calls_made=tool_calls_total,
+                        iterations=iteration,
+                        elapsed=elapsed,
+                        error=stall_report.message,
+                    )
+
                 # Compact messages if conversation is getting too long
                 if len(messages) > 80:
                     messages = _compact_messages(messages)
@@ -158,7 +182,15 @@ def run_agent(
                     model, response.content, stage_id,
                     output_schema, messages,
                 )
-                log_stage_done(stage_id, f"agent completed in {iteration} iterations, {tool_calls_total} tool calls")
+                stall_stats = stall_detector.get_stats()
+                tools_summary = ", ".join(
+                    f"{k}={v}" for k, v in stall_stats.get("tools_used", {}).items()
+                )
+                log_stage_done(
+                    stage_id,
+                    f"agent completed in {iteration} iterations, {tool_calls_total} tool calls"
+                    f" [{tools_summary}]"
+                )
 
                 return AgentResult(
                     data=data,
@@ -186,7 +218,10 @@ def run_agent(
 
     # Try to extract whatever we have
     last_ai = _last_ai_message(messages)
-    data = _extract_from_text(last_ai.content if last_ai else "", output_schema)
+    try:
+        data = _extract_from_text(last_ai.content if last_ai else "", output_schema)
+    except ValueError:
+        data = {}
 
     return AgentResult(
         data=data,
@@ -510,7 +545,10 @@ def _extract_structured_output(
     3. Fall back to best-effort JSON extraction
     """
     # Strategy 1: Direct JSON parse of answer
-    data = extract_json(answer_content)
+    try:
+        data = extract_json(answer_content)
+    except ValueError:
+        data = None
     if data and isinstance(data, dict) and data:
         return data
 
@@ -538,7 +576,10 @@ def _extract_from_text(
     output_schema: Type[BaseModel] | None,
 ) -> dict[str, Any]:
     """Last-resort JSON extraction from text."""
-    data = extract_json(text)
+    try:
+        data = extract_json(text)
+    except ValueError:
+        data = None
     if data and isinstance(data, dict):
         return data
     return {"raw_output": text[:5000], "complete": True}

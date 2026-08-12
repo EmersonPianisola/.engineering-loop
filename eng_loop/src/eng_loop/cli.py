@@ -11,7 +11,8 @@ from eng_loop.config import load_config, resolve_paths, ensure_directories
 from eng_loop.state import make_initial_state, load_state_template, STAGE_ORDER
 from eng_loop.graph import compile_graph
 from eng_loop.tools.file_ops import save_json as save_json_file
-from eng_loop.tools.progress import log_iteration
+from eng_loop.tools.progress import log_iteration, ui
+from rich.panel import Panel
 from eng_loop.model import create_model_from_config, DEFAULT_BASE_URL, DEFAULT_MODEL
 
 
@@ -72,9 +73,14 @@ def main():
 
     # Validate model connectivity before starting
     if not _check_model(config, quiet=True):
-        print("\n[warn] Model connectivity check failed.")
-        print(f"       Check that {config.get('model', {}).get('base_url', DEFAULT_BASE_URL)} is running.")
-        print("       Use --check-model for details.")
+        ui.console.print()
+        ui.console.print(Panel(
+            f"[yellow]Model connectivity check failed.[/yellow]\n"
+            f"Check that [bold]{config.get('model', {}).get('base_url', DEFAULT_BASE_URL)}[/bold] is running.\n"
+            f"Use [dim]--check-model[/dim] for details.",
+            title="[bold yellow]⚠ Warning[/bold yellow]",
+            border_style="yellow",
+        ))
         response = input("Continue anyway? [y/N]: ")
         if response.lower() != "y":
             sys.exit(1)
@@ -92,11 +98,11 @@ def main():
 
     if dynamic_graph:
         if parallel_qa:
-            print("Mode: Dynamic graph + parallel QA")
+            ui.console.print("[bold cyan]Mode:[/bold cyan] Dynamic graph + parallel QA")
         else:
-            print("Mode: Dynamic graph")
+            ui.console.print("[bold cyan]Mode:[/bold cyan] Dynamic graph")
         if args.opencode_agent:
-            print("Agent backend: opencode (hybrid mode)")
+            ui.console.print("[bold cyan]Agent backend:[/bold cyan] opencode (hybrid mode)")
 
         from eng_loop.graph_builder import GraphBuilder
         graph_builder = GraphBuilder(parallel_qa=parallel_qa)
@@ -106,20 +112,30 @@ def main():
         state["graph_topology"] = topology.to_dict()
         state["active_nodes"] = topology.active_nodes
 
-        print(f"Graph: {topology.nodes_included}/{topology.total_available} nodes active")
-        print(f"Active: {', '.join(topology.active_nodes)}")
+        # Render topology tree
+        ui.render_topology(
+            work_item=args.work_item,
+            active_nodes=topology.active_nodes,
+            complexity=state.get("complexity", "unset"),
+            total_available=topology.total_available,
+        )
     else:
-        print("Mode: Static graph (legacy)")
+        ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")
         graph = compile_graph(config=config)
 
     thread_config = {"configurable": {"thread_id": "eng-loop-run"}}
 
     model_info = config.get("model", {})
-    print(f"Starting Engineering Loop...")
-    print(f"Work item: {args.work_item}")
-    print(f"Model: {model_info.get('model', DEFAULT_MODEL)} @ {model_info.get('base_url', DEFAULT_BASE_URL)}")
-    print(f"Complexity: will be auto-sized")
-    print()
+    ui.console.print()
+    ui.console.print(
+        Panel(
+            f"[bold]Work item:[/bold] {args.work_item}\n"
+            f"[bold]Model:[/bold] {model_info.get('model', DEFAULT_MODEL)} @ {model_info.get('base_url', DEFAULT_BASE_URL)}\n"
+            f"[bold]Complexity:[/bold] auto-sized",
+            title="[bold blue]Engineering Loop v11[/bold blue]",
+            border_style="blue",
+        )
+    )
 
     try:
         prev_stage = ""
@@ -144,13 +160,15 @@ def main():
         state["status"] = "halted"
         state["blocking_condition"] = "user interrupted"
         _save_state(state, paths, verbose=True)
-        print("\nLoop halted by user.")
+        ui.console.print()
+        ui.console.print(Panel("[bold yellow]Loop halted by user.[/bold yellow]", border_style="yellow"))
         sys.exit(130)
     except Exception as e:
         state["status"] = "halted"
         state["blocking_condition"] = str(e)
         _save_state(state, paths, verbose=True)
-        print(f"\nLoop halted: {e}")
+        ui.console.print()
+        ui.console.print(Panel(f"[bold red]Loop halted:[/bold red] {e}", border_style="red"))
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -190,8 +208,9 @@ def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str
     save_json_file(topology_json, topology.to_dict())
 
     print(md)
-    print(f"\nTopology saved to: {topology_file}")
-    print(f"JSON saved to: {topology_json}")
+    ui.console.print()
+    ui.console.print(f"  [dim]Topology saved to: {topology_file}[/dim]")
+    ui.console.print(f"  [dim]JSON saved to: {topology_json}[/dim]")
 
 
 def _topology_to_markdown(
@@ -391,20 +410,11 @@ def _print_progress_bar(state: dict) -> None:
     stages = state.get("stages", {})
     complexity = state.get("complexity", "unset")
     active = [s for s in STAGE_ORDER if _is_active(s, complexity, state.get("ui_project", False))]
-    total = len(active)
-    done = sum(1 for s in active if stages.get(s, {}).get("done", False))
+    done_set = {s for s in active if stages.get(s, {}).get("done", False)}
     current = state.get("current_stage", "").replace("-", ".", 99)
+    status = state.get("status", "running")
 
-    bar_len = 30
-    filled = int(bar_len * done / max(total, 1))
-    bar = "#" * filled + "-" * (bar_len - filled)
-
-    color = {"done": "\033[32m", "blocked": "\033[31m", "halted": "\033[31m"}.get(state.get("status", ""), "\033[36m")
-    reset = "\033[0m"
-    dim = "\033[2m"
-
-    sys.stdout.write(f"\r{color}[{bar}] {done}/{total} stages  {current}{reset}")
-    sys.stdout.flush()
+    ui.render_progress_bar(active, done_set, current, status)
 
 
 def _is_active(stage_id: str, complexity: str, ui_project: bool) -> bool:
@@ -425,14 +435,14 @@ def _check_model(config: dict[str, Any], quiet: bool = False) -> bool:
         if not quiet:
             base_url = config.get("model", {}).get("base_url", DEFAULT_BASE_URL)
             model_name = config.get("model", {}).get("model", DEFAULT_MODEL)
-            print(f"Checking model: {model_name} @ {base_url}")
+            ui.console.print(f"[yellow]Checking model:[/yellow] {model_name} @ {base_url}")
         model.invoke("Respond with OK")
         if not quiet:
-            print("Model connectivity: OK")
+            ui.console.print("[bold green]Model connectivity: OK[/bold green]")
         return True
     except Exception as e:
         if not quiet:
-            print(f"Model connectivity failed: {e}")
+            ui.console.print(f"[bold red]Model connectivity failed:[/bold red] {e}")
         return False
 
 
@@ -441,18 +451,9 @@ def _print_result(state: dict) -> None:
     blocking = state.get("blocking_condition", "")
     decisions = state.get("decisions", [])
     iteration = state.get("iteration", 0)
+    stages = state.get("stages", {})
 
-    print(f"\n{'='*60}")
-    print(f"Engineering Loop Complete")
-    print(f"{'='*60}")
-    print(f"Status: {status}")
-    if blocking:
-        print(f"Blocking: {blocking}")
-    print(f"Iterations: {iteration}")
-    print(f"Decisions: {len(decisions)}")
-    for d in decisions:
-        print(f"  - {d}")
-    print(f"{'='*60}")
+    ui.render_result(status, blocking, iteration, decisions, stages)
 
 
 def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
@@ -471,8 +472,8 @@ def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
     state_file = paths.get("state_file", "state.json")
     save_json_file(state_file, saveable)
     if verbose:
-        print()
-        print(f"State saved to: {state_file}")
+        ui.console.print()
+        ui.console.print(f"  [dim]State saved to: {state_file}[/dim]")
 
 
 def _check_compliance(args: argparse.Namespace, paths: dict[str, str]) -> None:
@@ -482,15 +483,15 @@ def _check_compliance(args: argparse.Namespace, paths: dict[str, str]) -> None:
     state_file = args.state_file or paths.get("state_file", "state.json")
 
     if not args.requested_stage:
-        print("ERROR: --requested-stage is required with --check-compliance")
+        ui.console.print("[bold red]ERROR:[/bold red] --requested-stage is required with --check-compliance")
         sys.exit(1)
 
     if not Path(state_file).exists():
-        print(f"ERROR: State file not found: {state_file}")
+        ui.console.print(f"[bold red]ERROR:[/bold red] State file not found: {state_file}")
         sys.exit(1)
 
     result = check_compliance_from_files(state_file, args.requested_stage)
-    print(result.to_json())
+    ui.console.print(result.to_json())
 
     if not result.ok:
         sys.exit(1)
