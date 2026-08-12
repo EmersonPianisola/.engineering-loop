@@ -86,13 +86,17 @@ def design_node(stage_id: str):
 ## PROJECT ROOT
 {paths.get('project_root', '.')}
 
-Use your tools (read, glob, grep) to explore the project for context.
+Use your tools to explore the project for context:
+1. **graphify_query** for high-level project structure
+2. **graphify_explain** for specific entities
+3. Then use read, glob, grep for file-level details
+
 Execute the design task.
 Return a JSON object with these fields: design_output, artifacts, complete, decisions.
 """
         model = create_model_from_config(config, stage_id)
 
-        tools = get_tools_for_stage(stage_id, paths, config)
+        tools = get_tools_for_stage(stage_id, paths, config, state)
         max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
 
         agent_result: AgentResult = run_agent(

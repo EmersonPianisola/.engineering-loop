@@ -1,0 +1,2 @@
+[console_scripts]
+eng-loop = eng_loop.cli:main

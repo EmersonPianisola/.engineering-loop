@@ -77,7 +77,7 @@ Return a JSON object with these fields: summary, lessons_to_share, final_status,
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
 
     agent_result: AgentResult = run_agent(

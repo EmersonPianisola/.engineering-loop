@@ -66,7 +66,7 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
 
     agent_result: AgentResult = run_agent(
@@ -204,7 +204,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, 
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
 
     agent_result: AgentResult = run_agent(

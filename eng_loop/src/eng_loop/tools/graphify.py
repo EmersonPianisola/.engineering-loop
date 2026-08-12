@@ -107,18 +107,19 @@ def get_graphify_prompt_injection(graph_path: str) -> str:
 
 A knowledge graph of the codebase is available at `{graph_path}/graphify-out/`.
 
-**Use graphify commands instead of reading files for structural understanding:**
+**MANDATORY EXECUTION ORDER — Use graphify tools FIRST, read files SECOND:**
 
-- `graphify explain <entity>` — Understand a concept's structure, location, and connections (use BEFORE modifying code)
-- `graphify path <source> <destination>` — Trace connections between two entities (use for data flow tracing)
-- `graphify query "<question>"` — Get scoped subgraph for architecture questions
+1. **graphify_query** — Start here. Get high-level architecture context before touching files.
+2. **graphify_explain** — Understand specific entities before reading their source.
+3. **graphify_path** — Trace connections between entities without reading intermediate files.
+4. **read/glob/grep** — ONLY after graphify gives you structural context. Use for contract/type details.
 
 **Confidence rules:**
 - EXTRACTED edges: Trust — explicit in source
 - INFERRED edges: Verify if critical — derived by resolution
 - AMBIGUOUS edges: Must Read source — do not trust
 
-**Important:** Graph is the map, Read is the terrain. Use graphify for structural overview, Read for contract/type details."""
+**Important:** Graph is the map, Read is the terrain. Use graphify for structural overview, Read for contract/type details. DO NOT skip graphify and go straight to reading files."""
 
 
 def get_graphify_injection(state: dict[str, Any], paths: dict[str, str]) -> str:

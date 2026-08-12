@@ -66,10 +66,11 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
 {paths.get('project_root', '.')}
 
 Use your tools to explore the project structure:
-1. Use glob to find existing files and understand the project layout
-2. Use grep to search for relevant patterns in existing code
-3. Read key files to understand existing architecture and conventions
-4. Create a detailed implementation blueprint with file structure, contracts, data flows, and execution order
+1. **graphify_query** — Get overall architecture context first
+2. **graphify_explain** — Understand specific entities you'll modify
+3. Use glob/grep to find relevant files (only after graphify context)
+4. Read key files for contract/type details (only after graphify context)
+5. Create a detailed implementation blueprint with file structure, contracts, data flows, and execution order
 
 Save the blueprint to {paths.get('artifact_root', '')}/blueprints/blueprint.md
 
@@ -77,7 +78,7 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
@@ -216,16 +217,17 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
 {paths.get('project_root', '.')}
 
 Execute in TDD mode:
-1. For each task in the blueprint:
-   a. Read existing files to understand context
+1. **graphify_explain** each entity you'll modify BEFORE reading files
+2. For each task in the blueprint:
+   a. Use graphify_explain to understand context, then read only files you must
    b. Write test file first
    c. Run test with bash — it must fail (red)
    d. Write/implement code to satisfy the test
    e. Run test with bash — it must pass (green)
    f. Commit with bash: git add + git commit
-2. After all tasks: provide summary as JSON
+3. After all tasks: provide summary as JSON
 
-Use your tools: read files, write code, edit existing files, run tests with bash, search with grep/glob.
+Use your tools: graphify_explain first, then read files, write code, edit existing files, run tests with bash, search with grep/glob.
 The project root is {paths.get('project_root', '.')}. All file paths should be relative to it.
 
 Return a JSON object with these fields: implementation_summary, files_created, tests_passed, complete, decisions, diff.
@@ -233,7 +235,7 @@ Return a JSON object with these fields: implementation_summary, files_created, t
     model = create_model_from_config(config, stage_id)
 
     # Get tools for this stage
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
@@ -361,7 +363,7 @@ Return a JSON object with these fields: files_updated, complete.
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(

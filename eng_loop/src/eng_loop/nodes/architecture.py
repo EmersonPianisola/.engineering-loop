@@ -81,13 +81,18 @@ def arch_node(stage_id: str):
 ## PROJECT ROOT
 {paths.get('project_root', '.')}
 
-Use your tools (read, glob, grep) to explore the codebase for architectural context.
+Use your tools to explore the codebase for architectural context:
+1. **graphify_query** for high-level architecture understanding
+2. **graphify_explain** for specific entities
+3. **graphify_path** to trace connections between components
+4. Then use read, glob, grep for file-level details
+
 Execute the architecture task.
 Return a JSON object with these fields: architecture_output, complete, decisions, critical_findings.
 """
         model = create_model_from_config(config, stage_id)
 
-        tools = get_tools_for_stage(stage_id, paths, config)
+        tools = get_tools_for_stage(stage_id, paths, config, state)
         max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
 
         agent_result: AgentResult = run_agent(

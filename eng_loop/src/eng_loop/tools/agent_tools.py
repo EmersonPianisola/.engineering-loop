@@ -9,6 +9,7 @@ from eng_loop.tools.bash_tool import create_bash_tool
 from eng_loop.tools.edit_tool import create_edit_tool
 from eng_loop.tools.glob_tool import create_glob_tool
 from eng_loop.tools.grep_tool import create_grep_tool
+from eng_loop.tools.graphify_tools import get_graphify_tools
 from eng_loop.tools.read_tool import create_read_tool
 from eng_loop.tools.write_tool import create_write_tool
 
@@ -68,10 +69,12 @@ def get_tools_for_stage(
     stage_id: str,
     paths: dict[str, str],
     config: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
 ) -> list[Tool]:
     """Get the list of LangChain Tool instances for a stage."""
     tool_names = STAGE_TOOLS.get(stage_id, ["read"])
     config = config or {}
+    state = state or {}
     bash_timeout = config.get("agent", {}).get("tool_timeout", 120)
 
     project_root = paths.get("project_root", ".")
@@ -93,6 +96,11 @@ def get_tools_for_stage(
             tools.append(create_glob_tool())
         elif name == "grep":
             tools.append(create_grep_tool())
+
+    # Add graphify tools if knowledge graph was built
+    graphify_tools = get_graphify_tools(state, paths)
+    if graphify_tools:
+        tools.extend(graphify_tools)
 
     return tools
 

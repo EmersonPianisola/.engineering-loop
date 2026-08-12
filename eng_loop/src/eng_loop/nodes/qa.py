@@ -74,17 +74,20 @@ def qa_node(stage_id: str):
 {paths.get('project_root', '.')}
 
 Use your tools to examine the actual code:
-- Read source files to inspect implementation
-- Use grep to search for security patterns, API endpoints, performance anti-patterns
-- Use bash to run security scanners, lint tools, or performance analysis tools
-- Use glob to find relevant files
+1. **graphify_query** for overview of relevant code areas
+2. **graphify_path** to trace data flows (critical for security)
+3. **graphify_explain** for specific entities under review
+4. Read source files to inspect implementation (only after graphify context)
+5. Use grep to search for security patterns, API endpoints, performance anti-patterns
+6. Use bash to run security scanners, lint tools, or performance analysis tools
+7. Use glob to find relevant files
 
 Execute the QA review.
 Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete.
 """
         model = create_model_from_config(config, stage_id)
 
-        tools = get_tools_for_stage(stage_id, paths, config)
+        tools = get_tools_for_stage(stage_id, paths, config, state)
         max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 20)
 
         agent_result: AgentResult = run_agent(

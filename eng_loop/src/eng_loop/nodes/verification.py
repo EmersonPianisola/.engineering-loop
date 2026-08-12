@@ -70,14 +70,16 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
 {paths.get('project_root', '.')}
 
 Execute verification using your tools:
-1. Read the source code files to understand what was implemented
-2. Spec-anchored check — trace each AC to file:line evidence by reading actual files
-3. Run tests with bash to confirm they pass
-4. Discrimination sensor — use grep to find test assertions, verify they cover the right behavior
-5. Coverage audit — compare ACs against test file contents
-6. Write validation report to {paths.get('artifact_root', '')}/validation.md
+1. **graphify_explain** entities being verified — understand structure before reading
+2. **graphify_path** to trace data flows between components
+3. Read source code files to understand what was implemented (only after graphify context)
+4. Spec-anchored check — trace each AC to file:line evidence by reading actual files
+5. Run tests with bash to confirm they pass
+6. Discrimination sensor — use grep to find test assertions, verify they cover the right behavior
+7. Coverage audit — compare ACs against test file contents
+8. Write validation report to {paths.get('artifact_root', '')}/validation.md
 
-Use read, bash, grep, and glob tools to examine actual code and run tests.
+Use graphify_explain/graphify_path FIRST, then read, bash, grep, and glob tools to examine actual code and run tests.
 Do NOT guess — read the files and run the tests.
 
 Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence, discrimination_sensor, coverage_audit, gaps, complete.
@@ -85,7 +87,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
     model = create_model_from_config(config, stage_id)
 
     # Get tools for this stage
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
@@ -245,7 +247,7 @@ Return a JSON object with these fields: verdict (PASS or FAIL), test_results, co
 """
     model = create_model_from_config(config, stage_id)
 
-    tools = get_tools_for_stage(stage_id, paths, config)
+    tools = get_tools_for_stage(stage_id, paths, config, state)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
