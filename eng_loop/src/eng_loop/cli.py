@@ -118,6 +118,8 @@ def main():
             active_nodes=topology.active_nodes,
             complexity=state.get("complexity", "unset"),
             total_available=topology.total_available,
+            work_type=state.get("work_type", "feature"),
+            ui_project=state.get("ui_project", False),
         )
     else:
         ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")

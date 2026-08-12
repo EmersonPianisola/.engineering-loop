@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from functools import wraps
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from rich.console import Console
 from rich.panel import Panel
@@ -13,6 +13,9 @@ from rich.tree import Tree
 from rich.live import Live
 from rich.syntax import Syntax
 from rich.rule import Rule
+
+if TYPE_CHECKING:
+    from rich.status import Status as RichStatus
 
 
 # ─── Console singleton ───────────────────────────────────────────────
@@ -43,8 +46,47 @@ class UIManager:
         active_nodes: list[str],
         complexity: str,
         total_available: int = 0,
+        work_type: str = "feature",
+        ui_project: bool = False,
     ) -> None:
-        """Render execution plan as a rich tree grouped by phase."""
+        """Render execution plan as a rich tree grouped by phase.
+
+        Header shows structured classification (work_type, complexity, scope)
+        instead of the raw work item prompt.
+        """
+        work_type_labels = {
+            "feature": "[green]FEATURE[/green] — Full loop (design → impl → verify → QA → deploy)",
+            "bugfix": "[yellow]BUGFIX[/yellow] — Skips design, keeps implementation + verification",
+            "operational": "[cyan]OPERATIONAL[/cyan] — Runs existing code, skips impl/design/arch",
+        }
+        strategy_line = work_type_labels.get(work_type, f"[white]{work_type}[/white]")
+
+        complexity_colors = {
+            "small": "green",
+            "medium": "yellow",
+            "large": "red",
+            "complex": "bold red",
+        }
+        comp_color = complexity_colors.get(complexity, "white")
+
+        bypassed = []
+        if work_type == "operational":
+            bypassed.append("Design/Arch/Impl")
+        elif work_type == "bugfix":
+            bypassed.append("Design stages")
+        if not ui_project:
+            bypassed.append("E2E/Smoke")
+
+        bypass_line = ""
+        if bypassed:
+            bypass_line = f" [dim](bypassing {', '.join(bypassed)})[/dim]"
+
+        classification = (
+            f"[bold]Strategy:[/bold] {strategy_line}\n"
+            f"[bold]Complexity:[/bold] [{comp_color}]{complexity}[/]{bypass_line}\n"
+            f"[bold]UI Project:[/bold] {'[green]yes[/green]' if ui_project else '[dim]no[/dim]'}"
+        )
+
         phases = [
             ("INIT", "blue", []),
             ("DESIGN", "cyan", []),
@@ -63,11 +105,7 @@ class UIManager:
             if prefix in phase_map:
                 phase_map[prefix].append(node)
 
-        tree = Tree(
-            f"[bold blue]Execution Plan[/bold blue]: "
-            f"[bold]{work_item}[/bold] "
-            f"[dim]({complexity})[/dim]"
-        )
+        tree = Tree(f"[bold blue]Execution Plan[/bold blue][dim] ({len(active_nodes)} nodes)[/dim]")
 
         for name, color, nodes in phases:
             if not nodes:
@@ -76,13 +114,12 @@ class UIManager:
             for n in nodes:
                 branch.add(f"[dim]⚙[/dim] {n}")
 
-        header = (
-            f"Nodes: [bold]{len(active_nodes)}[/bold]"
-            f"{f' / {total_available}' if total_available else ''}"
-        )
+        header = f"[bold]{len(active_nodes)}[/bold]{f' / {total_available}' if total_available else ''} active"
+        subtitle = f"[dim]{work_item}[/dim]"
         self.console.print(
-            Panel(tree, title="Graph Topology", subtitle=header, border_style="blue")
+            Panel(tree, title="Graph Topology", subtitle=subtitle, border_style="blue")
         )
+        self.console.print(Panel(classification, border_style="blue", padding=(0, 1)))
 
     # ── Stage Progress Bar ─────────────────────────────────────────
     def render_progress_bar(
@@ -265,6 +302,121 @@ class UIManager:
         )
 
 
+# ─── Stage Spinner (in-place progress, no scroll pollution) ──────────
+class StageSpinner:
+    """In-place spinner that replaces append-only tool output during agent execution.
+
+    Uses rich.console.status to show a single updating line with the current
+    action, tool count, and elapsed time. When stopped, the line disappears
+    and is replaced by the handoff panel.
+    """
+
+    ICONS = {
+        "read": "R",
+        "write": "W",
+        "edit": "E",
+        "bash": "$",
+        "glob": "G",
+        "grep": "S",
+        "search": "S",
+    }
+
+    def __init__(self, stage_id: str, console: Console | None = None) -> None:
+        self.stage_id = stage_id
+        self.console = console or ui.console
+        self.tool_count = 0
+        self.start_time = time.monotonic()
+        self._status: RichStatus | None = None
+
+    def start(self) -> None:
+        self._status = self.console.status(
+            f"[bold cyan]{self.stage_id}[/bold cyan] initializing...",
+            spinner="dots",
+        )
+        self._status.start()
+
+    def stop(self) -> None:
+        if self._status:
+            self._status.stop()
+            self._status = None
+
+    def update(self, action_type: str, target: str = "") -> None:
+        self.tool_count += 1
+        elapsed = time.monotonic() - self.start_time
+        icon = self.ICONS.get(action_type, "?")
+        target_str = f" {target}" if target else ""
+        if self._status:
+            self._status.update(
+                f"[bold cyan]{self.stage_id}[/bold cyan] "
+                f"[cyan]{icon}[/cyan] {action_type}{target_str} "
+                f"[dim]({self.tool_count} tools, {elapsed:.0f}s)[/dim]"
+            )
+
+    def think(self, text: str) -> None:
+        elapsed = time.monotonic() - self.start_time
+        truncated = text[:60]
+        if len(text) > 60:
+            truncated += "…"
+        if self._status:
+            self._status.update(
+                f"[bold cyan]{self.stage_id}[/bold cyan] "
+                f"[dim]🧠 {truncated}[/dim] "
+                f"[dim]({elapsed:.0f}s)[/dim]"
+            )
+
+    def idle(self) -> None:
+        elapsed = time.monotonic() - self.start_time
+        if self._status:
+            self._status.update(
+                f"[bold cyan]{self.stage_id}[/bold cyan] "
+                f"[dim]waiting… ({elapsed:.0f}s)[/dim]"
+            )
+
+
+# ─── Thread-local stage context ──────────────────────────────────────
+# Allows trace_node to activate a spinner that run_agent() picks up
+# automatically without modifying node caller signatures.
+import threading
+
+_stage_ctx: threading.local = threading.local()
+
+
+class stage_context:
+    """Context manager that activates a StageSpinner for the current thread.
+
+    Usage in trace_node:
+        with stage_context(stage_id) as ctx:
+            result = fn(state)
+            ctx.spinner.stop()
+            log_stage_complete(...)
+
+    run_agent() checks _stage_ctx.active and uses spinner.update as progress_cb.
+    """
+
+    def __init__(self, stage_id: str) -> None:
+        self.stage_id = stage_id
+        self.spinner = StageSpinner(stage_id)
+
+    def __enter__(self) -> stage_context:
+        self.spinner.start()
+        _stage_ctx.active = True  # type: ignore[attr-defined]
+        _stage_ctx.spinner = self.spinner  # type: ignore[attr-defined]
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.spinner.stop()
+        _stage_ctx.active = False  # type: ignore[attr-defined]
+        _stage_ctx.spinner = None  # type: ignore[attr-defined]
+        return False
+
+
+def _get_active_spinner() -> StageSpinner | None:
+    """Get the active spinner for the current thread, if any."""
+    if getattr(_stage_ctx, "active", False):
+        return _stage_ctx.spinner  # type: ignore[attr-defined]
+    return None
+
+
 # ─── Global instance ─────────────────────────────────────────────────
 ui = UIManager()
 
@@ -295,6 +447,37 @@ def log_stage_done(stage_id: str, result: str = "") -> None:
         if len(result) > 120:
             truncated += "..."
         ui.console.print(f"         [dim]{truncated}[/dim]")
+
+
+def log_stage_complete(
+    stage_id: str,
+    duration: float,
+    tool_calls: int,
+    summary: str = "",
+    iterations: int = 0,
+) -> None:
+    """Render a structured handoff panel for a completed stage.
+
+    Replaces the plain 'done stage_id' line with a green panel showing
+    duration, tool count, iterations, and result summary.
+    """
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Key", style="bold dim", width=10)
+    table.add_column("Value", style="white")
+
+    table.add_row("Duration", f"[cyan]{duration:.0f}s[/cyan]")
+    table.add_row("Tools", f"[cyan]{tool_calls}[/cyan] calls")
+    if iterations:
+        table.add_row("Iterations", f"[cyan]{iterations}[/cyan]")
+    if summary:
+        truncated = summary[:100]
+        if len(summary) > 100:
+            truncated += "…"
+        table.add_row("Result", f"[green]{truncated}[/green]")
+
+    ui.console.print(
+        Panel(table, title=f"[bold green]✓ {stage_id.upper()}[/bold green]", border_style="green")
+    )
 
 
 def log_stage_skip(stage_id: str) -> None:
@@ -352,7 +535,7 @@ def log_stall_warning(stage_id: str, report_msg: str) -> None:
 
 
 def trace_node(stage_id: str):
-    """Decorator that logs stage entry, model call timing, and completion."""
+    """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel."""
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
         def wrapper(state: dict[str, Any], *args, **kwargs):
@@ -360,9 +543,14 @@ def trace_node(stage_id: str):
             log_stage_enter(stage_id, iteration)
             t0 = time.monotonic()
             try:
-                result = fn(state, *args, **kwargs)
+                with stage_context(stage_id) as ctx:
+                    result = fn(state, *args, **kwargs)
                 elapsed = time.monotonic() - t0
-                ui.console.print(f"  [dim]← {stage_id} ({elapsed:.1f}s)[/dim]")
+                log_stage_complete(
+                    stage_id,
+                    duration=elapsed,
+                    tool_calls=ctx.spinner.tool_count,
+                )
                 return result
             except Exception as e:
                 elapsed = time.monotonic() - t0
@@ -375,11 +563,15 @@ def trace_node(stage_id: str):
 __all__ = [
     "ui",
     "UIManager",
+    "StageSpinner",
+    "stage_context",
+    "_get_active_spinner",
     "console",
     "log_stage_enter",
     "log_model_invoke",
     "log_model_done",
     "log_stage_done",
+    "log_stage_complete",
     "log_stage_skip",
     "log_stage_fail",
     "log_stage_retry",

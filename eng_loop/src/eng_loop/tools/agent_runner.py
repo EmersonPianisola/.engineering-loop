@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Type
+from typing import TYPE_CHECKING, Any, Callable, Type
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import Tool
@@ -16,10 +16,13 @@ from pydantic import BaseModel
 
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
+    _get_active_spinner, log_model_invoke, log_model_done, log_stage_complete, log_stage_done, log_stage_fail,
     log_stall_warning,
 )
 from eng_loop.tools.stall_detector import create_stall_detector, StallDetector
+
+if TYPE_CHECKING:
+    ProgressCallback = Callable[[str, str], None]
 
 
 class AgentResult:
@@ -51,6 +54,7 @@ def run_agent(
     system_message: str = "",
     *,
     config: dict[str, Any] | None = None,
+    progress_cb: ProgressCallback | None = None,
 ) -> AgentResult:
     """Run an agentic loop: LLM calls tools until work is complete, then extracts structured output.
 
@@ -78,9 +82,17 @@ def run_agent(
             project_root=project_root,
             model_name=model_cfg.get("model", ""),
             config=config,
+            progress_cb=progress_cb,
         )
 
     # Original LangChain tool-calling loop
+    # Resolve progress callback: explicit > thread-local spinner > None
+    effective_cb = progress_cb
+    if effective_cb is None:
+        spinner = _get_active_spinner()
+        if spinner:
+            effective_cb = spinner.update
+
     log_model_invoke(stage_id)
     t0 = time.monotonic()
 
@@ -151,6 +163,15 @@ def run_agent(
                     ))
                     tool_calls_total += 1
 
+                    # Phase 3: Spinner callback — update in-place, no new lines
+                    if effective_cb:
+                        target = ""
+                        for v in tool_args.values():
+                            if isinstance(v, str) and ("path" in str(v).lower() or "/" in v or "\\" in v):
+                                target = str(v).split("/")[-1].split("\\")[-1]
+                                break
+                        effective_cb(tool_name, target)
+
                     # Record for stall detection
                     stall_detector.record(tool_name, tool_args)
 
@@ -186,10 +207,12 @@ def run_agent(
                 tools_summary = ", ".join(
                     f"{k}={v}" for k, v in stall_stats.get("tools_used", {}).items()
                 )
-                log_stage_done(
+                log_stage_complete(
                     stage_id,
-                    f"agent completed in {iteration} iterations, {tool_calls_total} tool calls"
-                    f" [{tools_summary}]"
+                    duration=elapsed,
+                    tool_calls=tool_calls_total,
+                    summary=f"{iteration} iterations, {tools_summary}",
+                    iterations=iteration,
                 )
 
                 return AgentResult(
@@ -241,6 +264,7 @@ def run_agent_via_opencode(
     model_name: str = "",
     *,
     config: dict[str, Any] | None = None,
+    progress_cb: ProgressCallback | None = None,
 ) -> AgentResult:
     """Run a stage by invoking opencode CLI as a subprocess.
 
@@ -250,6 +274,13 @@ def run_agent_via_opencode(
     Timeout strategy: monitor streaming events. Only kill when the model
     stops producing tokens (idle timeout). Hard timeout is last-resort fallback.
     """
+    # Resolve progress callback: explicit > thread-local spinner > None
+    effective_cb = progress_cb
+    if effective_cb is None:
+        spinner = _get_active_spinner()
+        if spinner:
+            effective_cb = spinner.update
+
     log_model_invoke(stage_id)
     t0 = time.monotonic()
 
@@ -356,24 +387,29 @@ def run_agent_via_opencode(
                     if path:
                         # Show just the filename, not the full path
                         display = path.split("/")[-1].split("\\")[-1]
-                        _print_tool(stage_id, tool_name, display, status)
+                        if effective_cb:
+                            effective_cb(tool_name, display)
+                        else:
+                            _print_tool(stage_id, tool_name, display, status)
                     else:
-                        _print_tool(stage_id, tool_name, "", status)
+                        if effective_cb:
+                            effective_cb(tool_name, "")
+                        else:
+                            _print_tool(stage_id, tool_name, "", status)
                     tool_count[0] += 1
 
                 elif event_type == "text":
-                    text = part.get("text", "")
-                    if text.strip():
-                        _print_text(stage_id, text.strip()[:200])
+                    # Silenced by default — spinner handles context display
+                    pass
 
                 elif event_type == "step_finish":
                     reason = part.get("reason", "")
                     if reason == "error":
                         _print_error(stage_id, part.get("error", "unknown error"))
 
-                # Progress heartbeat every 30s
+                # Progress heartbeat — only when no spinner callback
                 now = time.monotonic()
-                if now - last_progress > 30:
+                if now - last_progress > 30 and not effective_cb:
                     _print_progress(stage_id, now - t0)
                     last_progress = now
 
@@ -412,7 +448,12 @@ def run_agent_via_opencode(
                 data = {"error": f"failed to parse output: {e}", "complete": True}
 
             log_model_done(stage_id, elapsed)
-            log_stage_done(stage_id, f"opencode agent completed ({tool_count[0]} tools)")
+            log_stage_complete(
+                stage_id,
+                duration=elapsed,
+                tool_calls=tool_count[0],
+                summary="opencode agent completed",
+            )
 
             return AgentResult(
                 data=data,
