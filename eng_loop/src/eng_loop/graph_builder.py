@@ -193,6 +193,10 @@ class GraphBuilder:
                 else:
                     choices[label] = to_name
 
+            # Ensure __end__ is always a valid choice (fallback when no rule matches)
+            if "__end__" not in choices:
+                choices["__end__"] = END
+
             rules_capture = list(cond_rules)
             builder.add_conditional_edges(
                 from_name,

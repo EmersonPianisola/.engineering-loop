@@ -94,7 +94,7 @@ Validate the input and return a JSON object with these fields: valid, work_item_
     model = create_model_from_config(state.get("config", {}), stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
-    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
         model=model,
@@ -208,7 +208,7 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
-    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
         model=model,
@@ -316,7 +316,7 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
-    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
         model=model,
@@ -406,7 +406,7 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
-    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     agent_result: AgentResult = run_agent(
         model=model,
