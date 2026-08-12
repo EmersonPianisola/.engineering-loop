@@ -316,25 +316,30 @@ def run_agent_via_opencode(
         if output_schema:
             schema_fields = ", ".join(f"`{f}`" for f in output_schema.model_fields.keys())
 
-        # Append structured output instruction to prompt
-        output_prompt = (
-            f"{prompt}\n\n"
-            f"## OUTPUT FORMAT\n"
-            f"When your work is complete, write your result as a JSON object to this file:\n"
+        # Output instruction — placed at TOP so agent knows about it from the start.
+        # Without this, the agent exhausts all iterations exploring files and never
+        # reaches the output instruction appended at the end.
+        output_instruction = (
+            f"## MANDATORY OUTPUT\n"
+            f"When your work is complete, you MUST write a JSON result to this file:\n"
             f"**{output_file}**\n\n"
-            f"The JSON must contain these fields: {schema_fields or 'your result data'}.\n"
-            f"Use the `write` tool to write the file. This is MANDATORY — the loop cannot proceed without it.\n"
+            f"Fields: {schema_fields or 'your result data'}.\n"
+            f"Use the `write` tool. The loop CANNOT proceed without this file.\n"
         )
+
+        output_prompt = f"{output_instruction}\n\n---\n\n{prompt}\n\n---\n\n{output_instruction}"
 
         # Write prompt to temp file to avoid Windows command-line length limits (WinError 206)
         prompt_fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="eng-prompt-")
         os.write(prompt_fd, output_prompt.encode("utf-8"))
         os.close(prompt_fd)
 
-        # Build opencode command — pass file path instead of full prompt string
+        # Build opencode command — include output file in CLI message so agent
+        # sees it before even reading the prompt file
         cli_message = (
             f"Read the task instructions from this file, then execute them: {prompt_file}. "
-            f"Your first action MUST be to read that file with the `read` tool."
+            f"Your first action MUST be to read that file with the `read` tool. "
+            f"IMPORTANT: When done, you MUST write your JSON result to {output_file} using the `write` tool."
         )
 
         cmd = [
@@ -503,13 +508,19 @@ def run_agent_via_opencode(
                     if not isinstance(data, dict):
                         data = {"raw_output": str(data)[:5000], "complete": True}
                 else:
-                    # Fallback: use accumulated text events from model's thinking
+                    # Agent exhausted iterations before writing output file.
+                    # Return error so calling node can retry.
                     fallback_text = "\n".join(text_accumulator)
-                    data = {
-                        "complete": True,
-                        "raw_output": fallback_text[:10000],
-                        "ideation_results": fallback_text[:5000],
-                    }
+                    log_stage_fail(stage_id, "agent exhausted iterations before writing output")
+                    return AgentResult(
+                        data={},
+                        iterations=1,
+                        elapsed=elapsed,
+                        error=(
+                            f"output file not written — agent likely exhausted iterations "
+                            f"({tool_count[0]} tool calls made, last: {fallback_text[:200]})"
+                        ),
+                    )
             except (json.JSONDecodeError, Exception) as e:
                 # Even on parse error, try to preserve accumulated text
                 fallback_text = "\n".join(text_accumulator)
