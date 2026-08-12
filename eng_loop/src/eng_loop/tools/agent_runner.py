@@ -110,9 +110,14 @@ def run_agent(
 
     tool_calls_total = 0
 
-    # Stall detector — catches repetitive tool calls before max_iterations is exhausted
+    # Stall detector — only for stages that have productive tools
+    # Read-only stages (init, design, arch) legitimately read many files
     agent_cfg = config.get("agent", {}) if config else {}
-    stall_detector: StallDetector = create_stall_detector(agent_cfg)
+    tool_names = {t.name for t in tools}
+    has_productive = bool(tool_names & {"write", "edit", "bash"})
+    stall_detector: StallDetector = create_stall_detector(
+        agent_cfg if has_productive else {"stall_detection": {"enabled": False}}
+    )
 
     for iteration in range(1, max_iterations + 1):
         try:
@@ -289,9 +294,16 @@ def run_agent_via_opencode(
     HARD_TIMEOUT = hardware.get("stage_timeout_seconds", 600)
     IDLE_TIMEOUT = hardware.get("idle_timeout_seconds", 180)
 
-    # Stall detection — catch infinite read loops early
+    # Stall detection — only for stages that have productive tools
+    # Read-only stages (init, design, arch) legitimately read many files
     agent_cfg = config.get("agent", {}) if config else {}
-    stall_detector: StallDetector = create_stall_detector(agent_cfg)
+    from eng_loop.tools.agent_tools import STAGE_TOOLS
+
+    stage_tool_names = STAGE_TOOLS.get(stage_id, [])
+    has_productive = bool(set(stage_tool_names) & {"write", "edit", "bash"})
+    stall_detector: StallDetector = create_stall_detector(
+        agent_cfg if has_productive else {"stall_detection": {"enabled": False}}
+    )
 
     # Create temp file for structured output
     fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
