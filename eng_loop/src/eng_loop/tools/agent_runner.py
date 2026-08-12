@@ -289,6 +289,10 @@ def run_agent_via_opencode(
     HARD_TIMEOUT = hardware.get("stage_timeout_seconds", 600)
     IDLE_TIMEOUT = hardware.get("idle_timeout_seconds", 180)
 
+    # Stall detection — catch infinite read loops early
+    agent_cfg = config.get("agent", {}) if config else {}
+    stall_detector: StallDetector = create_stall_detector(agent_cfg)
+
     # Create temp file for structured output
     fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
     os.close(fd)
@@ -344,6 +348,7 @@ def run_agent_via_opencode(
             last_progress = time.monotonic()
             timed_out = [False]
             tool_count = [0]
+            stall_error = [None]  # captured stall report for timeout handler
             text_accumulator = []  # collect text events as fallback for missing output file
 
             # Hard fallback watchdog — only fires if everything else fails
@@ -388,11 +393,13 @@ def run_agent_via_opencode(
                 event_type = event.get("type", "")
 
                 if event_type == "tool_use":
-                    # Only reset idle timer on actual tool calls (productive work)
-                    # Text events (thinking) do NOT reset — allows idle timeout to
-                    # catch infinite thinking loops that the hard timeout would miss
-                    last_activity = time.monotonic()
                     tool_name = part.get("tool", "?")
+
+                    # Reset idle timer only on productive tools (write/edit/bash)
+                    # Read/glob/grep do NOT reset — allows idle timeout to catch
+                    # infinite exploration loops that the hard timeout would miss
+                    if tool_name in ("write", "edit", "bash"):
+                        last_activity = time.monotonic()
                     status = part.get("state", {}).get("status", "")
                     inp = part.get("state", {}).get("input", {})
                     # Extract file/path from tool input
@@ -410,6 +417,16 @@ def run_agent_via_opencode(
                         else:
                             _print_tool(stage_id, tool_name, "", status)
                     tool_count[0] += 1
+
+                    # Record for stall detection — catch infinite read loops early
+                    stall_detector.record(tool_name, inp)
+                    stall_report = stall_detector.check()
+                    if stall_report:
+                        _print_warning(stage_id, stall_report.message)
+                        stall_error[0] = stall_report.message
+                        timed_out[0] = True
+                        proc.kill()
+                        break
 
                 elif event_type == "text":
                     # Accumulate text for fallback when output file is missing
@@ -433,8 +450,19 @@ def run_agent_via_opencode(
 
             if timed_out[0]:
                 log_model_done(stage_id, elapsed)
+
+                # Stall detection triggered — report specific error
+                if stall_error[0]:
+                    log_stage_fail(stage_id, stall_error[0])
+                    return AgentResult(
+                        data={},
+                        iterations=1,
+                        elapsed=elapsed,
+                        error=stall_error[0],
+                    )
+
+                # Hard timeout or idle timeout fallback
                 log_stage_fail(stage_id, f"opencode timed out (hard fallback after {HARD_TIMEOUT}s)")
-                # Include accumulated text so evidence gate can evaluate partial output
                 fallback_text = "\n".join(text_accumulator)
                 return AgentResult(
                     data={
