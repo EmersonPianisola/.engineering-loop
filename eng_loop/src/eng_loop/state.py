@@ -90,17 +90,14 @@ def init_stages() -> dict[str, dict[str, Any]]:
     return {sid: make_stage() for sid in STAGE_ORDER}
 
 
-def _last_write_wins(current: str, updates: list[str]) -> str:
+def _last_write_wins(current: str, update: str) -> str:
     """Reducer for current_stage: last non-empty write wins."""
-    for u in reversed(updates):
-        if u:
-            return u
-    return current
+    return update if update else current
 
 
-def _max_int(current: int, updates: list[int]) -> int:
+def _max_int(current: int, update: int) -> int:
     """Reducer for iteration: take the maximum value."""
-    return max((current,) + tuple(updates))
+    return max(current, update)
 
 
 class PipelineState(dict[str, Any]):
