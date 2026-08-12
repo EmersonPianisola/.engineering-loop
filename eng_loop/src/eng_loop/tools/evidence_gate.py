@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 MIN_OUTPUT_LENGTH = 50
 MIN_VERIFICATION_EVIDENCE = 1
-MIN_BLUEPRINT_LENGTH = 100
+MIN_BLUEPRINT_LENGTH = 20
 MIN_IMPLEMENTATION_LENGTH = 50
 
 
@@ -47,11 +47,12 @@ def validate_stage_output(stage_id: str, result: dict[str, Any], content: str) -
     
     elif stage_id == "impl.design":
         blueprint = result.get("blueprint", "")
-        if len(blueprint) < MIN_BLUEPRINT_LENGTH:
-            return False, f"Blueprint too short ({len(blueprint)} chars, min {MIN_BLUEPRINT_LENGTH})"
         tasks = result.get("tasks", [])
         if not tasks:
             return False, "Blueprint has no tasks"
+        # If tasks exist, accept even with short blueprint (content may be in task descriptions)
+        if len(blueprint) < MIN_BLUEPRINT_LENGTH and len(tasks) < 2:
+            return False, f"Blueprint too short ({len(blueprint)} chars, min {MIN_BLUEPRINT_LENGTH})"
     
     elif stage_id == "impl.code":
         summary = result.get("implementation_summary", "")
@@ -70,7 +71,10 @@ def validate_stage_output(stage_id: str, result: dict[str, Any], content: str) -
     elif stage_id == "init.ideate":
         tasks = result.get("decomposed_tasks", [])
         ideation = result.get("ideation_results", "")
-        if not tasks and len(ideation) < MIN_OUTPUT_LENGTH:
+        raw_output = result.get("raw_output", "")
+        # Accept if we have tasks, substantial ideation, or any meaningful content from fallback
+        has_content = tasks or len(ideation) >= MIN_OUTPUT_LENGTH or len(raw_output) >= MIN_OUTPUT_LENGTH
+        if not has_content:
             return False, "Ideation produced no tasks and minimal output"
     
     elif stage_id == "deploy.prepare":

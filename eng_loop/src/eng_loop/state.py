@@ -103,7 +103,7 @@ def _max_int(current: int, update: int) -> int:
 class PipelineState(dict[str, Any]):
     current_stage: Annotated[str, _last_write_wins] = ""
     iteration: Annotated[int, _max_int] = 0
-    status: Literal["running", "done", "blocked", "halted"] = "running"
+    status: Annotated[str, _last_write_wins] = "running"
     blocking_condition: str = ""
     complexity: Literal["unset", "small", "medium", "large", "complex"] = "unset"
     work_type: str = "feature"

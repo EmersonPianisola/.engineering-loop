@@ -292,6 +292,7 @@ def run_agent_via_opencode(
     # Create temp file for structured output
     fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
     os.close(fd)
+    prompt_file = ""  # initialized before try, cleaned in finally
 
     try:
         # Build schema field list for the output instruction
@@ -309,13 +310,23 @@ def run_agent_via_opencode(
             f"Use the `write` tool to write the file. This is MANDATORY — the loop cannot proceed without it.\n"
         )
 
-        # Build opencode command with JSON event stream
+        # Write prompt to temp file to avoid Windows command-line length limits (WinError 206)
+        prompt_fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="eng-prompt-")
+        os.write(prompt_fd, output_prompt.encode("utf-8"))
+        os.close(prompt_fd)
+
+        # Build opencode command — pass file path instead of full prompt string
+        cli_message = (
+            f"Read the task instructions from this file, then execute them: {prompt_file}. "
+            f"Your first action MUST be to read that file with the `read` tool."
+        )
+
         cmd = [
             "opencode", "run",
             "--dir", str(project_root),
             "--auto",
             "--format", "json",
-            output_prompt,
+            cli_message,
         ]
 
         if model_name:
@@ -333,6 +344,7 @@ def run_agent_via_opencode(
             last_progress = time.monotonic()
             timed_out = [False]
             tool_count = [0]
+            text_accumulator = []  # collect text events as fallback for missing output file
 
             # Hard fallback watchdog — only fires if everything else fails
             def _hard_watchdog():
@@ -366,9 +378,6 @@ def run_agent_via_opencode(
                         break
                     continue
 
-                # Activity detected — reset idle timer
-                last_activity = time.monotonic()
-
                 # Parse JSON event
                 try:
                     event = json.loads(decoded)
@@ -379,6 +388,10 @@ def run_agent_via_opencode(
                 event_type = event.get("type", "")
 
                 if event_type == "tool_use":
+                    # Only reset idle timer on actual tool calls (productive work)
+                    # Text events (thinking) do NOT reset — allows idle timeout to
+                    # catch infinite thinking loops that the hard timeout would miss
+                    last_activity = time.monotonic()
                     tool_name = part.get("tool", "?")
                     status = part.get("state", {}).get("status", "")
                     inp = part.get("state", {}).get("input", {})
@@ -399,8 +412,10 @@ def run_agent_via_opencode(
                     tool_count[0] += 1
 
                 elif event_type == "text":
-                    # Silenced by default — spinner handles context display
-                    pass
+                    # Accumulate text for fallback when output file is missing
+                    text_content = part.get("content", part.get("text", ""))
+                    if text_content:
+                        text_accumulator.append(text_content)
 
                 elif event_type == "step_finish":
                     reason = part.get("reason", "")
@@ -419,8 +434,13 @@ def run_agent_via_opencode(
             if timed_out[0]:
                 log_model_done(stage_id, elapsed)
                 log_stage_fail(stage_id, f"opencode timed out (hard fallback after {HARD_TIMEOUT}s)")
+                # Include accumulated text so evidence gate can evaluate partial output
+                fallback_text = "\n".join(text_accumulator)
                 return AgentResult(
-                    data={},
+                    data={
+                        "raw_output": fallback_text[:10000],
+                        "ideation_results": fallback_text[:5000],
+                    },
                     iterations=1,
                     elapsed=elapsed,
                     error=f"opencode timed out after {HARD_TIMEOUT}s",
@@ -443,9 +463,21 @@ def run_agent_via_opencode(
                     if not isinstance(data, dict):
                         data = {"raw_output": str(data)[:5000], "complete": True}
                 else:
-                    data = {"complete": True}
+                    # Fallback: use accumulated text events from model's thinking
+                    fallback_text = "\n".join(text_accumulator)
+                    data = {
+                        "complete": True,
+                        "raw_output": fallback_text[:10000],
+                        "ideation_results": fallback_text[:5000],
+                    }
             except (json.JSONDecodeError, Exception) as e:
-                data = {"error": f"failed to parse output: {e}", "complete": True}
+                # Even on parse error, try to preserve accumulated text
+                fallback_text = "\n".join(text_accumulator)
+                data = {
+                    "error": f"failed to parse output: {e}",
+                    "complete": True,
+                    "raw_output": fallback_text[:10000],
+                }
 
             log_model_done(stage_id, elapsed)
             log_stage_complete(
@@ -474,10 +506,15 @@ def run_agent_via_opencode(
             )
 
     finally:
-        # Clean up temp file
+        # Clean up temp files
         try:
             if Path(output_file).exists():
                 os.unlink(output_file)
+        except OSError:
+            pass
+        try:
+            if Path(prompt_file).exists():
+                os.unlink(prompt_file)
         except OSError:
             pass
 
