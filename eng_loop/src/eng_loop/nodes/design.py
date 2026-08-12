@@ -6,6 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DesignOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.graphify import get_graphify_injection
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -64,6 +65,9 @@ def design_node(stage_id: str):
         stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
         skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
 
+        # Inject graphify instructions if knowledge graph is available
+        graphify_injection = get_graphify_injection(state, paths)
+
         prompt = f"""You are the Design agent for stage: {stage_id}.
 
 ## SKILL
@@ -71,6 +75,7 @@ def design_node(stage_id: str):
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## WORK ITEM
 {state.get('work_item', '')}

@@ -124,18 +124,18 @@ Only runs when `config.graphify.enabled == true`.
    - IF `config.graphify.skip_if_small` AND `state.complexity == "small"` → skip. Record "Graphify skipped: complexity small".
    - IF no source code files exist in `{project-root}` → skip. Record "Graphify skipped: no codebase".
 
-2. **Check CLI:**
-   - Run: `graphify --version`
-   - IF not found → warn "graphify CLI not installed. Install: `uv tool install graphifyy` or `pipx install graphifyy`". Skip. Continue loop.
-   - IF found → continue.
+  2. **Check CLI:**
+    - Run: `graphify --version`
+    - IF not found → warn "graphify CLI not installed. Install: `uv tool install graphifyy` or `pipx install graphifyy`". Skip. Continue loop.
+    - IF found → continue.
 
-3. **Build graph:**
-   - IF `config.graphify.build_on_init` AND `graphify-out/graph.json` does not exist:
-     - Run: `graphify .`
-     - Record in STATE.md: "Graph built: N nodes, M edges, K communities"
-   - IF `graphify-out/graph.json` already exists:
-     - Run: `graphify . --update` (incremental, AST only, zero LLM cost)
-     - Record in STATE.md: "Graph updated (incremental)"
+    3. **Build graph:**
+    - IF `config.graphify.build_on_init` AND `graphify-out/graph.json` does not exist:
+      - Run: `graphify update .`
+      - Record in STATE.md: "Graph built: N nodes, M edges, K communities"
+    - IF `graphify-out/graph.json` already exists:
+      - Run: `graphify update .` (incremental, AST only, zero LLM cost)
+      - Record in STATE.md: "Graph updated (incremental)"
 
 4. **Git hook (optional):**
    - IF `config.graphify.build_on_commit` → run: `graphify hook install`

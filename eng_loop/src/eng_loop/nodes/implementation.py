@@ -8,6 +8,7 @@ from eng_loop.model import create_model_from_config
 from eng_loop.schemas import ImplCodeOutput, ImplDesignOutput, DocUpdateOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.json_parse import extract_json
+from eng_loop.tools.graphify import get_graphify_injection
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -43,6 +44,9 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
     skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
 
+    # Inject graphify instructions if knowledge graph is available
+    graphify_injection = get_graphify_injection(state, paths)
+
     prompt = f"""You are the Implementation Architect. Create the implementation blueprint.
 
 ## SKILL
@@ -50,6 +54,7 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## WORK ITEM
 {state.get('work_item', '')}
@@ -189,6 +194,9 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
         if confirmed:
             confirmed_lessons = json.dumps(confirmed, indent=2, ensure_ascii=False)
 
+    # Inject graphify instructions if knowledge graph is available
+    graphify_injection = get_graphify_injection(state, paths)
+
     prompt = f"""You are the Implementation agent. Execute TDD code implementation.
 
 ## PROCEDURE
@@ -202,6 +210,7 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
 
 ## CONFIRMED LESSONS
 {confirmed_lessons or "No lessons."}
+{graphify_injection}
 
 ## PROJECT ROOT
 {paths.get('project_root', '.')}

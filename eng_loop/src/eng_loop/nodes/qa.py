@@ -6,6 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import QaOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.graphify import get_graphify_injection
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
 )
@@ -51,10 +52,14 @@ def qa_node(stage_id: str):
 
         qa_type = QA_STAGES.get(stage_id, "review")
 
+        # Inject graphify instructions if knowledge graph is available
+        graphify_injection = get_graphify_injection(state, paths)
+
         prompt = f"""You are the {qa_type} QA agent for stage: {stage_id}.
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## WORK ITEM
 {state.get('work_item', '')}

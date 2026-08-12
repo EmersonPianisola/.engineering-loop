@@ -6,6 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import E2eOutput, VerifyOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.graphify import get_graphify_injection
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -44,6 +45,9 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
     blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
     diff = state.get("stage_artifacts", {}).get("diff", "")
 
+    # Inject graphify instructions if knowledge graph is available
+    graphify_injection = get_graphify_injection(state, paths)
+
     prompt = f"""You are the Independent Verifier. Author != Verifier. Perform spec-anchored check, discrimination sensor, and coverage audit.
 
 ## SKILL
@@ -51,6 +55,7 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## BLUEPRINT
 {blueprint}
@@ -198,6 +203,9 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
     skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
 
+    # Inject graphify instructions if knowledge graph is available
+    graphify_injection = get_graphify_injection(state, paths)
+
     prompt = f"""You are the E2E Playwright Testing agent. Execute browser E2E testing with 4-layer assertions.
 
 ## SKILL
@@ -205,6 +213,7 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## WORK ITEM
 {state.get('work_item', '')}

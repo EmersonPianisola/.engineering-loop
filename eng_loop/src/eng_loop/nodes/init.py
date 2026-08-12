@@ -10,6 +10,7 @@ from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
 from eng_loop.tools.file_ops import save_json, read_file
+from eng_loop.tools.graphify import run_graphify_init, get_graphify_injection
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done,
     log_stage_skip, log_stage_fail, log_complexity, log_blocked, log_decision,
@@ -47,12 +48,17 @@ def init_node(state: dict[str, Any]) -> Command[str]:
     stages = deactivate_inactive_stages(stages, complexity, ui_project)
     log_complexity(complexity, ui_project)
 
+    # Run graphify deterministically (before LLM prompt)
+    project_root = paths.get("project_root", ".")
+    graphify_result = run_graphify_init(config, complexity, project_root)
+
     stage_file = get_stage_file("init")
     skill_name = get_skill_name("init")
 
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
     skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
 
+    # Build prompt
     prompt = f"""You are the Engineering Loop INIT agent. Validate the work item, discover skills, and prepare for the loop.
 
 ## SKILL
@@ -77,6 +83,14 @@ Use your tools to explore the project:
 
 Validate the input and return a JSON object with these fields: valid, work_item_refined, estimated_files, estimated_tasks, notes.
 """
+
+    # Pass graphify state forward for subsequent stages
+    graphify_state = {
+        "built": graphify_result.get("graphify_built", False),
+        "stats": graphify_result.get("graphify_stats"),
+        "skipped": graphify_result.get("graphify_skipped", False),
+        "error": graphify_result.get("graphify_error"),
+    }
     model = create_model_from_config(state.get("config", {}), stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config)
@@ -136,6 +150,7 @@ Validate the input and return a JSON object with these fields: valid, work_item_
             "complexity": complexity,
             "ui_project": ui_project,
             "work_item": refined,
+            "graphify": graphify_state,
             "current_stage": "init-ideate",
             "iteration": 1,
         },
@@ -169,6 +184,9 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-ideate")
     skill_content = load_skill(paths.get("framework_skill_root", ""), "bmad-ideation")
 
+    # Inject graphify instructions if knowledge graph is available
+    graphify_injection = get_graphify_injection(state, paths)
+
     prompt = f"""You are the BMAD Ideation agent. Apply Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, and impact-gated decomposition.
 
 ## SKILL
@@ -176,6 +194,7 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
 ## PROCEDURE
 {stage_proc}
+{graphify_injection}
 
 ## WORK ITEM
 {state.get('work_item', '')}

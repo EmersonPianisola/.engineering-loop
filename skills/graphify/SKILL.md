@@ -19,14 +19,12 @@ This skill is invoked by the orchestrator during INIT (graph build) and referenc
 When `config.graphify.enabled` is true and codebase exists:
 
 1. **Check CLI:** Verify `graphify` is available
-2. **Build:** Run `graphify .` on project root
+2. **Build:** Run `graphify update .` on project root
 3. **Register:** Record graph stats in STATE.md
 4. **Git:** If `commit_graph: true`, stage `graphify-out/`
 
 ```
-graphify . --no-viz          # Build graph, skip HTML for speed
-# or
-graphify .                   # Build graph with HTML visualization
+graphify update .            # Build/update graph (AST extraction, no LLM)
 ```
 
 ## Query Usage (Sub-Agent Instructions)
