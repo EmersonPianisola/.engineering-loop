@@ -423,8 +423,9 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
     stages[stage_id]["output"] = str(result)
 
     refined = result.get("refined_work_item", state.get("work_item", ""))
+    refined_str = str(refined) if refined else ""
     next_node = _next_phase_node(state)
-    log_stage_done(stage_id, refined[:120] if refined else "refined")
+    log_stage_done(stage_id, refined_str[:120] if refined_str else "refined")
 
     return Command(
         update={
