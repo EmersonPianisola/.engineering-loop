@@ -13,6 +13,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.tools.next_active import resolve_next
 
 
 DESIGN_STAGES = [
@@ -155,8 +156,8 @@ def _resolve_next(stage_id: str, state: dict[str, Any]) -> str:
 def _post_design(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
-        return "arch-requirements"
-    return "impl-design"
+        return resolve_next("arch-requirements", state)
+    return resolve_next("impl-design", state)
 
 
 def get_design_nodes() -> list[tuple[str, str]]:

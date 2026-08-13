@@ -163,6 +163,22 @@ def main():
         saved = load_state_template(args.state_file)
         state.update(saved)
 
+    # ── Pre-classify work item (before graph build) ─────────────
+    # The graph must know complexity/work_type/ui_project to filter
+    # the correct active nodes. If resuming from a saved state, these
+    # values are already set; otherwise classify now.
+    if not args.work_item:
+        args.work_item = state.get("work_item", "")
+
+    if state.get("complexity", "unset") == "unset":
+        from eng_loop.tools.autosizing import (
+            classify_complexity, classify_work_type, detect_ui_project,
+        )
+
+        state["complexity"] = classify_complexity(args.work_item, config)
+        state["work_type"] = classify_work_type(args.work_item)
+        state["ui_project"] = detect_ui_project(paths)
+
     # ── Determine graph mode ─────────────────────────────────────
     dynamic_graph = args.dynamic_graph or config.get("dynamic_graph", {}).get("enabled", False)
     parallel_qa = args.parallel_qa or config.get("dynamic_graph", {}).get("parallel_qa", False)
@@ -204,6 +220,20 @@ def main():
 
     thread_config = {"configurable": {"thread_id": "eng-loop-run"}}
 
+    # HUD initialization for --interactive mode
+    hud = None
+    if args.interactive:
+        from eng_loop.tools.hud import HUDRenderer
+        active_stages = state.get("active_nodes", [])
+        hud = HUDRenderer(ui.console, graph, thread_config)
+        ui.set_hud(hud)
+        hud.start(
+            work_item=args.work_item,
+            active_stages=active_stages,
+            config=config,
+            initial_state=state,
+        )
+
     model_info = config.get("model", {})
     ui.console.print()
     ui.console.print(
@@ -234,10 +264,14 @@ def main():
 
             if current and current != prev_stage:
                 log_iteration(iteration, current)
-                _print_progress_bar(event)
+                if not hud:
+                    _print_progress_bar(event)
                 _save_state(event, paths)
                 _save_snapshot(event, paths, current, config)
                 prev_stage = current
+
+            if hud:
+                hud.update(event)
 
             if status not in ("running",):
                 log_iteration(iteration, current or "complete")
@@ -250,6 +284,8 @@ def main():
         state["status"] = "halted"
         state["blocking_condition"] = "user interrupted"
         _save_state(state, paths, verbose=True)
+        if hud:
+            hud.log("SYS", "User interrupted")
         ui.console.print()
         ui.console.print(Panel("[bold yellow]Loop halted by user.[/bold yellow]", border_style="yellow"))
         sys.exit(130)
@@ -259,11 +295,17 @@ def main():
         state["status"] = "halted"
         state["blocking_condition"] = str(e)
         _save_state(state, paths, verbose=True)
+        if hud:
+            hud.log("ERROR", str(e))
         ui.console.print()
         ui.console.print(Panel(f"[bold red]Loop halted:[/bold red] {e}", border_style="red"))
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        if hud:
+            hud.stop()
+            ui.set_hud(None)
 
 
 def _stream_with_interrupts(
@@ -596,6 +638,7 @@ def _topology_to_markdown(
         "feature": "New functionality — full loop (design, architecture, implementation, verification, QA, deploy)",
         "bugfix": "Fix existing behavior — skips design stages, keeps implementation + verification",
         "operational": "Run existing code (tests, deploys) — skips implementation, design, architecture",
+        "documentation": "Write/generate documents — init → impl.code → post (no design/verify/deploy)",
     }
     lines.append(f"**Work Type: {work_type}** — {work_type_descriptions.get(work_type, '')}")
     lines.append("")
@@ -692,10 +735,13 @@ def _topology_to_markdown(
     if deactivated:
         lines.append("## DEACTIVATED STAGES (auto-sizing)")
         lines.append("")
+        from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES
         for s in deactivated:
             min_c = STAGE_MIN_COMPLEXITY.get(s, "small")
             reason = ""
-            if s in OPERATIONAL_EXCLUDED_STAGES and work_type == "operational":
+            if s in DOCUMENTATION_EXCLUDED_STAGES and work_type == "documentation":
+                reason = "excluded for documentation work"
+            elif s in OPERATIONAL_EXCLUDED_STAGES and work_type == "operational":
                 reason = "excluded for operational work"
             elif s in ("design.user-research", "design.personas", "design.info-arch",
                        "design.interaction", "design.design-system", "design.visual-design") and work_type == "bugfix":

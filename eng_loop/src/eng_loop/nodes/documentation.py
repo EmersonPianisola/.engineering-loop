@@ -12,6 +12,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
+from eng_loop.tools.next_active import resolve_next
 
 
 def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
@@ -24,13 +25,15 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "doc.decisions"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("doc-project", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_doc_decisions_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("doc-project", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     decisions = state.get("decisions", [])
     extra = f"## DECISIONS RECORDED\n{decisions}" if decisions else ""
@@ -79,7 +82,8 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
                 goto="doc-decisions",
             )
         stages[stage_id]["done"] = True
-        return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("doc-project", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -94,16 +98,17 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"{result.get('decisions_count', 0)} decisions, tools: {agent_result.tool_calls_made}")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
+    _n = resolve_next("doc-project", state)
 
     return Command(
         update={
             "stages": stages,
             "stage_artifacts": {**state.get("stage_artifacts", {}), "doc.decisions": decision_log},
             **handoff_update,
-            "current_stage": "doc-project",
+            "current_stage": _n,
             "iteration": state.get("iteration", 0) + 1,
         },
-        goto="doc-project",
+        goto=_n,
     )
 
 
@@ -117,13 +122,15 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "doc.project"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("post", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_doc_project_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("post", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     decision_log = state.get("stage_artifacts", {}).get("doc.decisions", "")
     if not decision_log:
@@ -177,7 +184,8 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
                 goto="doc-project",
             )
         stages[stage_id]["done"] = True
-        return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("post", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -186,13 +194,14 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"documentation generated, tools: {agent_result.tool_calls_made}")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
+    _n = resolve_next("post", state)
 
     return Command(
         update={
             "stages": stages,
             **handoff_update,
-            "current_stage": "post",
+            "current_stage": _n,
             "iteration": state.get("iteration", 0) + 1,
         },
-        goto="post",
+        goto=_n,
     )

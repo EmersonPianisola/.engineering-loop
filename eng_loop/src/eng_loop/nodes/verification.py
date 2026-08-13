@@ -13,6 +13,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.tools.next_active import resolve_next
 
 
 def verify_node(state: dict[str, Any]) -> Command[str]:
@@ -286,14 +287,14 @@ def _post_verify(state: dict[str, Any]) -> str:
     ui_project = state.get("ui_project", False)
     complexity = state.get("complexity", "small")
     if ui_project:
-        return "e2e-execute"
+        return resolve_next("e2e-execute", state)
     if complexity in ("medium", "large", "complex"):
-        return "qa-security"
-    return "deploy-prepare"
+        return resolve_next("qa-security", state)
+    return resolve_next("deploy-prepare", state)
 
 
 def _post_e2e(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
-        return "qa-security"
-    return "deploy-prepare"
+        return resolve_next("qa-security", state)
+    return resolve_next("deploy-prepare", state)

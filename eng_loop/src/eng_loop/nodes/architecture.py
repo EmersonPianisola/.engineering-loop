@@ -12,6 +12,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.tools.next_active import resolve_next
 
 
 ARCH_STAGES = {
@@ -174,11 +175,14 @@ def _resolve_next(stage_id: str, state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if stage_id == "arch.solution":
         if complexity == "complex":
-            return "arch-review"
-        return "impl-design"
+            return resolve_next("arch-review", state)
+        return resolve_next("impl-design", state)
     if stage_id == "arch.review":
-        return "impl-design"
-    return ARCH_NEXT_MAP.get(stage_id, "impl-design")
+        return resolve_next("impl-design", state)
+    intended = ARCH_NEXT_MAP.get(stage_id, "impl-design")
+    if intended.startswith("_"):
+        intended = "impl-design"
+    return resolve_next(intended, state)
 
 
 def get_arch_nodes() -> list[tuple[str, str]]:

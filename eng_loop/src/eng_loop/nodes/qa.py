@@ -13,6 +13,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
+from eng_loop.tools.next_active import resolve_next
 
 
 QA_STAGES = {
@@ -161,13 +162,13 @@ def _resolve_next_qa(stage_id: str, state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if stage_id == "qa.security":
         if complexity in ("medium", "large", "complex"):
-            return "qa-api-contract"
-        return "deploy-prepare"
+            return resolve_next("qa-api-contract", state)
+        return resolve_next("deploy-prepare", state)
     if stage_id == "qa.api-contract":
         if complexity == "complex":
-            return "qa-performance"
-        return "deploy-prepare"
-    return "deploy-prepare"
+            return resolve_next("qa-performance", state)
+        return resolve_next("deploy-prepare", state)
+    return resolve_next("deploy-prepare", state)
 
 
 def get_qa_nodes() -> list[tuple[str, str]]:

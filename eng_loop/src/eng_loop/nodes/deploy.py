@@ -13,6 +13,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_stage_procedure, get_stage_file
+from eng_loop.tools.next_active import resolve_next
 
 
 def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
@@ -152,7 +153,8 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "smoke.test"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="doc-decisions", update={"current_stage": "doc-decisions", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("doc-decisions", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     max_attempts = config.get("constraints", {}).get("max_smoke_test_attempts", 3)
 
@@ -261,15 +263,15 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
-
+    _n = resolve_next("doc-decisions", state)
     return Command(
         update={
             "stages": stages,
             **handoff_update,
-            "current_stage": "doc-decisions",
+            "current_stage": _n,
             "iteration": state.get("iteration", 0) + 1,
         },
-        goto="doc-decisions",
+        goto=_n,
     )
 
 
@@ -278,8 +280,8 @@ def _post_deploy(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
 
     if ui_project:
-        return "smoke-test"
+        return resolve_next("smoke-test", state)
 
     if complexity in ("medium", "large", "complex"):
-        return "doc-decisions"
-    return "post"
+        return resolve_next("doc-decisions", state)
+    return resolve_next("post", state)

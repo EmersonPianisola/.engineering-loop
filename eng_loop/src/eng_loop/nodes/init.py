@@ -20,6 +20,7 @@ from eng_loop.tools.progress import (
 from langgraph.types import Command
 
 from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.tools.next_active import resolve_next
 
 
 def _resolve_work_item(work_item: str) -> str:
@@ -47,10 +48,16 @@ def init_node(state: dict[str, Any]) -> Command[str]:
                 state.get("work_item", "")[:120],
                 config.get("agent", {}).get("max_agent_iterations", 25))
 
-    ui_project = detect_ui_project(paths)
     work_item = _resolve_work_item(state.get("work_item", ""))
 
-    complexity = classify_complexity(work_item, config)
+    # Use pre-classified values from CLI if available; otherwise classify now.
+    complexity = state.get("complexity", "unset")
+    if complexity == "unset":
+        complexity = classify_complexity(work_item, config)
+    ui_project = state.get("ui_project", False)
+    if not ui_project:
+        ui_project = detect_ui_project(paths)
+
     stages = deactivate_inactive_stages(stages, complexity, ui_project)
     log_complexity(complexity, ui_project)
 
@@ -142,7 +149,7 @@ def init_node(state: dict[str, Any]) -> Command[str]:
             "current_stage": "init-ideate",
             "iteration": 1,
         },
-        goto="init-ideate",
+        goto=resolve_next("init-ideate", state),
     )
 
 
@@ -157,7 +164,8 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
-        return Command(goto="init-bdd", update={"current_stage": "init-bdd", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("init-bdd", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -248,15 +256,16 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
     handoff_update = build_handoff_update(stage_id, result, [], state)
 
+    _n = resolve_next("init-bdd", state)
     return Command(
         update={
             "stages": stages,
             "ideation": result.get("ideation_results", ""),
             **handoff_update,
-            "current_stage": "init-bdd",
+            "current_stage": _n,
             "iteration": state.get("iteration", 0) + 1,
         },
-        goto="init-bdd",
+        goto=_n,
     )
 
 
@@ -269,7 +278,8 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
-        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("init-refine", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     config = state.get("config", {})
     paths = state.get("paths", {})
@@ -278,7 +288,8 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
         log_stage_done(stage_id, "max attempts reached, proceeding")
-        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("init-refine", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     prompt = build_node_prompt(
         stage_id, state, paths, config,
@@ -319,7 +330,8 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
                 goto="init-bdd",
             )
         stages[stage_id]["done"] = True
-        return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
+        _n = resolve_next("init-refine", state)
+        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -335,9 +347,10 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     log_stage_done(stage_id, str(result.get("gherkin_scenarios", ""))[:120])
     handoff_update = build_handoff_update(stage_id, result, [], state)
+    _n = resolve_next("init-refine", state)
     return Command(
-        update={"stages": stages, **handoff_update, "current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1},
-        goto="init-refine",
+        update={"stages": stages, **handoff_update, "current_stage": _n, "iteration": state.get("iteration", 0) + 1},
+        goto=_n,
     )
 
 
@@ -442,5 +455,5 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 def _next_phase_node(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
-        return "arch-requirements"
-    return "impl-design"
+        return resolve_next("arch-requirements", state)
+    return resolve_next("impl-design", state)
