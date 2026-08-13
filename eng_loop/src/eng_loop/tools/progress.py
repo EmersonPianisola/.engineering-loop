@@ -14,6 +14,8 @@ from rich.live import Live
 from rich.syntax import Syntax
 from rich.rule import Rule
 
+from eng_loop.tools.timing import TimingTracker, format_time
+
 if TYPE_CHECKING:
     from rich.status import Status as RichStatus
 
@@ -28,6 +30,7 @@ if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 console = Console(force_terminal=True, soft_wrap=False)
+tracker = TimingTracker()
 
 
 # ─── UIManager ────────────────────────────────────────────────────────
@@ -146,11 +149,12 @@ class UIManager:
             "halted": "[bold red]⏸[/]",
         }.get(status, "[yellow]?[/]")
 
+        elapsed_str = tracker.get_loop_elapsed_formatted()
         self.console.print(
             f"{status_icon} [dim]{bar}[/dim] "
             f"[cyan]{done}/{total}[/cyan] "
             f"[bold yellow]{current_stage}[/bold yellow] "
-            f"[dim]{pct}%[/dim]"
+            f"[dim]{pct}% [{elapsed_str}][/dim]"
         )
 
     # ── Evidence Gate Table ────────────────────────────────────────
@@ -230,13 +234,14 @@ class UIManager:
             f"[bold]Stages:[/bold] "
             f"[green]{sum(1 for s in stages.values() if s.get('done'))}[/green]"
             f"/{len(stages)} complete",
+            f"[bold]Total Time:[/bold] [cyan]{tracker.get_loop_elapsed_formatted()}[/cyan]",
         ]
         if blocking_condition:
             lines.append(f"[bold red]Blocking:[/bold red] {blocking_condition}")
         if decisions:
             lines.append(f"[bold]Decisions:[/bold] {len(decisions)}")
             for d in decisions:
-                lines.append(f"  • {d}")
+                lines.append(f"  \u2022 {d}")
 
         self.console.print(
             Rule("[bold]Engineering Loop Complete[/bold]", style="blue")
@@ -244,6 +249,28 @@ class UIManager:
         self.console.print(
             Panel("\n".join(lines), border_style="blue")
         )
+
+        # Timing table
+        timing_rows = tracker.get_summary()
+        if timing_rows:
+            table = Table(box=None, padding=(0, 1), show_header=True)
+            table.add_column("Stage", style="bold cyan", no_wrap=True)
+            table.add_column("Duration", style="cyan", justify="right")
+            table.add_column("Attempts", justify="center")
+
+            for row in timing_rows:
+                table.add_row(
+                    row["stage_id"],
+                    row["total"],
+                    str(row["attempts"]),
+                )
+
+            # Total row
+            table.add_row("", "[bold cyan]" + format_time(tracker.get_total_seconds()) + "[/bold cyan]", "")
+
+            self.console.print(
+                Panel(table, title="[bold]Stage Timing[/bold]", border_style="blue")
+            )
 
     # ── Live Dashboard ─────────────────────────────────────────────
     def start_live(self, refresh_per_second: float = 2) -> None:
@@ -437,7 +464,7 @@ def log_model_invoke(stage_id: str) -> None:
 
 
 def log_model_done(stage_id: str, elapsed: float) -> None:
-    ui.console.print(f"[dim]  [/dim][green]model ←[/] {stage_id} [dim]({elapsed:.1f}s)[/dim]")
+    ui.console.print(f"[dim]  [/dim][green]model ←[/] {stage_id} [dim]({format_time(elapsed)})[/dim]")
 
 
 def log_stage_done(stage_id: str, result: str = "") -> None:
@@ -465,18 +492,18 @@ def log_stage_complete(
     table.add_column("Key", style="bold dim", width=10)
     table.add_column("Value", style="white")
 
-    table.add_row("Duration", f"[cyan]{duration:.0f}s[/cyan]")
+    table.add_row("Duration", f"[cyan]{format_time(duration)}[/cyan]")
     table.add_row("Tools", f"[cyan]{tool_calls}[/cyan] calls")
     if iterations:
         table.add_row("Iterations", f"[cyan]{iterations}[/cyan]")
     if summary:
         truncated = summary[:100]
         if len(summary) > 100:
-            truncated += "…"
+            truncated += "\u2026"
         table.add_row("Result", f"[green]{truncated}[/green]")
 
     ui.console.print(
-        Panel(table, title=f"[bold green]✓ {stage_id.upper()}[/bold green]", border_style="green")
+        Panel(table, title=f"[bold green]\u2713 {stage_id.upper()}[/bold green]", border_style="green")
     )
 
 
@@ -546,6 +573,7 @@ def trace_node(stage_id: str):
                 with stage_context(stage_id) as ctx:
                     result = fn(state, *args, **kwargs)
                 elapsed = time.monotonic() - t0
+                tracker.record_stage(stage_id, elapsed)
                 log_stage_complete(
                     stage_id,
                     duration=elapsed,
@@ -554,6 +582,7 @@ def trace_node(stage_id: str):
                 return result
             except Exception as e:
                 elapsed = time.monotonic() - t0
+                tracker.record_stage(stage_id, elapsed)
                 log_stage_fail(stage_id, f"{e} ({elapsed:.1f}s)")
                 raise
         return wrapper
@@ -567,6 +596,8 @@ __all__ = [
     "stage_context",
     "_get_active_spinner",
     "console",
+    "tracker",
+    "format_time",
     "log_stage_enter",
     "log_model_invoke",
     "log_model_done",

@@ -39,5 +39,6 @@
   "decisions": [],
   "graph_topology": {},
   "active_nodes": [],
-  "parallel_groups": {}
+  "parallel_groups": {},
+  "timing": {}
 }

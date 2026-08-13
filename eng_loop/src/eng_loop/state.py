@@ -123,6 +123,11 @@ class PipelineState(dict[str, Any]):
     graph_topology: dict[str, Any] = {}
     active_nodes: list[str] = []
     parallel_groups: dict[str, list[str]] = {}
+    # Context management (v12 — shared context between stages)
+    handoffs: Annotated[dict[str, str], _merge_dict] = {}  # type: ignore[assignment]
+    context_tiers: dict[str, Any] = {}
+    # Timing metrics
+    timing: dict[str, Any] = {}
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -148,6 +153,9 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "graph_topology": {},
         "active_nodes": [],
         "parallel_groups": {},
+        "handoffs": {},
+        "context_tiers": {},
+        "timing": {},
     }
 
 

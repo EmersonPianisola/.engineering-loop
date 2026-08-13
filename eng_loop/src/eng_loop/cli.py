@@ -11,7 +11,7 @@ from eng_loop.config import load_config, resolve_paths, ensure_directories
 from eng_loop.state import make_initial_state, load_state_template, STAGE_ORDER
 from eng_loop.graph import compile_graph
 from eng_loop.tools.file_ops import save_json as save_json_file
-from eng_loop.tools.progress import log_iteration, ui
+from eng_loop.tools.progress import log_iteration, ui, tracker
 from rich.panel import Panel
 from eng_loop.model import create_model_from_config, DEFAULT_BASE_URL, DEFAULT_MODEL
 
@@ -140,6 +140,7 @@ def main():
     )
 
     try:
+        tracker.start_loop()
         prev_stage = ""
         for event in graph.stream(state, config=thread_config, stream_mode="values"):
             status = event.get("status", "running")
@@ -470,6 +471,7 @@ def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
         "ui_project": state.get("ui_project", False),
         "stages": state.get("stages", {}),
         "decisions": state.get("decisions", []),
+        "timing": tracker.to_json(),
     }
     state_file = paths.get("state_file", "state.json")
     save_json_file(state_file, saveable)
