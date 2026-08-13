@@ -6,7 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import QaOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.graphify import get_graphify_injection
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
 )
@@ -47,44 +47,25 @@ def qa_node(stage_id: str):
                 goto=next_node,
             )
 
-        stage_file = get_stage_file(stage_id)
-        stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
         qa_type = QA_STAGES.get(stage_id, "review")
 
-        # Inject graphify instructions if knowledge graph is available
-        graphify_injection = get_graphify_injection(state, paths)
-
-        prompt = f"""You are the {qa_type} QA agent for stage: {stage_id}.
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## BLUEPRINT
-{state.get('stage_artifacts', {}).get('impl.design', '')}
-
-## DIFF
-{state.get('stage_artifacts', {}).get('diff', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to examine the actual code:
-1. **graphify_query** for overview of relevant code areas
-2. **graphify_path** to trace data flows (critical for security)
-3. **graphify_explain** for specific entities under review
-4. Read source files to inspect implementation (only after graphify context)
-5. Use grep to search for security patterns, API endpoints, performance anti-patterns
-6. Use bash to run security scanners, lint tools, or performance analysis tools
-7. Use glob to find relevant files
-
-Execute the QA review.
-Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete.
-"""
+        prompt = build_node_prompt(
+            stage_id, state, paths, config,
+            role_description=f"{qa_type} QA agent",
+            include_skill=False,
+            instructions=(
+                "Use your tools to examine the actual code:\n"
+                "1. **graphify_query** for overview of relevant code areas\n"
+                "2. **graphify_path** to trace data flows (critical for security)\n"
+                "3. **graphify_explain** for specific entities under review\n"
+                "4. Read source files to inspect implementation (only after graphify context)\n"
+                "5. Use grep to search for security patterns, API endpoints, performance anti-patterns\n"
+                "6. Use bash to run security scanners, lint tools, or performance analysis tools\n"
+                "7. Use glob to find relevant files\n\n"
+                "Execute the QA review.\n"
+                "Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete."
+            ),
+        )
         model = create_model_from_config(config, stage_id)
 
         tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -161,10 +142,12 @@ Return a JSON object with these fields: verdict (PASS or FAIL), findings, critic
         stages[stage_id]["output"] = str(result)
         log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
+        handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
         next_node = _resolve_next_qa(stage_id, state)
         return Command(
             update={
                 "stages": stages,
+                **handoff_update,
                 "current_stage": next_node,
                 "iteration": state.get("iteration", 0) + 1,
             },

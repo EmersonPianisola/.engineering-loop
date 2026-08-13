@@ -10,7 +10,8 @@ from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
 from eng_loop.tools.file_ops import save_json, read_file
-from eng_loop.tools.graphify import run_graphify_init, get_graphify_injection
+from eng_loop.tools.graphify import run_graphify_init
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done,
     log_stage_skip, log_stage_fail, log_complexity, log_blocked, log_decision,
@@ -34,12 +35,17 @@ def _resolve_work_item(work_item: str) -> str:
 def init_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import run_agent, AgentResult
     from eng_loop.tools.agent_tools import get_tools_for_stage
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
 
     stage_id = "init"
 
     config = state.get("config", {})
     paths = state.get("paths", {})
     stages = dict(state.get("stages", {}))
+    _dbg.debug("[DEBUG] init_node: work_item=%r, max_agent_iterations=%d",
+                state.get("work_item", "")[:120],
+                config.get("agent", {}).get("max_agent_iterations", 25))
 
     ui_project = detect_ui_project(paths)
     work_item = _resolve_work_item(state.get("work_item", ""))
@@ -52,37 +58,17 @@ def init_node(state: dict[str, Any]) -> Command[str]:
     project_root = paths.get("project_root", ".")
     graphify_result = run_graphify_init(config, complexity, project_root)
 
-    stage_file = get_stage_file("init")
-    skill_name = get_skill_name("init")
-
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-    skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
-
-    # Build prompt
-    prompt = f"""You are the Engineering Loop INIT agent. Validate the work item, discover skills, and prepare for the loop.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{work_item}
-
-## COMPLEXITY CLASSIFICATION
-{complexity}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to explore the project:
-1. Use glob to understand the project structure
-2. Read key files (package.json, pyproject.toml, etc.) to understand the tech stack
-3. Validate the work item against project context
-
-Validate the input and return a JSON object with these fields: valid, work_item_refined, estimated_files, estimated_tasks, notes.
-"""
+    prompt = build_node_prompt(
+        "init", state, paths, config,
+        role_description="Engineering Loop INIT agent",
+        extra_sections=f"## COMPLEXITY CLASSIFICATION\n{complexity}",
+        instructions=(
+            f"Validate the work item and prepare for the loop.\n"
+            f"Work item: {work_item}\n\n"
+            "Explore the project briefly (glob + read key files). Validate the work item.\n"
+            "Return a JSON object with these fields: valid, work_item_refined, estimated_files, estimated_tasks, notes."
+        ),
+    )
 
     # Pass graphify state forward for subsequent stages
     graphify_state = {
@@ -143,6 +129,7 @@ Validate the input and return a JSON object with these fields: valid, work_item_
     log_stage_done(stage_id, result.get("notes", "validated"))
 
     refined = result.get("work_item_refined", work_item)
+    handoff_update = build_handoff_update(stage_id, result, [], state)
 
     return Command(
         update={
@@ -151,6 +138,7 @@ Validate the input and return a JSON object with these fields: valid, work_item_
             "ui_project": ui_project,
             "work_item": refined,
             "graphify": graphify_state,
+            **handoff_update,
             "current_stage": "init-ideate",
             "iteration": 1,
         },
@@ -161,6 +149,8 @@ Validate the input and return a JSON object with these fields: valid, work_item_
 def init_ideate_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import run_agent, AgentResult
     from eng_loop.tools.agent_tools import get_tools_for_stage
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
 
     stages = dict(state.get("stages", {}))
     stage_id = "init.ideate"
@@ -172,6 +162,10 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
     config = state.get("config", {})
     paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_ideate_attempts", 3)
+    current_attempts = stages[stage_id].get("attempts", 0)
+    _dbg.debug("[DEBUG] init_ideate_node: attempts=%d/%d, max_agent_iterations=%d",
+                current_attempts, max_attempts,
+                config.get("agent", {}).get("max_agent_iterations", 25))
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
@@ -181,30 +175,15 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
             goto="__end__",
         )
 
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-ideate")
-    skill_content = load_skill(paths.get("framework_skill_root", ""), "bmad-ideation")
-
-    # Inject graphify instructions if knowledge graph is available
-    graphify_injection = get_graphify_injection(state, paths)
-
-    prompt = f"""You are the BMAD Ideation agent. Apply Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, and impact-gated decomposition.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use read/glob to explore the project for context if needed.
-Return a JSON object with these fields: ideation_results, decomposed_tasks, ready_for_next.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="BMAD Ideation agent",
+        instructions=(
+            "Ideate on the work item and decompose into tasks.\n"
+            "Explore the project briefly with read/glob if needed.\n"
+            "Return a JSON object with these fields: ideation_results, decomposed_tasks, ready_for_next."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -223,9 +202,13 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
     result = agent_result.data
 
     if agent_result.error:
+        _dbg.error("[DEBUG] init_ideate_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
+                    agent_result.error, agent_result.iterations, agent_result.elapsed,
+                    agent_result.tool_calls_made, str(agent_result.data)[:300])
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
+            _dbg.warning("[DEBUG] init_ideate_node: RETRYING attempt %d/%d", stages[stage_id]["attempts"], max_attempts)
             return Command(
                 update={
                     "stages": stages,
@@ -235,6 +218,7 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
                 },
                 goto="init-ideate",
             )
+        _dbg.error("[DEBUG] init_ideate_node: BLOCKED — max attempts %d reached", max_attempts)
         stages[stage_id]["done"] = True
         return Command(
             update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
@@ -262,10 +246,13 @@ Return a JSON object with these fields: ideation_results, decomposed_tasks, read
     stages[stage_id]["output"] = str(result)
     log_stage_done(stage_id, str(result.get("decomposed_tasks", ""))[:120])
 
+    handoff_update = build_handoff_update(stage_id, result, [], state)
+
     return Command(
         update={
             "stages": stages,
             "ideation": result.get("ideation_results", ""),
+            **handoff_update,
             "current_stage": "init-bdd",
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -293,26 +280,14 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
         log_stage_done(stage_id, "max attempts reached, proceeding")
         return Command(goto="init-refine", update={"current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1})
 
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-bdd")
-    skill_content = load_skill(paths.get("framework_skill_root", ""), "bmad-bdd-mapper")
-
-    prompt = f"""You are the BDD Journey Mapper. Map full user journeys with Gherkin scenarios.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use read/glob to explore existing user stories, PRD, and UX artifacts if available.
-Return a JSON object with these fields: journey_map, gherkin_scenarios, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="BDD Journey Mapper",
+        instructions=(
+            "Map user journeys with Gherkin scenarios. Keep it concise.\n"
+            "Return a JSON object with these fields: journey_map, gherkin_scenarios, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -359,8 +334,9 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
         log_artifact(stage_id, artifact_path)
 
     log_stage_done(stage_id, str(result.get("gherkin_scenarios", ""))[:120])
+    handoff_update = build_handoff_update(stage_id, result, [], state)
     return Command(
-        update={"stages": stages, "current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1},
+        update={"stages": stages, **handoff_update, "current_stage": "init-refine", "iteration": state.get("iteration", 0) + 1},
         goto="init-refine",
     )
 
@@ -368,6 +344,8 @@ Return a JSON object with these fields: journey_map, gherkin_scenarios, complete
 def init_refine_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import run_agent, AgentResult
     from eng_loop.tools.agent_tools import get_tools_for_stage
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
 
     stages = dict(state.get("stages", {}))
     stage_id = "init.refine"
@@ -380,6 +358,10 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
     config = state.get("config", {})
     paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_refine_attempts", 5)
+    current_attempts = stages[stage_id].get("attempts", 0)
+    _dbg.debug("[DEBUG] init_refine_node: attempts=%d/%d, max_agent_iterations=%d",
+                current_attempts, max_attempts,
+                config.get("agent", {}).get("max_agent_iterations", 25))
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
@@ -387,22 +369,14 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
         next_node = _next_phase_node(state)
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), "init-refine")
-
-    prompt = f"""You are the Idea Refinement agent. Refine the ad-hoc work item into an engineering-ready specification.
-
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use read to explore the project for context if needed.
-Return a JSON object with these fields: refined_work_item, ready_for_architecture.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Idea Refinement agent",
+        instructions=(
+            "Refine the work item into an engineering-ready specification. Keep it concise.\n"
+            "Return a JSON object with these fields: refined_work_item, ready_for_architecture."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -421,9 +395,13 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
     result = agent_result.data
 
     if agent_result.error:
+        _dbg.error("[DEBUG] init_refine_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
+                    agent_result.error, agent_result.iterations, agent_result.elapsed,
+                    agent_result.tool_calls_made, str(agent_result.data)[:300])
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
+            _dbg.warning("[DEBUG] init_refine_node: RETRYING attempt %d/%d", stages[stage_id]["attempts"], max_attempts)
             return Command(
                 update={
                     "stages": stages,
@@ -433,6 +411,7 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
                 },
                 goto="init-refine",
             )
+        _dbg.error("[DEBUG] init_refine_node: max attempts %d reached, proceeding to %s", max_attempts, _next_phase_node(state))
         stages[stage_id]["done"] = True
         next_node = _next_phase_node(state)
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
@@ -446,10 +425,13 @@ Return a JSON object with these fields: refined_work_item, ready_for_architectur
     next_node = _next_phase_node(state)
     log_stage_done(stage_id, refined_str[:120] if refined_str else "refined")
 
+    handoff_update = build_handoff_update(stage_id, result, [], state)
+
     return Command(
         update={
             "stages": stages,
             "work_item": refined,
+            **handoff_update,
             "current_stage": next_node,
             "iteration": state.get("iteration", 0) + 1,
         },

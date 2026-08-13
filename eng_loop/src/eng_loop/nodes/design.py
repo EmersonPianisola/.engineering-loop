@@ -6,7 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DesignOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.graphify import get_graphify_injection
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -59,41 +59,18 @@ def design_node(stage_id: str):
                 goto=next_node,
             )
 
-        stage_file = get_stage_file(stage_id)
-        skill_name = get_skill_name(stage_id)
-
-        stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-        skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
-
-        # Inject graphify instructions if knowledge graph is available
-        graphify_injection = get_graphify_injection(state, paths)
-
-        prompt = f"""You are the Design agent for stage: {stage_id}.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## IDEATION
-{state.get('ideation', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to explore the project for context:
-1. **graphify_query** for high-level project structure
-2. **graphify_explain** for specific entities
-3. Then use read, glob, grep for file-level details
-
-Execute the design task.
-Return a JSON object with these fields: design_output, artifacts, complete, decisions.
-"""
+        prompt = build_node_prompt(
+            stage_id, state, paths, config,
+            role_description="Design agent",
+            instructions=(
+                "Use your tools to explore the project for context:\n"
+                "1. **graphify_query** for high-level project structure\n"
+                "2. **graphify_explain** for specific entities\n"
+                "3. Then use read, glob, grep for file-level details\n\n"
+                "Execute the design task.\n"
+                "Return a JSON object with these fields: design_output, artifacts, complete, decisions."
+            ),
+        )
         model = create_model_from_config(config, stage_id)
 
         tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -152,10 +129,13 @@ Return a JSON object with these fields: design_output, artifacts, complete, deci
         next_node = _resolve_next(stage_id, state)
         log_stage_done(stage_id, f"output: {len(design_output)} chars, tools: {agent_result.tool_calls_made}")
 
+        handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
+
         return Command(
             update={
                 "stages": stages,
                 "decisions": new_decisions,
+                **handoff_update,
                 "current_stage": next_node,
                 "iteration": state.get("iteration", 0) + 1,
             },

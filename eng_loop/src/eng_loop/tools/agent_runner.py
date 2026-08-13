@@ -95,6 +95,10 @@ def run_agent(
 
     log_model_invoke(stage_id)
     t0 = time.monotonic()
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
+    _dbg.debug("[DEBUG] agent_runner: stage=%s, backend=langchain, max_iterations=%d, tools=%s",
+               stage_id, max_iterations, [t.name for t in tools])
 
     # Build conversation
     messages: list[Any] = []
@@ -102,7 +106,7 @@ def run_agent(
         messages.append(SystemMessage(content=system_message))
 
     # The prompt instructs the agent to use tools and then produce a final answer
-    agent_prompt = _build_agent_prompt(prompt, tools)
+    agent_prompt = _build_agent_prompt(prompt, tools, output_schema)
     messages.append(HumanMessage(content=agent_prompt))
 
     # Bind tools to model
@@ -111,15 +115,50 @@ def run_agent(
     tool_calls_total = 0
 
     # Stall detector — only for stages that have productive tools
-    # Read-only stages (init, design, arch) legitimately read many files
+    # Read-only stages (init, design, arch) legitimately read many files.
+    # For them, only detect exact_repeat (same file read N times).
+    # Disable same_tool_repeat and no_progress — they fire on normal exploration.
     agent_cfg = config.get("agent", {}) if config else {}
     tool_names = {t.name for t in tools}
     has_productive = bool(tool_names & {"write", "edit", "bash"})
-    stall_detector: StallDetector = create_stall_detector(
-        agent_cfg if has_productive else {"stall_detection": {"enabled": False}}
-    )
+    if has_productive:
+        # Override no_progress_threshold — 8 is too aggressive.
+        # Agent legitimately reads many files before writing.
+        # Opencode has its own iteration limit as safety net.
+        stall_cfg = dict(agent_cfg)
+        stall_cfg["stall_detection"] = dict(agent_cfg.get("stall_detection", {}))
+        stall_cfg["stall_detection"]["no_progress_threshold"] = max(
+            stall_cfg["stall_detection"].get("no_progress_threshold", 8),
+            30  # Allow up to 30 reads before flagging no-progress
+        )
+    else:
+        # Read-only stages (init, design, arch): exploration naturally re-reads files.
+        # Disable stall detection entirely — these stages can't get stuck in the same
+        # way as write stages. The idle timeout and max_iterations are sufficient safety.
+        stall_cfg = {
+            "stall_detection": {
+                "enabled": False,
+            }
+        }
+    stall_detector: StallDetector = create_stall_detector(stall_cfg)
 
     for iteration in range(1, max_iterations + 1):
+        iter_start = time.monotonic()
+        _dbg.debug("[DEBUG] agent_runner: stage=%s iteration=%d/%d, messages=%d",
+                    stage_id, iteration, max_iterations, len(messages))
+
+        # LAST ITERATION: Force the agent to stop calling tools and provide an answer
+        if iteration == max_iterations:
+            _dbg.warning("[DEBUG] agent_runner: stage=%s LAST ITERATION — forcing final answer", stage_id)
+            messages.append(HumanMessage(
+                content=(
+                    "CRITICAL: You have exhausted your remaining tool calls. "
+                    "STOP calling tools immediately. "
+                    "Provide your final answer NOW as a JSON object. "
+                    "Do NOT call any more tools. Your response must be valid JSON."
+                )
+            ))
+
         try:
             response = model_with_tools.invoke(messages)
         except Exception as e:
@@ -133,8 +172,12 @@ def run_agent(
                 error=f"LLM error: {e}",
             )
 
+        iter_elapsed = time.monotonic() - iter_start
         if isinstance(response, AIMessage):
             if response.tool_calls:
+                _dbg.debug("[DEBUG] agent_runner: stage=%s iteration=%d, tool_calls=%d, names=%s, iter_time=%.1fs",
+                            stage_id, iteration, len(response.tool_calls),
+                            [tc["name"] for tc in response.tool_calls], iter_elapsed)
                 # Execute each tool call
                 for tc in response.tool_calls:
                     tool_name = tc["name"]
@@ -200,6 +243,8 @@ def run_agent(
                     messages = _compact_messages(messages)
             else:
                 # No more tool calls — agent has its final answer
+                _dbg.debug("[DEBUG] agent_runner: stage=%s FINAL ANSWER at iteration=%d, content length=%d, preview=%r",
+                            stage_id, iteration, len(response.content), response.content[:200])
                 elapsed = time.monotonic() - t0
                 log_model_done(stage_id, elapsed)
 
@@ -241,15 +286,17 @@ def run_agent(
 
     # Exceeded max iterations
     elapsed = time.monotonic() - t0
+    _dbg.error("[DEBUG] agent_runner: stage=%s EXHAUSTED iterations=%d, total_tool_calls=%d, total_time=%.1fs",
+                stage_id, max_iterations, tool_calls_total, elapsed)
+    _dbg.error("[DEBUG] agent_runner: stage=%s last 3 messages:", stage_id)
+    for _m in messages[-3:]:
+        _content = getattr(_m, "content", str(_m))
+        _dbg.error("[DEBUG]   %s: %r", type(_m).__name__, str(_content)[:300])
     log_model_done(stage_id, elapsed)
     log_stage_fail(stage_id, f"exceeded max_iterations ({max_iterations})")
 
-    # Try to extract whatever we have
-    last_ai = _last_ai_message(messages)
-    try:
-        data = _extract_from_text(last_ai.content if last_ai else "", output_schema)
-    except ValueError:
-        data = {}
+    # Try to extract from best available AI message
+    data = _extract_best_effort_from_messages(messages, output_schema, stage_id)
 
     return AgentResult(
         data=data,
@@ -288,11 +335,15 @@ def run_agent_via_opencode(
 
     log_model_invoke(stage_id)
     t0 = time.monotonic()
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
+    _dbg.debug("[DEBUG] agent_runner: stage=%s, backend=opencode, model=%s", stage_id, model_name)
 
     # Read timeout config: idle (no-progress) and hard fallback
     hardware = (config or {}).get("hardware", {})
     HARD_TIMEOUT = hardware.get("stage_timeout_seconds", 600)
     IDLE_TIMEOUT = hardware.get("idle_timeout_seconds", 180)
+    _dbg.debug("[DEBUG] agent_runner: stage=%s timeouts: idle=%ds, hard=%ds", stage_id, IDLE_TIMEOUT, HARD_TIMEOUT)
 
     # Stall detection — only for stages that have productive tools
     # Read-only stages (init, design, arch) legitimately read many files
@@ -301,9 +352,40 @@ def run_agent_via_opencode(
 
     stage_tool_names = STAGE_TOOLS.get(stage_id, [])
     has_productive = bool(set(stage_tool_names) & {"write", "edit", "bash"})
-    stall_detector: StallDetector = create_stall_detector(
-        agent_cfg if has_productive else {"stall_detection": {"enabled": False}}
-    )
+    if has_productive:
+        # Productive stages: allow exploration reads before flagging no-progress.
+        stall_cfg = dict(agent_cfg)
+        stall_cfg["stall_detection"] = dict(agent_cfg.get("stall_detection", {}))
+        # no_progress: 15 — catches agents that read 15+ files without writing
+        stall_cfg["stall_detection"]["no_progress_threshold"] = max(
+            stall_cfg["stall_detection"].get("no_progress_threshold", 8),
+            15,
+        )
+        # exact_repeat: 5 (reading same file 3-5x is normal for verification)
+        stall_cfg["stall_detection"]["exact_repeat_threshold"] = max(
+            stall_cfg["stall_detection"].get("exact_repeat_threshold", 3),
+            5,
+        )
+        # same_tool: 12 — must be > window_size (10) to trigger, but not so high
+        # that it never fires. Catches agents stuck re-reading the same tool.
+        stall_cfg["stall_detection"]["same_tool_threshold"] = max(
+            stall_cfg["stall_detection"].get("same_tool_threshold", 10),
+            12,
+        )
+        # window_size: 20 — large enough for same_tool_threshold to trigger
+        stall_cfg["stall_detection"]["window_size"] = 20
+    else:
+        # Read-only stages (init, design, arch): exploration naturally re-reads files.
+        # But we still need stall detection to catch infinite read loops — idle timeout
+        # alone is insufficient because it only fires when the model stops producing tokens.
+        stall_cfg = dict(agent_cfg)
+        stall_cfg["stall_detection"] = dict(agent_cfg.get("stall_detection", {}))
+        # Higher thresholds for read-only stages — they legitimately read many files.
+        stall_cfg["stall_detection"]["no_progress_threshold"] = 25
+        stall_cfg["stall_detection"]["exact_repeat_threshold"] = 6
+        stall_cfg["stall_detection"]["same_tool_threshold"] = 15
+        stall_cfg["stall_detection"]["window_size"] = 20
+    stall_detector: StallDetector = create_stall_detector(stall_cfg)
 
     # Create temp file for structured output
     fd, output_file = tempfile.mkstemp(suffix=".json", prefix=f"eng-{stage_id}-")
@@ -311,23 +393,63 @@ def run_agent_via_opencode(
     prompt_file = ""  # initialized before try, cleaned in finally
 
     try:
-        # Build schema field list for the output instruction
-        schema_fields = ""
+        # Build JSON output template from schema — gives agent exact structure to fill
+        json_template = ""
         if output_schema:
-            schema_fields = ", ".join(f"`{f}`" for f in output_schema.model_fields.keys())
+            field_lines = []
+            for field_name, field_info in output_schema.model_fields.items():
+                ann = field_info.annotation
+                if ann == bool:
+                    field_lines.append(f'  "{field_name}": false')
+                elif ann == int:
+                    field_lines.append(f'  "{field_name}": 0')
+                elif ann == float:
+                    field_lines.append(f'  "{field_name}": 0.0')
+                elif ann == str:
+                    field_lines.append(f'  "{field_name}": ""')
+                else:
+                    # List, Dict, Optional, etc. — use empty container
+                    field_lines.append(f'  "{field_name}": ""')
+            json_template = (
+                "\n## JSON OUTPUT TEMPLATE\n"
+                "Write this exact JSON structure to the output file:\n"
+                "```\n{\n" + ",\n".join(field_lines) + "\n}\n```\n"
+            )
 
         # Output instruction — placed at TOP so agent knows about it from the start.
         # Without this, the agent exhausts all iterations exploring files and never
         # reaches the output instruction appended at the end.
         output_instruction = (
-            f"## MANDATORY OUTPUT\n"
-            f"When your work is complete, you MUST write a JSON result to this file:\n"
+            f"## ⚠ CRITICAL: MANDATORY OUTPUT FILE\n"
+            f"BEFORE you finish, you MUST write a JSON result to this file:\n"
             f"**{output_file}**\n\n"
-            f"Fields: {schema_fields or 'your result data'}.\n"
-            f"Use the `write` tool. The loop CANNOT proceed without this file.\n"
+            f"Use the `write` tool. DO NOT finish without writing this file.\n"
+            f"If you do not write this file, your work will be LOST and you will have to start over.\n"
+            f"Write this file as your LAST action after completing all other work.\n"
+            f"{json_template}"
         )
 
-        output_prompt = f"{output_instruction}\n\n---\n\n{prompt}\n\n---\n\n{output_instruction}"
+        # Extract work item from prompt if present (between ## WORK ITEM markers)
+        import re as _re
+        wi_match = _re.search(r'## WORK ITEM\s*\n(.*?)(?:\n##|\Z)', prompt, _re.DOTALL)
+        work_item_text = wi_match.group(1).strip() if wi_match else ""
+
+        # Compact prompt: keep WORK ITEM, instructions, and key context.
+        # Strip SKILL (too verbose for opencode) but keep PROCEDURE (contains task instructions).
+        # Strip ARCHITECTURE CONTEXT and CONFIRMED LESSONS (agent can read files directly).
+        compact_prompt = prompt
+        if work_item_text:
+            # Remove SKILL section (guidance, not task-critical)
+            compact_prompt = _re.sub(r'## SKILL\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            # Keep PROCEDURE — it contains the actual task instructions
+            # Remove ARCHITECTURE CONTEXT (agent reads files directly)
+            compact_prompt = _re.sub(r'## ARCHITECTURE CONTEXT\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            # Remove CONFIRMED LESSONS (agent can read lessons file if needed)
+            compact_prompt = _re.sub(r'## CONFIRMED LESSONS\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            # Collapse multiple blank lines
+            compact_prompt = _re.sub(r'\n{3,}', '\n\n', compact_prompt).strip()
+
+        output_prompt = f"{output_instruction}\n\n---\n\n{compact_prompt}\n\n---\n\n{output_instruction}"
 
         # Write prompt to temp file to avoid Windows command-line length limits (WinError 206)
         prompt_fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="eng-prompt-")
@@ -363,10 +485,13 @@ def run_agent_via_opencode(
 
             last_activity = time.monotonic()
             last_progress = time.monotonic()
+            last_tool_log = time.monotonic()
             timed_out = [False]
             tool_count = [0]
             stall_error = [None]  # captured stall report for timeout handler
             text_accumulator = []  # collect text events as fallback for missing output file
+            no_write_count = [0]  # tool calls since last write/edit/bash (enforce output budget)
+            NO_WRITE_KILL = 25  # kill if 25+ tool calls without any write/edit/bash
 
             # Hard fallback watchdog — only fires if everything else fails
             def _hard_watchdog():
@@ -412,11 +537,33 @@ def run_agent_via_opencode(
                 if event_type == "tool_use":
                     tool_name = part.get("tool", "?")
 
-                    # Reset idle timer only on productive tools (write/edit/bash)
-                    # Read/glob/grep do NOT reset — allows idle timeout to catch
-                    # infinite exploration loops that the hard timeout would miss
-                    if tool_name in ("write", "edit", "bash"):
+                    # Reset idle timer: for productive stages, only on write/edit/bash
+                    # (catches infinite exploration loops). For read-only stages,
+                    # reset on ANY tool — stall detector handles actual stalls.
+                    if has_productive:
+                        if tool_name in ("write", "edit", "bash"):
+                            last_activity = time.monotonic()
+                            no_write_count[0] = 0  # Reset: agent is producing output
+                        else:
+                            no_write_count[0] += 1
+                            if no_write_count[0] >= NO_WRITE_KILL:
+                                _print_warning(stage_id, f"no write/edit/bash in {no_write_count[0]} tool calls, killing")
+                                stall_error[0] = f"agent_stalled: {no_write_count[0]} tool calls without write/edit/bash"
+                                timed_out[0] = True
+                                proc.kill()
+                                break
+                    else:
+                        # Read-only stage: reset on any tool activity
                         last_activity = time.monotonic()
+                        # Still track no_write_count — read-only stages must write output JSON
+                        if tool_name not in ("write", "edit", "bash"):
+                            no_write_count[0] += 1
+                            if no_write_count[0] >= NO_WRITE_KILL:
+                                _print_warning(stage_id, f"no write in {no_write_count[0]} tool calls, killing")
+                                stall_error[0] = f"agent_stalled: {no_write_count[0]} tool calls without write"
+                                timed_out[0] = True
+                                proc.kill()
+                                break
                     status = part.get("state", {}).get("status", "")
                     inp = part.get("state", {}).get("input", {})
                     # Extract file/path from tool input
@@ -434,6 +581,10 @@ def run_agent_via_opencode(
                         else:
                             _print_tool(stage_id, tool_name, "", status)
                     tool_count[0] += 1
+                    if tool_count[0] % 5 == 0:
+                        _dbg.debug("[DEBUG] agent_runner: stage=%s tool #%d, total_time=%.1fs, idle=%.1fs",
+                                    stage_id, tool_count[0], time.monotonic() - t0,
+                                    time.monotonic() - last_activity)
 
                     # Record for stall detection — catch infinite read loops early
                     stall_detector.record(tool_name, inp)
@@ -450,6 +601,8 @@ def run_agent_via_opencode(
                     text_content = part.get("content", part.get("text", ""))
                     if text_content:
                         text_accumulator.append(text_content)
+                        _dbg.debug("[DEBUG] agent_runner: stage=%s text event, length=%d, preview=%r",
+                                    stage_id, len(text_content), text_content[:150])
 
                 elif event_type == "step_finish":
                     reason = part.get("reason", "")
@@ -501,6 +654,8 @@ def run_agent_via_opencode(
                 )
 
             # Read structured output from file
+            _dbg.debug("[DEBUG] agent_runner: stage=%s opencode finished, rc=%d, output_file=%s, exists=%s, text_events=%d, tool_count=%d",
+                        stage_id, proc.returncode, output_file, Path(output_file).exists(), len(text_accumulator), tool_count[0])
             try:
                 if Path(output_file).exists():
                     raw = Path(output_file).read_text(encoding="utf-8")
@@ -511,6 +666,8 @@ def run_agent_via_opencode(
                     # Agent exhausted iterations before writing output file.
                     # Return error so calling node can retry.
                     fallback_text = "\n".join(text_accumulator)
+                    _dbg.error("[DEBUG] agent_runner: stage=%s OUTPUT FILE MISSING! text_events=%d, accumulated_length=%d, last_text=%r",
+                                stage_id, len(text_accumulator), len(fallback_text), fallback_text[:300])
                     log_stage_fail(stage_id, "agent exhausted iterations before writing output")
                     return AgentResult(
                         data={},
@@ -617,9 +774,43 @@ def _print_warning(stage_id: str, message: str) -> None:
     _sys.stdout.flush()
 
 
-def _build_agent_prompt(prompt: str, tools: list[Tool]) -> str:
-    """Wrap the stage prompt with agent instructions."""
+def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: Type[BaseModel] | None = None) -> str:
+    """Wrap the stage prompt with agent instructions.
+
+    Includes a concrete JSON template when a schema is provided, so the agent
+    knows exactly what fields to produce. This eliminates the common failure
+    mode where the agent outputs prose instead of structured JSON.
+    """
     tool_names = ", ".join(f"`{t.name}`" for t in tools)
+
+    # Build JSON template from schema
+    json_template = ""
+    if output_schema:
+        fields = []
+        for field_name, field_info in output_schema.model_fields.items():
+            # Infer a sensible default/example per type
+            if field_info.default is not None:
+                default = field_info.default
+            elif field_info.annotation == bool:
+                default = "true"
+            elif field_info.annotation == int:
+                default = "0"
+            elif field_info.annotation == float:
+                default = "0.0"
+            elif hasattr(field_info.annotation, "__origin__") and field_info.annotation.__origin__ == list:
+                default = "[]"
+            elif hasattr(field_info.annotation, "__origin__") and field_info.annotation.__origin__ == dict:
+                default = "{}"
+            else:
+                default = '""'
+            fields.append(f'  "{field_name}": {default}')
+        json_template = (
+            "\n## JSON OUTPUT TEMPLATE\n"
+            "Your final answer MUST be a JSON object matching this exact structure:\n"
+            "```\n{\n" + ",\n".join(fields) + "\n}\n```\n"
+            "Do NOT include any text before or after the JSON object.\n"
+            "Do NOT wrap the JSON in markdown unless it is a code block."
+        )
 
     return (
         f"{prompt}\n\n"
@@ -630,7 +821,8 @@ def _build_agent_prompt(prompt: str, tools: list[Tool]) -> str:
         f"2. Read files before modifying them. Write files to create new code.\n"
         f"3. Run tests with bash to verify your work.\n"
         f"4. When all work is complete, provide your final answer as a JSON object.\n"
-        f"5. Your final answer (no more tool calls) will be parsed as the stage result.\n\n"
+        f"5. Your final answer (no more tool calls) will be parsed as the stage result.\n"
+        f"{json_template}\n"
         f"IMPORTANT: Stop calling tools and provide your final answer when the work is done.\n"
         f"Do NOT continue calling tools after completing the task."
     )
@@ -673,16 +865,24 @@ def _extract_structured_output(
     2. If schema provided, try model.with_structured_output() on conversation
     3. Fall back to best-effort JSON extraction
     """
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
+    _dbg.debug("[DEBUG] _extract_structured_output: stage=%s, content length=%d, schema=%s",
+                stage_id, len(answer_content), output_schema.__name__ if output_schema else None)
+
     # Strategy 1: Direct JSON parse of answer
     try:
         data = extract_json(answer_content)
+        _dbg.debug("[DEBUG] _extract_structured_output: strategy 1 (extract_json) succeeded: %s", str(data)[:200])
     except ValueError:
         data = None
+        _dbg.debug("[DEBUG] _extract_structured_output: strategy 1 (extract_json) failed")
     if data and isinstance(data, dict) and data:
         return data
 
     # Strategy 2: Structured output from conversation
     if output_schema:
+        _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 (structured_output), schema=%s", output_schema.__name__)
         try:
             structured_model = model.with_structured_output(output_schema)
             # Add a system prompt to guide the final extraction
@@ -691,12 +891,16 @@ def _extract_structured_output(
             ] + conversation
             response = structured_model.invoke(extraction_messages)
             if hasattr(response, "model_dump"):
+                _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 succeeded via model_dump")
                 return response.model_dump()
+            _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 succeeded via dict")
             return dict(response)
-        except Exception:
+        except Exception as e:
+            _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 failed: %s", e)
             pass
 
     # Strategy 3: Best effort from answer text
+    _dbg.debug("[DEBUG] _extract_structured_output: strategy 3 (best-effort fallback)")
     return _extract_from_text(answer_content, output_schema)
 
 
@@ -724,6 +928,65 @@ def _last_ai_message(messages: list[Any]) -> AIMessage | None:
         if isinstance(msg, AIMessage):
             return msg
     return None
+
+
+def _extract_best_effort_from_messages(
+    messages: list[Any],
+    output_schema: Type[BaseModel] | None,
+    stage_id: str,
+) -> dict[str, Any]:
+    """When agent exhausts iterations, find the best AI message to extract from.
+
+    Strategy:
+    1. AI messages WITHOUT tool_calls (final answers) — try each, newest first
+    2. AI messages WITH tool_calls but substantial text content — try each
+    3. Return raw_output fallback
+    """
+    import logging as _logging
+    _dbg = _logging.getLogger(__name__)
+
+    ai_msgs = [m for m in messages if isinstance(m, AIMessage)]
+    _dbg.debug("[DEBUG] _extract_best_effort: found %d AI messages in conversation", len(ai_msgs))
+
+    # Priority 1: AI messages without tool_calls (actual final answers)
+    for msg in reversed(ai_msgs):
+        if not getattr(msg, "tool_calls", None):
+            content = msg.content if isinstance(msg.content, str) else ""
+            if len(content) > 10:
+                _dbg.debug("[DEBUG] _extract_best_effort: trying clean AI message, length=%d", len(content))
+                try:
+                    data = extract_json(content)
+                    if data and isinstance(data, dict):
+                        return data
+                except ValueError:
+                    pass
+
+    # Priority 2: AI messages with tool_calls but meaningful text
+    for msg in reversed(ai_msgs):
+        content = msg.content if isinstance(msg.content, str) else ""
+        if len(content) > 50:
+            _dbg.debug("[DEBUG] _extract_best_effort: trying AI message with tool_calls, length=%d, preview=%r",
+                        len(content), content[:120])
+            try:
+                data = extract_json(content)
+                if data and isinstance(data, dict):
+                    return data
+            except ValueError:
+                pass
+
+    # Priority 3: Return best text we have
+    best_text = ""
+    for msg in reversed(ai_msgs):
+        content = msg.content if isinstance(msg.content, str) else ""
+        if len(content) > len(best_text):
+            best_text = content
+
+    if best_text:
+        _dbg.debug("[DEBUG] _extract_best_effort: falling back to best text, length=%d", len(best_text))
+        return {"raw_output": best_text[:5000], "complete": True}
+
+    _dbg.warning("[DEBUG] _extract_best_effort: no AI messages with text found")
+    return {}
 
 
 def _compact_messages(messages: list[Any]) -> list[Any]:

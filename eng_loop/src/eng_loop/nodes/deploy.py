@@ -6,6 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DeployPrepareOutput, SmokeTestOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -37,33 +38,22 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
             goto="impl-code",
         )
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
-    prompt = f"""You are the Deploy Preparation agent. Execute build, lint, type check, env config, migration verification.
-
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## DIFF
-{state.get('stage_artifacts', {}).get('diff', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Read build config files (package.json, pyproject.toml, Makefile, etc.)
-2. Run build with bash: npm run build, poetry build, make build, etc.
-3. Run lint with bash: npm run lint, ruff check, etc.
-4. Run type check with bash: npm run typecheck, mypy, etc.
-5. Run final test suite with bash
-6. Verify env config and migrations
-
-Return a JSON object with these fields: build_status, lint_status, type_check_status, verdict (PASS or FAIL), errors, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Deploy Preparation agent",
+        include_skill=False,
+        instructions=(
+            "Execute build, lint, type check, env config, migration verification.\n\n"
+            "Use your tools to:\n"
+            "1. Read build config files (package.json, pyproject.toml, Makefile, etc.)\n"
+            "2. Run build with bash: npm run build, poetry build, make build, etc.\n"
+            "3. Run lint with bash: npm run lint, ruff check, etc.\n"
+            "4. Run type check with bash: npm run typecheck, mypy, etc.\n"
+            "5. Run final test suite with bash\n"
+            "6. Verify env config and migrations\n\n"
+            "Return a JSON object with these fields: build_status, lint_status, type_check_status, verdict (PASS or FAIL), errors, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -139,10 +129,12 @@ Return a JSON object with these fields: build_status, lint_status, type_check_st
     stages[stage_id]["output"] = str(result)
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
     next_node = _post_deploy(state)
     return Command(
         update={
             "stages": stages,
+            **handoff_update,
             "current_stage": next_node,
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -172,36 +164,27 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
             goto="impl-code",
         )
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
-    prompt = f"""You are the Smoke Test agent. Execute full user journey against production build.
-
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Build production binary with bash
-2. Write smoke test scripts
-3. Run tests against production build
-4. Capture console and network errors
-5. Save report to {paths.get('artifact_root', '')}/smoke-report.md
-
-Execute:
-1. Build production binary
-2. Define critical paths (login, navigation, CRUD, reports, logout)
-3. Run full user journey against production build
-4. Screenshot at each step
-5. Console + network error monitoring
-
-Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, console_errors, network_errors, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Smoke Test agent",
+        include_skill=False,
+        instructions=(
+            "Execute full user journey against production build.\n\n"
+            "Use your tools to:\n"
+            "1. Build production binary with bash\n"
+            "2. Write smoke test scripts\n"
+            "3. Run tests against production build\n"
+            "4. Capture console and network errors\n"
+            f"5. Save report to {paths.get('artifact_root', '')}/smoke-report.md\n\n"
+            "Execute:\n"
+            "1. Build production binary\n"
+            "2. Define critical paths (login, navigation, CRUD, reports, logout)\n"
+            "3. Run full user journey against production build\n"
+            "4. Screenshot at each step\n"
+            "5. Console + network error monitoring\n\n"
+            "Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, console_errors, network_errors, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -277,9 +260,12 @@ Return a JSON object with these fields: verdict (PASS or FAIL), critical_paths, 
     stages[stage_id]["output"] = str(result)
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
+
     return Command(
         update={
             "stages": stages,
+            **handoff_update,
             "current_stage": "doc-decisions",
             "iteration": state.get("iteration", 0) + 1,
         },

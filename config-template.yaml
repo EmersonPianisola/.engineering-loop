@@ -188,6 +188,14 @@ dynamic_graph:
   log_topology: true         # Save graph topology to state.json
 
 # ============================================================
+# STATE HISTORY — snapshots for time travel / rollback (v11.2)
+# ============================================================
+state_history:
+  enabled: true              # Save snapshot after each stage
+  retention_per_stage: 5     # Max snapshots to keep per stage
+  history_dir: ".eng/history"  # Directory relative to loop root
+
+# ============================================================
 # COMPLIANCE — enforcement of topology rules (v11.1)
 # ============================================================
 compliance:

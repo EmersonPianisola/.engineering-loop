@@ -214,3 +214,41 @@ def all_active_stages_done(state: dict[str, Any]) -> bool:
 def load_state_template(template_path: str | Path) -> dict[str, Any]:
     with open(template_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
+    """Load a historical state snapshot and restore it as a valid pipeline state.
+
+    Merges missing fields with defaults so the restored state is compatible
+    with the current PipelineState schema.
+    """
+    with open(snapshot_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    defaults = {
+        "current_stage": "",
+        "iteration": data.get("iteration", 0),
+        "status": "running",
+        "blocking_condition": "",
+        "complexity": data.get("complexity", "unset"),
+        "work_type": data.get("work_type", "feature"),
+        "work_item": data.get("work_item", ""),
+        "ideation": data.get("ideation"),
+        "ui_project": data.get("ui_project", False),
+        "tags": data.get("tags", []),
+        "stages": data.get("stages", init_stages()),
+        "decisions": data.get("decisions", []),
+        "stage_artifacts": data.get("stage_artifacts", {}),
+        "lessons": data.get("lessons", []),
+        "errors": data.get("errors", []),
+        "messages": data.get("messages", []),
+        "config": data.get("config", {}),
+        "paths": data.get("paths", {}),
+        "graph_topology": data.get("graph_topology", {}),
+        "active_nodes": data.get("active_nodes", []),
+        "parallel_groups": data.get("parallel_groups", {}),
+        "handoffs": data.get("handoffs", {}),
+        "context_tiers": data.get("context_tiers", {}),
+        "timing": data.get("timing", {}),
+    }
+    return defaults

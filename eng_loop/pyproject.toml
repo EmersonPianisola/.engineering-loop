@@ -1,6 +1,6 @@
 [project]
 name = "eng-loop"
-version = "11.0.0"
+version = "11.2.0"
 description = "Engineering Loop orchestrator — Dynamic graph construction, LangGraph-based AI development loop with parallel QA, Pydantic structured output and evidence gates"
 requires-python = ">=3.10"
 dependencies = [

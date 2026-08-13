@@ -328,6 +328,52 @@ class UIManager:
             padding=(0, 1),
         )
 
+    # ── Breakpoint Menu ──────────────────────────────────────────
+    def show_breakpoint_menu(self, node_id: str, state: dict) -> str:
+        """Render breakpoint panel and wait for user input.
+
+        Returns: 'continue', 'edit', or 'abort'
+        """
+        iteration = state.get("iteration", 0)
+        stages = state.get("stages", {})
+        stage_data = stages.get(node_id, {})
+        attempts = stage_data.get("attempts", 0)
+        status = state.get("status", "running")
+
+        body_lines = [
+            f"[bold]Iteration:[/bold] {iteration}",
+            f"[bold]Attempts:[/bold] {attempts}",
+            f"[bold]Status:[/bold] {status}",
+            "",
+            "[bold yellow]Press a key:[/bold yellow]",
+            "  [C]ontinue — resume graph execution",
+            "  [E]dit State — open editor with state slice",
+            "  [A]bort — halt the loop",
+        ]
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                "\n".join(body_lines),
+                title=f"[bold red]BREAKPOINT[/bold red] {node_id}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+
+        while True:
+            try:
+                choice = input("[C]/[E]/[A]: ").strip().lower()
+                if choice in ("c", "continue"):
+                    return "continue"
+                if choice in ("e", "edit"):
+                    return "edit"
+                if choice in ("a", "abort", "q", "quit"):
+                    return "abort"
+                print("  [yellow]Invalid. Press C, E, or A.[/yellow]")
+            except (EOFError, KeyboardInterrupt):
+                return "abort"
+
 
 # ─── Stage Spinner (in-place progress, no scroll pollution) ──────────
 class StageSpinner:

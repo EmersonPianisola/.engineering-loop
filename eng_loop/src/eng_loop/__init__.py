@@ -1,3 +1,3 @@
 """Engineering Loop Orchestrator — LangGraph-based AI development loop engine."""
 
-__version__ = "10.3.0"
+__version__ = "11.2.0"

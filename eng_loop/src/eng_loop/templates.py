@@ -3,25 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from eng_loop.tools.prompt_builder import load_cached_markdown
+
 
 def load_markdown(path: str | Path) -> str:
-    p = Path(path)
-    if not p.exists():
-        return ""
-    with open(p, "r", encoding="utf-8") as f:
-        return f.read()
+    return load_cached_markdown(path)
 
 
 def load_stage_procedure(stage_root: str, stage_file: str) -> str:
-    return load_markdown(Path(stage_root) / f"{stage_file}.md")
+    return load_cached_markdown(Path(stage_root) / f"{stage_file}.md")
 
 
 def load_skill(skill_root: str, skill_name: str) -> str:
-    return load_markdown(Path(skill_root) / skill_name / "SKILL.md")
+    return load_cached_markdown(Path(skill_root) / skill_name / "SKILL.md")
 
 
 def load_reference(reference_root: str, ref_file: str) -> str:
-    return load_markdown(Path(reference_root) / f"{ref_file}.md")
+    return load_cached_markdown(Path(reference_root) / f"{ref_file}.md")
 
 
 STAGE_FILE_MAP: dict[str, str] = {

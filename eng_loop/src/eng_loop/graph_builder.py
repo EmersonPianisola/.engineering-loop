@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
@@ -122,12 +123,22 @@ class GraphBuilder:
         state: dict[str, Any],
         config: dict[str, Any] | None = None,
         checkpointer: Any | None = None,
+        interrupt_before: list[str] | None = None,
     ) -> tuple[Any, GraphTopology]:
-        """Build and compile the graph in one step."""
+        """Build and compile the graph in one step.
+
+        Args:
+            interrupt_before: List of node names to pause execution before.
+                Requires a checkpointer (MemorySaver used automatically if provided).
+        """
         builder, topology = self.build(state, config)
         kwargs: dict[str, Any] = {}
         if checkpointer:
             kwargs["checkpointer"] = checkpointer
+        elif interrupt_before:
+            kwargs["checkpointer"] = MemorySaver()
+        if interrupt_before:
+            kwargs["interrupt_before"] = interrupt_before
         compiled = builder.compile(**kwargs)
         return compiled, topology
 

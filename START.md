@@ -4,7 +4,7 @@ type: entry-point
 description: 'Start the engineering loop — quick reference for CLI and prompt mode.'
 ---
 
-# Engineering Loop v11 — Start Here
+# Engineering Loop v11.2 — Start Here
 
 ## Iniciar o Loop
 
@@ -17,8 +17,32 @@ eng-loop --dynamic-graph -w "descrição do trabalho" -f .eng -l .eng -p .
 # Com paralelismo QA
 eng-loop --dynamic-graph --parallel-qa -w "descrição do trabalho" -f .eng -l .eng -p .
 
+# Com breakpoints (v11.2) — pausa antes de stages específicas
+eng-loop --dynamic-graph --pause-at "impl.code" verify -w "descrição do trabalho" -f .eng -l .eng -p .
+
 # Grafo estático (legacy, default)
 eng-loop -w "descrição do trabalho" -f .eng -l .eng -p .
+```
+
+### CLI — Modo Cirúrgico (v11.2)
+
+Comandos para intervencao cirúrgica no estado do loop:
+
+```bash
+# Time Travel — restaura estado antes de uma stage
+eng-loop rollback "impl.code"
+
+# Single-Step Replay — executa um nó isoladamente
+eng-loop run-node "impl.code" --from-state state.json
+
+# Reset Attempts — zera contagem de tentativas de uma stage
+eng-loop clear-state "qa.security" --reset-attempts
+
+# Force Skip — marca stage como concluída
+eng-loop skip-node "arch.review"
+
+# Listar snapshots de estado
+eng-loop history
 ```
 
 ### CLI — Modo Hibrido (Python controla grafo, OpenCode executa stages)
@@ -61,6 +85,8 @@ Carregue `ORCHESTRATOR.md` na sessão do seu AI agent. O orquestrador instrui a 
 | `--opencode-agent` | Modo hibrido: Python controla grafo, OpenCode executa stages com tools nativas |
 | `--build-topology` | Gera topology markdown para modo LLM |
 | `--check-compliance` | Valida transição de stage (modo LLM, obrigatorio) |
+| `--pause-at <stage>` | Pausa execucao antes de stages (v11.2) |
+| `--interactive` | Dashboard TUI fullscreen (experimental, v11.2) |
 | `--check-model` | Verifica conectividade do modelo |
 | `--dry-run` | Valida configuração e sai |
 | `-w, --work-item` | Descrição do trabalho |
@@ -141,6 +167,8 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 | `dynamic_graph.parallel_qa` | `false` | QA stages em paralelo |
 | `compliance.enabled` | `true` | Ativa gate de compliance entre stages |
 | `compliance.mode` | `gate` | `gate` (bloqueia) ou `advisory` (avisa) |
+| `state_history.enabled` | `true` | Salva snapshot apos cada stage (v11.2) |
+| `state_history.retention_per_stage` | `5` | Max snapshots por stage (v11.2) |
 | `constraints` | (veja template) | Limites de iteração por stage |
 | `hardware` | (veja template) | Janela de contexto, timeouts |
 
@@ -156,4 +184,5 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 | `skill-index.md` | Registry de skills |
 | `config.yaml` | Configuração do projeto (editável) |
 | `state.json` | Estado do loop (gerado automaticamente) |
+| `.eng/history/` | Snapshots de estado para time travel (v11.2) |
 | `artifacts/graph-topology.md` | Plano de execução gerado (modo LLM) |

@@ -8,7 +8,7 @@ from eng_loop.model import create_model_from_config
 from eng_loop.schemas import ImplCodeOutput, ImplDesignOutput, DocUpdateOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.json_parse import extract_json
-from eng_loop.tools.graphify import get_graphify_injection
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -38,44 +38,16 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
             goto="__end__",
         )
 
-    stage_file = get_stage_file(stage_id)
-    skill_name = get_skill_name(stage_id)
-
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-    skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
-
-    # Inject graphify instructions if knowledge graph is available
-    graphify_injection = get_graphify_injection(state, paths)
-
-    prompt = f"""You are the Implementation Architect. Create the implementation blueprint.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## ARCHITECTURE CONTEXT
-{state.get('stage_artifacts', {}).get('arch.solution', 'No architecture artifacts.')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to explore the project structure:
-1. **graphify_query** — Get overall architecture context first
-2. **graphify_explain** — Understand specific entities you'll modify
-3. Use glob/grep to find relevant files (only after graphify context)
-4. Read key files for contract/type details (only after graphify context)
-5. Create a detailed implementation blueprint with file structure, contracts, data flows, and execution order
-
-Save the blueprint to {paths.get('artifact_root', '')}/blueprints/blueprint.md
-
-Return a JSON object with these fields: blueprint, tasks, file_structure, complete, decisions.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Implementation Architect",
+        instructions=(
+            "Plan the execution of the work item. Use glob/grep/read to explore the project.\n"
+            "Create a brief implementation plan (not overly detailed — just enough to guide implementation).\n\n"
+            f"Save the blueprint to {paths.get('artifact_root', '')}/blueprints/blueprint.md\n\n"
+            "Return a JSON object with these fields: blueprint, tasks, file_structure, complete, decisions."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -146,11 +118,14 @@ Return a JSON object with these fields: blueprint, tasks, file_structure, comple
 
     log_stage_done(stage_id, f"blueprint: {len(blueprint)} chars, {len(result.get('tasks', []))} tasks, tools: {agent_result.tool_calls_made}")
 
+    handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
+
     return Command(
         update={
             "stages": stages,
             "decisions": new_decisions,
             "stage_artifacts": {**state.get("stage_artifacts", {}), "impl.design": blueprint},
+            **handoff_update,
             "current_stage": "impl-code",
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -179,14 +154,6 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
             goto="__end__",
         )
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
-    blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
-    if not blueprint:
-        from eng_loop.tools.file_ops import read_file
-        blueprint = read_file(f"{paths.get('artifact_root', '')}/blueprints/blueprint.md")
-
     confirmed_lessons = ""
     if config.get("lessons", {}).get("enabled", True):
         from eng_loop.tools.lessons import load_lessons, get_confirmed_lessons
@@ -195,43 +162,29 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
         if confirmed:
             confirmed_lessons = json.dumps(confirmed, indent=2, ensure_ascii=False)
 
-    # Inject graphify instructions if knowledge graph is available
-    graphify_injection = get_graphify_injection(state, paths)
+    extra = ""
+    if confirmed_lessons:
+        extra = f"## CONFIRMED LESSONS\n{confirmed_lessons}"
 
-    prompt = f"""You are the Implementation agent. Execute TDD code implementation.
-
-## PROCEDURE
-{stage_proc}
-
-## BLUEPRINT
-{blueprint}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## CONFIRMED LESSONS
-{confirmed_lessons or "No lessons."}
-{graphify_injection}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Execute in TDD mode:
-1. **graphify_explain** each entity you'll modify BEFORE reading files
-2. For each task in the blueprint:
-   a. Use graphify_explain to understand context, then read only files you must
-   b. Write test file first
-   c. Run test with bash — it must fail (red)
-   d. Write/implement code to satisfy the test
-   e. Run test with bash — it must pass (green)
-   f. Commit with bash: git add + git commit
-3. After all tasks: provide summary as JSON
-
-Use your tools: graphify_explain first, then read files, write code, edit existing files, run tests with bash, search with grep/glob.
-The project root is {paths.get('project_root', '.')}. All file paths should be relative to it.
-
-Return a JSON object with these fields: implementation_summary, files_created, tests_passed, complete, decisions, diff.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Implementation agent",
+        extra_sections=extra,
+        instructions=(
+            "**Your primary task is the WORK ITEM above.** Execute it using your tools (read, write, edit, bash, glob, grep).\n\n"
+            "If the work item involves writing code, follow TDD:\n"
+            "1. Read relevant files first\n"
+            "2. Write test file, run test — it must fail (red)\n"
+            "3. Implement code, run test — it must pass (green)\n"
+            "4. Commit with bash: git add + git commit\n\n"
+            "If the work item involves generating documents, reports, or summaries:\n"
+            "1. Explore the project with glob/read/grep\n"
+            "2. Write the requested output file\n"
+            "3. Verify the file exists and is correct\n\n"
+            f"The project root is {paths.get('project_root', '.')}. All file paths should be relative to it.\n\n"
+            "Return a JSON object with these fields: implementation_summary, files_created, tests_passed, complete, decisions, diff."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     # Get tools for this stage
@@ -298,6 +251,8 @@ Return a JSON object with these fields: implementation_summary, files_created, t
     new_artifacts["impl.code"] = result.get("implementation_summary", "")
     new_artifacts["diff"] = result.get("diff", "")
 
+    handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
+
     log_stage_done(stage_id, f"files: {len(result.get('files_created', []))}, tests: {result.get('tests_passed')}, tools: {agent_result.tool_calls_made}")
 
     return Command(
@@ -305,6 +260,7 @@ Return a JSON object with these fields: implementation_summary, files_created, t
             "stages": stages,
             "decisions": new_decisions,
             "stage_artifacts": new_artifacts,
+            **handoff_update,
             "current_stage": "doc-update",
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -330,37 +286,19 @@ def doc_update_node(state: dict[str, Any]) -> Command[str]:
         stages[stage_id]["done"] = True
         return Command(goto="verify", update={"current_stage": "verify", "iteration": state.get("iteration", 0) + 1})
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
-    diff = state.get("stage_artifacts", {}).get("diff", "")
-    blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
-
-    prompt = f"""You are the Project Documentation Updater. Update existing project files (README, CHANGELOG, docs, inline comments).
-
-## PROCEDURE
-{stage_proc}
-
-## DIFF
-{diff}
-
-## BLUEPRINT
-{blueprint}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Use glob to find existing documentation files (README, CHANGELOG, docs/)
-2. Read each file to understand current content
-3. Use edit to update existing files with new information
-4. Do NOT create new files — only update what already exists
-
-Return a JSON object with these fields: files_updated, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Project Documentation Updater",
+        instructions=(
+            "Update existing project files (README, CHANGELOG, docs, inline comments).\n\n"
+            "Use your tools to:\n"
+            "1. Use glob to find existing documentation files (README, CHANGELOG, docs/)\n"
+            "2. Read each file to understand current content\n"
+            "3. Use edit to update existing files with new information\n"
+            "4. Do NOT create new files — only update what already exists\n\n"
+            "Return a JSON object with these fields: files_updated, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)

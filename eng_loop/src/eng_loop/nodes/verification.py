@@ -6,7 +6,7 @@ from typing import Any
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import E2eOutput, VerifyOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.graphify import get_graphify_injection
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -36,54 +36,25 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
             goto="__end__",
         )
 
-    stage_file = get_stage_file(stage_id)
-    skill_name = get_skill_name(stage_id)
-
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-    skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
-
-    blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
-    diff = state.get("stage_artifacts", {}).get("diff", "")
-
-    # Inject graphify instructions if knowledge graph is available
-    graphify_injection = get_graphify_injection(state, paths)
-
-    prompt = f"""You are the Independent Verifier. Author != Verifier. Perform spec-anchored check, discrimination sensor, and coverage audit.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## BLUEPRINT
-{blueprint}
-
-## DIFF
-{diff}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Execute verification using your tools:
-1. **graphify_explain** entities being verified — understand structure before reading
-2. **graphify_path** to trace data flows between components
-3. Read source code files to understand what was implemented (only after graphify context)
-4. Spec-anchored check — trace each AC to file:line evidence by reading actual files
-5. Run tests with bash to confirm they pass
-6. Discrimination sensor — use grep to find test assertions, verify they cover the right behavior
-7. Coverage audit — compare ACs against test file contents
-8. Write validation report to {paths.get('artifact_root', '')}/validation.md
-
-Use graphify_explain/graphify_path FIRST, then read, bash, grep, and glob tools to examine actual code and run tests.
-Do NOT guess — read the files and run the tests.
-
-Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence, discrimination_sensor, coverage_audit, gaps, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Independent Verifier. Author != Verifier.",
+        instructions=(
+            "Perform spec-anchored check, discrimination sensor, and coverage audit.\n\n"
+            "Execute verification using your tools:\n"
+            "1. **graphify_explain** entities being verified — understand structure before reading\n"
+            "2. **graphify_path** to trace data flows between components\n"
+            "3. Read source code files to understand what was implemented (only after graphify context)\n"
+            "4. Spec-anchored check — trace each AC to file:line evidence by reading actual files\n"
+            "5. Run tests with bash to confirm they pass\n"
+            "6. Discrimination sensor — use grep to find test assertions, verify they cover the right behavior\n"
+            "7. Coverage audit — compare ACs against test file contents\n"
+            f"8. Write validation report to {paths.get('artifact_root', '')}/validation.md\n\n"
+            "Use graphify_explain/graphify_path FIRST, then read, bash, grep, and glob tools to examine actual code and run tests.\n"
+            "Do NOT guess — read the files and run the tests.\n\n"
+            "Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence, discrimination_sensor, coverage_audit, gaps, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     # Get tools for this stage
@@ -165,10 +136,12 @@ Return a JSON object with these fields: verdict (PASS or FAIL), per_ac_evidence,
     stages[stage_id]["output"] = str(result)
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
     next_node = _post_verify(state)
     return Command(
         update={
             "stages": stages,
+            **handoff_update,
             "current_stage": next_node,
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -199,52 +172,28 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
             goto="impl-code",
         )
 
-    stage_file = get_stage_file(stage_id)
-    skill_name = get_skill_name(stage_id)
-
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-    skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
-
-    # Inject graphify instructions if knowledge graph is available
-    graphify_injection = get_graphify_injection(state, paths)
-
-    prompt = f"""You are the E2E Playwright Testing agent. Execute browser E2E testing with 4-layer assertions.
-
-## SKILL
-{skill_content}
-
-## PROCEDURE
-{stage_proc}
-{graphify_injection}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## BLUEPRINT
-{state.get('stage_artifacts', {}).get('impl.design', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Read existing test files and page objects with read/glob
-2. Write/update E2E test files with write/edit
-3. Run tests with bash: npx playwright test or equivalent
-4. Capture console and network errors from test output
-5. Verify BDD→E2E 1:1 coverage using grep to find @e2e tags
-
-Execute:
-1. Infrastructure setup — Playwright, config, Page Objects
-2. Auth bypass detection + wiring
-3. Scenario derivation from BDD @e2e tags
-4. Four-layer assertions: DOM, Dimension, Console, Network
-5. Screenshot evidence capture
-6. BDD→E2E 1:1 coverage check
-
-Save the report to {paths.get('artifact_root', '')}/e2e-report.md
-
-Return a JSON object with these fields: verdict (PASS or FAIL), test_results, console_errors, network_errors, bdd_coverage, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="E2E Playwright Testing agent",
+        instructions=(
+            "Execute browser E2E testing with 4-layer assertions.\n\n"
+            "Use your tools to:\n"
+            "1. Read existing test files and page objects with read/glob\n"
+            "2. Write/update E2E test files with write/edit\n"
+            "3. Run tests with bash: npx playwright test or equivalent\n"
+            "4. Capture console and network errors from test output\n"
+            "5. Verify BDD→E2E 1:1 coverage using grep to find @e2e tags\n\n"
+            "Execute:\n"
+            "1. Infrastructure setup — Playwright, config, Page Objects\n"
+            "2. Auth bypass detection + wiring\n"
+            "3. Scenario derivation from BDD @e2e tags\n"
+            "4. Four-layer assertions: DOM, Dimension, Console, Network\n"
+            "5. Screenshot evidence capture\n"
+            "6. BDD→E2E 1:1 coverage check\n\n"
+            f"Save the report to {paths.get('artifact_root', '')}/e2e-report.md\n\n"
+            "Return a JSON object with these fields: verdict (PASS or FAIL), test_results, console_errors, network_errors, bdd_coverage, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -320,10 +269,12 @@ Return a JSON object with these fields: verdict (PASS or FAIL), test_results, co
     stages[stage_id]["output"] = str(result)
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
     next_node = _post_e2e(state)
     return Command(
         update={
             "stages": stages,
+            **handoff_update,
             "current_stage": next_node,
             "iteration": state.get("iteration", 0) + 1,
         },

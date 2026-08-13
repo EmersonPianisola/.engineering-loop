@@ -4,15 +4,15 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v11.1
+# Engineering Loop v11.2
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay.
 
 | | |
 |---|---|
-| **Version** | 11.1.0 |
+| **Version** | 11.2.0 |
 | **Architecture** | Multi-project via git submodule |
 | **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
 | **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, compliance gate, Python builds graph) |
@@ -23,6 +23,8 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 | **Work Types** | `feature`, `bugfix`, `operational` — different topologies per type |
 | **Compliance** | `--check-compliance` gate between stages (LLM mode) + tool scope enforcement (CLI mode) |
 | **Edge Bypass** | Automatic bypass of inactive intermediate nodes |
+| **Surgical CLI** | `rollback`, `run-node`, `clear-state`, `skip-node`, `history` + `--pause-at` (v11.2) |
+| **State History** | Snapshots per stage with retention policy (v11.2) |
 | **Entry point** | `CORE.md` |
 | **CLI** | `eng-loop --dynamic-graph --work-item "..."` |
 | **Configuration** | `config-template.yaml` (framework) + `config.yaml` (project) |
@@ -88,6 +90,7 @@ The loop is enforced by a **dynamic LangGraph StateGraph** (Python) that is **co
 - **Shared lessons** — confirmed lessons propagate across all projects via the framework
 - **Continuous decisions** — every architectural decision recorded as `AD-NNN` immediately, not deferred
 - **Local model support** — works with any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama)
+- **Surgical CLI operations** — breakpoints (`--pause-at`), state editing via `$EDITOR`, time-travel rollback, single-step replay (v11.2)
 
 ### Design vs. Execute vs. Validate
 
@@ -168,6 +171,30 @@ eng-loop --dynamic-graph --parallel-qa -w "Add user authentication with JWT toke
 
 # Build topology for LLM orchestrator
 eng-loop --build-topology -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
+
+# With breakpoints (v11.2) — pause before specific stages
+eng-loop --dynamic-graph --pause-at "impl.code" verify -w "Add user authentication with JWT tokens" -f .eng -l .eng -p .
+```
+
+### 5b. Surgical Commands (v11.2)
+
+Intervene in the loop state without re-running the entire graph:
+
+```bash
+# Time Travel — restore state to before a stage
+eng-loop rollback "impl.code"
+
+# Single-Step Replay — execute one node in isolation
+eng-loop run-node "impl.code" --from-state state.json
+
+# Reset Attempts — clear stage attempts counter
+eng-loop clear-state "qa.security" --reset-attempts
+
+# Force Skip — mark a stage as done
+eng-loop skip-node "arch.review"
+
+# List State Snapshots
+eng-loop history
 ```
 
 The orchestrator:
@@ -425,15 +452,15 @@ v10.3 migrated to programmatic flow control. v11 added dynamic graph constructio
 
 ### Why LangGraph
 
-| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) | v11.1 (Enforcement) |
-|---|---|---|---|---|
-| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated | Work type classification (feature/bugfix/operational) |
-| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time | Compliance gate (`--check-compliance`) enforces transitions |
-| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode | Edge bypass skips inactive intermediate nodes automatically |
-| `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress | `NodeRegistry` (26 NodeSpec) filtered by complexity/UI/tags | Tool scope enforcement blocks out-of-scope tool calls |
-| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` | Smart error summarization protects context from stack traces |
-| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items | Operational work items generate 7-stage graphs instead of 11+ |
-| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility | Stage scope rules (ALLOWED/FORBIDDEN) per stage |
+| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) | v11.1 (Enforcement) | v11.2 (Surgical CLI) |
+|---|---|---|---|---|---|
+| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated | Work type classification (feature/bugfix/operational) | Breakpoint pauses with `interrupt_before` + `MemorySaver` |
+| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time | Compliance gate (`--check-compliance`) enforces transitions | State editing via `$EDITOR` with context slicing |
+| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode | Edge bypass skips inactive intermediate nodes automatically | Time-travel rollback from per-stage snapshots |
+| `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress | `NodeRegistry` (26 NodeSpec) filtered by complexity/UI/tags | Tool scope enforcement blocks out-of-scope tool calls | Single-step replay (`run-node`) for isolated testing |
+| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` | Smart error summarization protects context from stack traces | State mutation (`clear-state`, `skip-node`) for recovery |
+| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items | Operational work items generate 7-stage graphs instead of 11+ | Snapshot retention policy, `history` command |
+| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility | Stage scope rules (ALLOWED/FORBIDDEN) per stage | Editor fallback: `$EDITOR` → vim → nano → `code --wait` → notepad |
 
 ### How Structured Output Works
 
@@ -612,6 +639,8 @@ eng-loop --work-item "description"   Run the loop (static graph)
   --build-topology                    Build graph topology and output as markdown (for LLM mode)
   --check-compliance                  Validate stage transition against topology (for LLM mode)
   --requested-stage                   Stage ID to validate (required with --check-compliance)
+  --pause-at STAGE [STAGE ...]        Pause execution before specified stages (v11.2)
+  --interactive                       Enable full-screen TUI dashboard (experimental, v11.2)
   -f, --framework-root                Framework root (default: .)
   -l, --loop-root                     Loop root (default: .)
   -p, --project-root                  Project root (default: .)
@@ -620,6 +649,15 @@ eng-loop --work-item "description"   Run the loop (static graph)
   --model-name                        Override model name
   --check-model                       Check model connectivity and exit
   --dry-run                           Validate config and exit
+
+Surgical Commands (v11.2):
+  rollback <stage_id>                 Restore state to before a stage (time travel)
+  run-node <stage_id>                 Execute a single node in isolation (single-step replay)
+    --from-state <file>               State file to load (default: state.json)
+  clear-state <stage_id>              Reset a stage's attempts and done status
+    --reset-attempts                  Reset attempt counter to 0
+  skip-node <stage_id>                Force-mark a stage as done
+  history                             List state snapshots
 ```
 
 ---
@@ -1313,6 +1351,14 @@ The orchestrator deep-merges: template → project. Project values win.
 | `dynamic_graph.parallel_qa` | false | Run QA stages in parallel (fan-out/fan-in) |
 | `dynamic_graph.log_topology` | true | Save graph topology to state.json |
 
+### State History (v11.2)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `state_history.enabled` | true | Save snapshot after each stage |
+| `state_history.retention_per_stage` | 5 | Max snapshots to keep per stage |
+| `state_history.history_dir` | `.eng/history` | Directory for state snapshots |
+
 ---
 
 ## State Management
@@ -1324,6 +1370,7 @@ The orchestrator deep-merges: template → project. Project values win.
 | `state-template.json` | `{framework-root}/` | Template (git-tracked, 26 stages) |
 | `state.json` | `{loop-root}/` | Runtime state (gitignored) |
 | `STATE.md` | `{loop-root}/` | Human-readable state + decisions + handoff (gitignored) |
+| `.eng/history/*.json` | `{loop-root}/` | State snapshots per stage for time travel (v11.2, gitignored) |
 
 ### Per-Stage Variables
 
@@ -1467,7 +1514,9 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 │   │       ├── autosizing.py        # Complexity + work type classification
 │   │       ├── topology_compliance.py # Stage transition validation (v11.1)
 │   │       ├── agent_runner.py      # Agentic loop + tool scope + error summarization
-│   │       └── progress.py          # Terminal logging, node tracing
+│   │       ├── progress.py          # Terminal logging, node tracing, breakpoint menu
+│   │       ├── state_history.py     # Snapshot lifecycle, time travel, retention (v11.2)
+│   │       └── interactive.py       # State slicing, $EDITOR integration (v11.2)
 │   └── tests/                       # Unit tests
 │
 └── setup/                       # Installation scripts
@@ -1660,6 +1709,36 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 - Verify paths are correct: `-f .eng -l .eng -p .`
 - Review `artifacts/graph-topology.md` for the generated plan
 
+### Breakpoint Not Pausing
+
+**Symptom:** `--pause-at "impl.code"` does not pause at the specified stage
+
+**Resolution:**
+- Stage IDs use dot notation: `impl.code`, not `impl-code`
+- The stage must be active in the current graph (check complexity/work type filters)
+- Use `eng-loop history` to verify snapshots are being saved
+- Verify `state_history.enabled` is `true` in `config.yaml`
+
+### Rollback Fails — No Snapshot Found
+
+**Symptom:** `eng-loop rollback "impl.code"` says "No snapshot found"
+
+**Resolution:**
+- The loop must have executed at least one stage before the target stage
+- Use `eng-loop history` to list available snapshots
+- Check that `state_history.enabled` is `true` in `config.yaml`
+- Snapshots are stored in `.eng/history/` — verify the directory exists
+
+### State Editor Won't Open
+
+**Symptom:** Breakpoint [E]dit fails to open an editor
+
+**Resolution:**
+- Ensure `$EDITOR` is set, or one of: vim, nano, code (VS Code), notepad.exe is available
+- The fallback chain is: `$EDITOR` → vim → nano → `code --wait` → notepad.exe
+- On Windows, `code --wait` requires VS Code CLI installed (`code --install-extension`)
+- The editor opens a temporary JSON file with the state slice for the current stage
+
 ---
 
 ## Version History
@@ -1683,6 +1762,7 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v10.4.0 | 2026-08-04 | **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies), automatic retry on failure, iteration counter tracking, `json_parse.py`, `evidence_gate.py`, `schemas.py`, `stage_runner.py` |
 | v11.0.0 | 2026-08-10 | **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`, `--build-topology`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |
 | v11.1.0 | 2026-08-11 | **Dynamic graph enforcement**: Work type classification (feature/bugfix/operational) generates different topologies. Compliance gate (`--check-compliance`) validates stage transitions. Edge bypass skips inactive intermediate nodes automatically. Tool scope enforcement blocks out-of-scope tool calls. Smart error summarization protects context from stack traces. Stage scope rules (ALLOWED/FORBIDDEN) per stage. Topology markdown includes checklist, deactivated stages, stage scope. `topology_compliance.py`, `autosizing.py` extended, `agent_runner.py` middleware |
+| v11.2.0 | 2026-08-12 | **Surgical CLI operations**: Breakpoint pauses (`--pause-at`) with LangGraph `interrupt_before` + `MemorySaver`. State editing via `$EDITOR` with context slicing (`interactive.py`). Time-travel rollback (`eng-loop rollback`) from per-stage snapshots (`state_history.py`). Single-step replay (`eng-loop run-node`). State mutation (`eng-loop clear-state`, `eng-loop skip-node`). Snapshot listing (`eng-loop history`). Retention policy per stage. Editor fallback chain: `$EDITOR` → vim → nano → `code --wait` → notepad |
 
 ---
 
@@ -1700,6 +1780,8 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | `eng_loop/src/eng_loop/tools/stage_runner.py` | Shared stage execution helper |
 | `eng_loop/src/eng_loop/tools/topology_compliance.py` | Stage transition validation (v11.1) |
 | `eng_loop/src/eng_loop/tools/agent_runner.py` | Agentic loop + tool scope enforcement + error summarization |
+| `eng_loop/src/eng_loop/tools/state_history.py` | Snapshot lifecycle, time travel, retention (v11.2) |
+| `eng_loop/src/eng_loop/tools/interactive.py` | State slicing, $EDITOR integration (v11.2) |
 | `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
 | `CORE.md` | Framework index — stage registry, references, skills |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |

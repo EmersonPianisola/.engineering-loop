@@ -5,6 +5,7 @@ from typing import Any
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DocDecisionsOutput, DocProjectOutput
+from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
 from eng_loop.tools.progress import (
     log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
 )
@@ -31,32 +32,22 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
         stages[stage_id]["done"] = True
         return Command(goto="doc-project", update={"current_stage": "doc-project", "iteration": state.get("iteration", 0) + 1})
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
     decisions = state.get("decisions", [])
+    extra = f"## DECISIONS RECORDED\n{decisions}" if decisions else ""
 
-    prompt = f"""You are the Decision Log Consolidator. Consolidate AD-NNN decisions into formal MADR format.
-
-## PROCEDURE
-{stage_proc}
-
-## DECISIONS RECORDED
-{decisions}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Read existing decision artifacts and stage outputs
-2. Write the consolidated decision log to {paths.get('artifact_root', '')}/decision-log.md
-
-Consolidate into MADR format.
-Return a JSON object with these fields: decision_log, decisions_count, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Decision Log Consolidator",
+        include_skill=False,
+        extra_sections=extra,
+        instructions=(
+            "Consolidate AD-NNN decisions into formal MADR format.\n\n"
+            "Use your tools to:\n"
+            "1. Read existing decision artifacts and stage outputs\n"
+            f"2. Write the consolidated decision log to {paths.get('artifact_root', '')}/decision-log.md\n\n"
+            "Return a JSON object with these fields: decision_log, decisions_count, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -102,10 +93,13 @@ Return a JSON object with these fields: decision_log, decisions_count, complete.
 
     log_stage_done(stage_id, f"{result.get('decisions_count', 0)} decisions, tools: {agent_result.tool_calls_made}")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
+
     return Command(
         update={
             "stages": stages,
             "stage_artifacts": {**state.get("stage_artifacts", {}), "doc.decisions": decision_log},
+            **handoff_update,
             "current_stage": "doc-project",
             "iteration": state.get("iteration", 0) + 1,
         },
@@ -131,36 +125,27 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
         stages[stage_id]["done"] = True
         return Command(goto="post", update={"current_stage": "post", "iteration": state.get("iteration", 0) + 1})
 
-    stage_file = get_stage_file(stage_id)
-    stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
-
     decision_log = state.get("stage_artifacts", {}).get("doc.decisions", "")
     if not decision_log:
         from eng_loop.tools.file_ops import read_file
         decision_log = read_file(f"{paths.get('artifact_root', '')}/decision-log.md")
 
-    prompt = f"""You are the Project Documentation agent. Generate README, setup guide, architecture overview, and user manual using arc42 + C4 Model.
+    extra = f"## DECISION LOG\n{decision_log}" if decision_log else ""
 
-## PROCEDURE
-{stage_proc}
-
-## WORK ITEM
-{state.get('work_item', '')}
-
-## DECISION LOG
-{decision_log}
-
-## PROJECT ROOT
-{paths.get('project_root', '.')}
-
-Use your tools to:
-1. Explore the project structure with glob
-2. Read key source files to understand architecture
-3. Write documentation files to the project
-
-Generate project documentation.
-Return a JSON object with these fields: readme, setup_guide, architecture_overview, user_manual, complete.
-"""
+    prompt = build_node_prompt(
+        stage_id, state, paths, config,
+        role_description="Project Documentation agent",
+        include_skill=False,
+        extra_sections=extra,
+        instructions=(
+            "Generate README, setup guide, architecture overview, and user manual using arc42 + C4 Model.\n\n"
+            "Use your tools to:\n"
+            "1. Explore the project structure with glob\n"
+            "2. Read key source files to understand architecture\n"
+            "3. Write documentation files to the project\n\n"
+            "Return a JSON object with these fields: readme, setup_guide, architecture_overview, user_manual, complete."
+        ),
+    )
     model = create_model_from_config(config, stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -200,9 +185,12 @@ Return a JSON object with these fields: readme, setup_guide, architecture_overvi
 
     log_stage_done(stage_id, f"documentation generated, tools: {agent_result.tool_calls_made}")
 
+    handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
+
     return Command(
         update={
             "stages": stages,
+            **handoff_update,
             "current_stage": "post",
             "iteration": state.get("iteration", 0) + 1,
         },
