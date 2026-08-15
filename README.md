@@ -4,15 +4,18 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v11.4
+# Engineering Loop v11.5
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads. **Dynamic Node Orchestration** — blueprint-driven meta-execution with typed validation, policy authorization, and immutable contracts.
 
 | | |
 |---|---|
-| **Version** | 11.4.0 |
+| **Version** | 11.5.0 |
+| **Dynamic Orchestration** | Blueprint imutável, runtime desacoplado, validação tipada (v11.5) |
+| **Policy Resolver** | Autorização autoritativa de risco, sandbox de ferramentas |
+| **Meta-Executor** | Loop sequencial com cursor, auditoria por passo, retry estrito |
 | **Contract Gate** | Middleware validates handoff contracts between stages |
 | **Causal Rollback** | `rollback_to_stage` reducer resets causal chain on verifier/QA failure |
 | **Fix Mode** | `impl.code` executes with structured `fix_tasks` from verifier/QA |
@@ -22,7 +25,7 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 | **Architecture** | Multi-project via git submodule |
 | **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
 | **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, compliance gate, Python builds graph) |
-| **Stages** | 26 stages across 7 phases |
+| **Stages** | 26 static + 2 meta (architect, executor) = 29 nodes |
 | **Skills** | 11 built-in + 7 self-constructed at runtime |
 | **Structured Output** | Pydantic schemas per stage, evidence gates |
 | **Dynamic Graph** | `GraphBuilder` constructs graph per work item + work type |
@@ -42,6 +45,7 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 - [Overview](#overview)
 - [Quick Start](#quick-start)
 - [Dynamic Graph (v11)](#dynamic-graph-v11)
+- [Dynamic Node Orchestration](#dynamic-node-orchestration-v115)
 - [Dual-Mode Architecture](#dual-mode-architecture)
 - [LangGraph Orchestrator](#langgraph-orchestrator)
 - [Architecture](#architecture)
@@ -500,6 +504,88 @@ Mocks intercept:
 - `eng_loop.model.create_model_from_config` — returns `MagicMock`
 
 ---
+
+---
+
+## Dynamic Node Orchestration (v11.5)
+
+Meta-orchestration layer that enables runtime generation of sub-tasks beyond the standard 26-stage pipeline. The LLM proposes dynamic steps, the framework authorizes them via policy rules, and a cursor-based meta-executor runs them sequentially with strict attempt counting and typed validation.
+
+### Architecture
+
+```
+__start__ → init-setup → dynamic-architect
+                        ├─ trigger="augment" → meta-executor (loop) → init
+                        └─ trigger="none"    → init (passthrough)
+```
+
+### Design Principles
+
+1. **Blueprint Imutável** — O gerador dinâmico produz um plano estruturado estático. Ele nunca toma decisões de fluxo de controle (`goto`).
+2. **Runtime Desacoplado** — O contrato do passo (`DynamicStep`) permanece puro e imutável. O estado de execução (tentativas, cursor, falhas) reside inteiramente em `dynamic_runtime`.
+3. **Validação Tipada** — Critérios de aceite baseados em regras determinísticas (`tests_pass`, `files_exist`, `contains_symbol`), eliminando heurísticas de linguagem natural.
+4. **Governança Estrita** — Tetos rígidos: `MAX_DYNAMIC_STEPS = 5`, `max_attempts` por passo (1-5), `authorized_complexity` derivada por política.
+5. **Policy Autoritativa** — O framework é a autoridade de risco. Analisa o work item por keywords de risco e sobrepõe a complexidade proposta pelo LLM.
+
+### Contracts (Pydantic Schemas)
+
+| Schema | Role | Frozen |
+|--------|------|--------|
+| `DynamicBlueprintProposal` | Proposta do LLM (não autorizada) | Yes |
+| `DynamicBlueprint` | Contrato executável oficial (autorizado) | Yes |
+| `DynamicStep` | Passo individual imutável | Yes |
+| `ValidationRule` | Regra tipada de validação | Yes |
+| `DynamicRuntime` | Estado mutável de execução (cursor, attempts, audit) | No |
+| `DynamicAuditEntry` | Registro imutável de auditoria por tentativa | Yes |
+
+### Validation Rule Types
+
+| Type | Payload | Behavior |
+|------|---------|----------|
+| `tests_pass` | `suite` (unit/integration/e2e), `command` | Executa comando via subprocess, verifica exit code == 0 |
+| `files_exist` | `paths` (tuple) | Verifica existência de todos os caminhos relativos ao workspace |
+| `contains_symbol` | `symbol` (regex), `target_file` | Busca padrão regex em arquivo alvo |
+
+### Policy Authorization
+
+The `authorize_blueprint()` function transforms the LLM proposal into an authorized executable blueprint:
+
+- Analyzes `work_item` for risk keywords (`drop database`, `rm -rf`, `credentials`, `production deploy`, etc.)
+- If risk detected → `authorized_complexity = "restricted"` → pipeline blocks, human approval required
+- If safe → `authorized_complexity = proposal.proposed_complexity`
+
+### Meta-Executor Flow
+
+```
+1. Sem plano ou trigger="none" → passthrough para pipeline estático
+2. Cursor >= len(steps) → completed, avança para init
+3. current_attempts > max_attempts → blocked, pipeline termina (__end__)
+4. resolve_allowed_tools() → sandbox de ferramentas (whitelist)
+5. run_agent() com prompt do step
+6. evaluate_validation_rules() → validação tipada
+   ├─ Valid + success → cursor++, completed[], retry self
+   ├─ Invalid + attempts < max → retry self (cursor travado)
+   └─ Invalid + attempts >= max → blocked, pipeline termina
+```
+
+**Correção off-by-one:** `current_attempts = runtime.attempts.get(step_id, 0) + 1`. A verificação `current_attempts > max_attempts` ocorre antes de executar, garantindo matematicamente que `max_attempts=3` = 1 execução + 2 retries.
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| `schemas.py` | 9 novas classes Pydantic (payloads, rules, steps, blueprint, runtime, audit) |
+| `tools/dynamic_validation.py` | Evaluador de regras tipadas (`tests_pass`, `files_exist`, `contains_symbol`) |
+| `tools/policy_resolver.py` | Autorização de blueprint, sandbox de ferramentas, keywords de risco |
+| `nodes/dynamic_architect.py` | Nó gate: LLM propõe → framework autoriza → blueprint injetado no estado |
+| `nodes/meta_executor.py` | Executor sequencial com cursor, retry estrito, auditoria por passo |
+
+### State Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `dynamic_plan` | `DynamicBlueprint` (dict) | Blueprint imutável gerado pelo Arquiteto |
+| `dynamic_runtime` | `DynamicRuntime` (dict) | Estado mutável: cursor, attempts, completed, failed, audit |
 
 ---
 
@@ -1750,11 +1836,15 @@ See [Context Optimization](#context-optimization-v113) for details.
 │   │   ├── edge_rules.py        # Declarative edge rules (~40 rules)
 │   │   ├── routing.py           # Conditional edge functions, iteration tracking
 │   │   ├── model.py             # Model factory (local OpenAI-compatible)
-│   │   ├── schemas.py           # 27 Pydantic schemas for structured output
+│   │   ├── schemas.py           # 27 Pydantic schemas (stages) + 9 dynamic schemas (v11.5)
 │   │   ├── templates.py         # Markdown → prompt loader
 │   │   ├── cli.py               # Entry point
 │   │   ├── nodes/               # Stage node implementations
+│   │   │   ├── dynamic_architect.py  # LLM proposal → framework authorization (v11.5)
+│   │   │   └── meta_executor.py      # Sequential cursor-based executor (v11.5)
 │   │   └── tools/               # Helpers
+│   │       ├── dynamic_validation.py  # Typed validation engine (v11.5)
+│   │       ├── policy_resolver.py     # Blueprint authorization, tool sandbox (v11.5)
 │   │       ├── file_ops.py      # read/write/json helpers
 │   │       ├── json_parse.py    # Robust JSON extraction (3 strategies)
 │   │       ├── evidence_gate.py # Stage output quality validation
@@ -2017,6 +2107,7 @@ See [Context Optimization](#context-optimization-v113) for details.
 | v11.2.0 | 2026-08-12 | **Surgical CLI operations**: Breakpoint pauses (`--pause-at`) with LangGraph `interrupt_before` + `MemorySaver`. State editing via `$EDITOR` with context slicing (`interactive.py`). Time-travel rollback (`eng-loop rollback`) from per-stage snapshots (`state_history.py`). Single-step replay (`eng-loop run-node`). State mutation (`eng-loop clear-state`, `eng-loop skip-node`). Snapshot listing (`eng-loop history`). Retention policy per stage. Editor fallback chain: `$EDITOR` → vim → nano → `code --wait` → notepad |
 | v11.3.0 | 2026-08-13 | **Context optimization**: `ProjectMap` pre-computed at init eliminates 3-8 exploratory glob/read per stage (ASCII tree, configs, entry points, modules, languages, routes, components). `ToolResultCache` in micro-loop eliminates redundant read/glob/grep calls with targeted invalidation on edit/write (full invalidation on bash). Graphify prompt softened from imperative to passive. `project_map.py` (370 lines), `ToolResultCache` in `agent_runner.py`, 29 new tests |
 | v11.4.0 | 2026-08-14 | **Contract gate middleware + causal rollback**: `contract_gate.py` validates handoff contracts between stages (blueprint→code, code→verify); retries source or blocks pipeline. `qa_parallel.py` fan-out/fan-in with `qa-dispatcher` + `qa-join` for parallel QA. `rollback_to_stage` reducer resets causal chain (impl.code → verify) on verifier/QA failure. `impl.code` FIX MODE with structured `fix_tasks`. Deterministic `init-setup` node separates classification from LLM. State reducers: `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage`. Edge rules: conditional blueprint validation, blocked-aware routing. Dry-run simulator: 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) — all assertions green |
+| v11.5.0 | 2026-08-15 | **Dynamic Node Orchestration (V1.3)**: Meta-orchestration layer for runtime sub-task generation beyond the 26-stage pipeline. `dynamic-architect` node (LLM proposes `DynamicBlueprintProposal` → framework authorizes via `authorize_blueprint()` → immutable `DynamicBlueprint`). `meta-executor` node (sequential cursor-based execution, strict attempt counting, typed validation). 9 new Pydantic schemas (frozen payloads, discriminated union rules, audit entries). Policy resolver: risk keyword analysis, tool sandboxing (safe pool). Validation engine: `tests_pass` (subprocess), `files_exist` (path check), `contains_symbol` (regex). Governance: `MAX_DYNAMIC_STEPS=5`, `max_attempts` per step (1-5), `authorized_complexity` override. Topology: `__start__ → init-setup → dynamic-architect → [meta-executor loop] → init`. 54 tests, 29 total nodes |
 
 ---
 
@@ -2038,6 +2129,11 @@ See [Context Optimization](#context-optimization-v113) for details.
 | `eng_loop/src/eng_loop/nodes/init_setup.py` | Deterministic setup: classify, graphify, deactivate stages (v11.4) |
 | `eng_loop/src/eng_loop/nodes/qa_parallel.py` | `qa-dispatcher` (fan-out) + `qa-join` (fan-in + rollback) (v11.4) |
 | `eng_loop/src/eng_loop/state.py` | Reducers: `_merge_dict`, `_overwrite`, `rollback_to_stage` (v11.4) |
+| `eng_loop/src/eng_loop/schemas.py` | 9 dynamic schemas: payloads, rules, steps, blueprint, runtime, audit (v11.5) |
+| `eng_loop/src/eng_loop/tools/dynamic_validation.py` | Typed validation engine: tests_pass, files_exist, contains_symbol (v11.5) |
+| `eng_loop/src/eng_loop/tools/policy_resolver.py` | Blueprint authorization, tool sandboxing, risk keywords (v11.5) |
+| `eng_loop/src/eng_loop/nodes/dynamic_architect.py` | LLM proposal → framework authorization → executable blueprint (v11.5) |
+| `eng_loop/src/eng_loop/nodes/meta_executor.py` | Sequential cursor-based executor, strict attempt counting (v11.5) |
 | `scripts/dry_run_simulator.py` | 4 scenario dry-run tests, zero LLM calls (v11.4) |
 | `eng_loop/src/eng_loop/tools/project_map.py` | Pre-computed structural project map (v11.3) |
 | `eng_loop/src/eng_loop/tools/state_history.py` | Snapshot lifecycle, time travel, retention (v11.2) |

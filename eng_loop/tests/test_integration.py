@@ -522,9 +522,9 @@ def test_dynamic_graph_complex_ui_all_nodes():
     builder = GraphBuilder()
     _, topology = builder.build(state)
 
-    assert len(topology.active_nodes) == 26
-    assert topology.nodes_included == 26
-    assert topology.total_available == 26
+    assert len(topology.active_nodes) == 29
+    assert topology.nodes_included == 29
+    assert topology.total_available == 29
 
     for sid in STAGE_ORDER:
         assert sid in topology.active_nodes, f"Missing node: {sid}"

@@ -8,6 +8,7 @@ from typing import Any
 @dataclass(frozen=True)
 class EdgeRule:
     """Declarative rule for connecting nodes in the dynamic graph."""
+
     from_node: str
     to_node: str
     condition: Callable[[dict[str, Any]], bool] | None = None
@@ -34,10 +35,14 @@ class EdgeRulesEngine:
         self._rules.append(rule)
 
     def add_fixed(self, from_node: str, to_node: str, description: str = "") -> None:
-        self.add(EdgeRule(
-            from_node=from_node, to_node=to_node,
-            edge_type="fixed", description=description,
-        ))
+        self.add(
+            EdgeRule(
+                from_node=from_node,
+                to_node=to_node,
+                edge_type="fixed",
+                description=description,
+            )
+        )
 
     def add_conditional(
         self,
@@ -47,10 +52,15 @@ class EdgeRulesEngine:
         edge_type: str = "conditional",
         description: str = "",
     ) -> None:
-        self.add(EdgeRule(
-            from_node=from_node, to_node=to_node,
-            condition=condition, edge_type=edge_type, description=description,
-        ))
+        self.add(
+            EdgeRule(
+                from_node=from_node,
+                to_node=to_node,
+                condition=condition,
+                edge_type=edge_type,
+                description=description,
+            )
+        )
 
     def add_loopback(
         self,
@@ -59,11 +69,16 @@ class EdgeRulesEngine:
         condition: Callable[[dict[str, Any]], bool],
         description: str = "",
     ) -> None:
-        self.add(EdgeRule(
-            from_node=from_node, to_node=to_node,
-            condition=condition, edge_type="loopback", priority=10,
-            description=description,
-        ))
+        self.add(
+            EdgeRule(
+                from_node=from_node,
+                to_node=to_node,
+                condition=condition,
+                edge_type="loopback",
+                priority=10,
+                description=description,
+            )
+        )
 
     def resolve(
         self,
@@ -161,7 +176,10 @@ class EdgeRulesEngine:
 
             # Target is inactive — bypass it using only forward-progress edges
             bypass_target = self._find_bypass_target(
-                target, active_node_ids, state, visited=set(),
+                target,
+                active_node_ids,
+                state,
+                visited=set(),
                 allow_loopback=False,
             )
 
@@ -222,7 +240,11 @@ class EdgeRulesEngine:
             # Target is also inactive — recurse
             if rule.condition is None or rule.evaluate(state):
                 result = self._find_bypass_target(
-                    target, active_node_ids, state, visited, allow_loopback,
+                    target,
+                    active_node_ids,
+                    state,
+                    visited,
+                    allow_loopback,
                 )
                 if result:
                     return result
@@ -267,8 +289,9 @@ def _blueprint_valid(state: dict[str, Any]) -> bool:
     if not output_str:
         return False
     # Parse the output to check for tasks and blueprint length
-    import json
     import ast
+    import json
+
     try:
         output_data = json.loads(output_str) if isinstance(output_str, str) else output_str
     except (json.JSONDecodeError, TypeError):
@@ -288,18 +311,62 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     """Build the complete set of edge rules for the engineering loop graph."""
     engine = EdgeRulesEngine()
 
-    # --- Entry point: setup → init ---
+    # --- Entry point: setup → dynamic architect → init ---
     engine.add_fixed("__start__", "init-setup", description="Entry → deterministic setup")
-    engine.add_fixed("init-setup", "init", description="Setup complete → INIT validation")
+    engine.add_fixed("init-setup", "dynamic-architect", description="Setup → dynamic architect gate")
+
+    # Dynamic architect routing
+    engine.add_conditional(
+        "dynamic-architect",
+        "meta-executor",
+        condition=lambda s: (
+            (s.get("dynamic_plan") or {}).get("trigger") == "augment"
+            and (s.get("dynamic_plan") or {}).get("steps")
+        ),
+        description="Blueprint augment → meta executor",
+    )
+    engine.add_conditional(
+        "dynamic-architect",
+        "init",
+        condition=lambda s: (
+            not s.get("dynamic_plan")
+            or (s.get("dynamic_plan") or {}).get("trigger") != "augment"
+            or not (s.get("dynamic_plan") or {}).get("steps")
+        ),
+        description="No augmentation → normal pipeline",
+    )
+
+    # Meta executor routing
+    engine.add_loopback(
+        "meta-executor",
+        "meta-executor",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "running",
+        description="Meta executor self-loop (retry/advance step)",
+    )
+    engine.add_conditional(
+        "meta-executor",
+        "init",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "completed",
+        description="All dynamic steps done → pipeline",
+    )
+    engine.add_conditional(
+        "meta-executor",
+        "__end__",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "blocked",
+        edge_type="terminal",
+        description="Dynamic step exhausted → terminate",
+    )
 
     # --- INIT chain ---
     engine.add_conditional(
-        "init", "init-ideate",
+        "init",
+        "init-ideate",
         condition=lambda s: not _is_blocked(s),
         description="Init validated, proceed to ideation",
     )
     engine.add_conditional(
-        "init", "__end__",
+        "init",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Init blocked, terminate",
@@ -310,12 +377,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 
     # Init-refine → next phase based on complexity
     engine.add_conditional(
-        "init-refine", "arch-requirements",
+        "init-refine",
+        "arch-requirements",
         condition=lambda s: _stage_done(s, "init.refine") and _complexity_at_least(s, "medium"),
         description="Medium+ complexity → architecture",
     )
     engine.add_conditional(
-        "init-refine", "impl-design",
+        "init-refine",
+        "impl-design",
         condition=lambda s: _stage_done(s, "init.refine") and not _complexity_at_least(s, "medium"),
         description="Small complexity → implementation",
     )
@@ -329,12 +398,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 
     # Design complete → next phase
     engine.add_conditional(
-        "design-visual-design", "arch-requirements",
+        "design-visual-design",
+        "arch-requirements",
         condition=lambda s: _stage_done(s, "design.visual-design") and _complexity_at_least(s, "medium"),
         description="Design done, medium+ → architecture",
     )
     engine.add_conditional(
-        "design-visual-design", "impl-design",
+        "design-visual-design",
+        "impl-design",
         condition=lambda s: _stage_done(s, "design.visual-design") and not _complexity_at_least(s, "medium"),
         description="Design done, small → implementation",
     )
@@ -344,12 +415,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 
     # Arch-solution → review (complex) or impl
     engine.add_conditional(
-        "arch-solution", "arch-review",
+        "arch-solution",
+        "arch-review",
         condition=lambda s: _stage_done(s, "arch.solution") and _complexity_is(s, "complex"),
         description="Complex → architecture review",
     )
     engine.add_conditional(
-        "arch-solution", "impl-design",
+        "arch-solution",
+        "impl-design",
         condition=lambda s: _stage_done(s, "arch.solution") and not _complexity_is(s, "complex"),
         description="Not complex → implementation",
     )
@@ -360,12 +433,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     # impl-design → impl-code: conditional on valid blueprint + not blocked
     # Prevents fixed edge from racing with contract gate retry/block
     engine.add_conditional(
-        "impl-design", "impl-code",
+        "impl-design",
+        "impl-code",
         condition=lambda s: _stage_done(s, "impl.design") and _blueprint_valid(s) and not _is_blocked(s),
         description="Design → Code (blueprint valid)",
     )
     engine.add_conditional(
-        "impl-design", "__end__",
+        "impl-design",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Design BLOCKED → terminate",
@@ -374,12 +449,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     # impl-code → doc-update: conditional on not blocked.
     # If impl.code exhausted attempts and set status=blocked, route to __end__.
     engine.add_conditional(
-        "impl-code", "doc-update",
+        "impl-code",
+        "doc-update",
         condition=lambda s: not _is_blocked(s),
         description="Code PASS → Doc Update",
     )
     engine.add_conditional(
-        "impl-code", "__end__",
+        "impl-code",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Code BLOCKED → terminate",
@@ -387,12 +464,14 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 
     # doc-update → verify: same gate
     engine.add_conditional(
-        "doc-update", "verify",
+        "doc-update",
+        "verify",
         condition=lambda s: not _is_blocked(s),
         description="Doc Update → Verify",
     )
     engine.add_conditional(
-        "doc-update", "__end__",
+        "doc-update",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Doc Update BLOCKED → terminate",
@@ -401,54 +480,75 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     # --- VERIFICATION ---
     # Verify FAIL → retry impl.code (loopback, highest priority)
     engine.add_loopback(
-        "verify", "impl-code",
+        "verify",
+        "impl-code",
         condition=lambda s: not _stage_done(s, "verify") and not _is_blocked(s),
         description="Verify FAIL → retry impl.code",
     )
     # Blocked pipeline → terminate
     engine.add_conditional(
-        "verify", "__end__",
+        "verify",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Verify BLOCKED → terminate",
     )
     # Verify PASS → next based on context
     engine.add_conditional(
-        "verify", "e2e-execute",
+        "verify",
+        "e2e-execute",
         condition=lambda s: _stage_done(s, "verify") and _is_ui_project(s) and not _is_blocked(s),
         description="Verify PASS, UI project → E2E",
     )
     engine.add_conditional(
-        "verify", "qa-security",
-        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "verify",
+        "qa-security",
+        condition=lambda s: (
+            _stage_done(s, "verify")
+            and not _is_ui_project(s)
+            and _complexity_at_least(s, "medium")
+            and not _is_blocked(s)
+        ),
         description="Verify PASS, medium+ → QA security",
     )
     engine.add_conditional(
-        "verify", "deploy-prepare",
-        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "verify",
+        "deploy-prepare",
+        condition=lambda s: (
+            _stage_done(s, "verify")
+            and not _is_ui_project(s)
+            and not _complexity_at_least(s, "medium")
+            and not _is_blocked(s)
+        ),
         description="Verify PASS, small → deploy",
     )
 
     # --- E2E ---
     engine.add_loopback(
-        "e2e-execute", "impl-code",
+        "e2e-execute",
+        "impl-code",
         condition=lambda s: not _stage_done(s, "e2e.execute") and not _is_blocked(s),
         description="E2E FAIL → retry impl.code",
     )
     engine.add_conditional(
-        "e2e-execute", "__end__",
+        "e2e-execute",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="E2E BLOCKED → terminate",
     )
     engine.add_conditional(
-        "e2e-execute", "qa-security",
+        "e2e-execute",
+        "qa-security",
         condition=lambda s: _stage_done(s, "e2e.execute") and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="E2E PASS, medium+ → QA security",
     )
     engine.add_conditional(
-        "e2e-execute", "deploy-prepare",
-        condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "e2e-execute",
+        "deploy-prepare",
+        condition=lambda s: (
+            _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+        ),
         description="E2E PASS, small → deploy",
     )
 
@@ -458,129 +558,175 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         # Edges are added by GraphBuilder._add_parallel_qa(), NOT here.
         # We only add the verify/e2e → deploy fallback for small complexity.
         engine.add_conditional(
-            "verify", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "verify") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+            "verify",
+            "deploy-prepare",
+            condition=lambda s: (
+                _stage_done(s, "verify") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+            ),
             description="Verify PASS, small → deploy (parallel QA mode)",
         )
         engine.add_conditional(
-            "e2e-execute", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+            "e2e-execute",
+            "deploy-prepare",
+            condition=lambda s: (
+                _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+            ),
             description="E2E PASS, small → deploy (parallel QA mode)",
         )
     else:
         # Sequential QA (current behavior)
         # QA Security
         engine.add_loopback(
-            "qa-security", "impl-code",
+            "qa-security",
+            "impl-code",
             condition=lambda s: not _stage_done(s, "qa.security") and not _is_blocked(s),
             description="QA Security FAIL → retry impl.code",
         )
         engine.add_conditional(
-            "qa-security", "__end__",
+            "qa-security",
+            "__end__",
             condition=_is_blocked,
             edge_type="terminal",
             description="QA Security BLOCKED → terminate",
         )
         engine.add_conditional(
-            "qa-security", "qa-api-contract",
-            condition=lambda s: _stage_done(s, "qa.security") and _complexity_at_least(s, "medium") and not _is_blocked(s),
+            "qa-security",
+            "qa-api-contract",
+            condition=lambda s: (
+                _stage_done(s, "qa.security") and _complexity_at_least(s, "medium") and not _is_blocked(s)
+            ),
             description="QA Security PASS, medium+ → API contract",
         )
         engine.add_conditional(
-            "qa-security", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "qa.security") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+            "qa-security",
+            "deploy-prepare",
+            condition=lambda s: (
+                _stage_done(s, "qa.security") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+            ),
             description="QA Security PASS, small → deploy",
         )
 
         # QA API Contract
         engine.add_loopback(
-            "qa-api-contract", "impl-code",
+            "qa-api-contract",
+            "impl-code",
             condition=lambda s: not _stage_done(s, "qa.api-contract") and not _is_blocked(s),
             description="QA API Contract FAIL → retry impl.code",
         )
         engine.add_conditional(
-            "qa-api-contract", "__end__",
+            "qa-api-contract",
+            "__end__",
             condition=_is_blocked,
             edge_type="terminal",
             description="QA API Contract BLOCKED → terminate",
         )
         engine.add_conditional(
-            "qa-api-contract", "qa-performance",
-            condition=lambda s: _stage_done(s, "qa.api-contract") and _complexity_is(s, "complex") and not _is_blocked(s),
+            "qa-api-contract",
+            "qa-performance",
+            condition=lambda s: (
+                _stage_done(s, "qa.api-contract") and _complexity_is(s, "complex") and not _is_blocked(s)
+            ),
             description="QA API PASS, complex → performance",
         )
         engine.add_conditional(
-            "qa-api-contract", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "qa.api-contract") and not _complexity_is(s, "complex") and not _is_blocked(s),
+            "qa-api-contract",
+            "deploy-prepare",
+            condition=lambda s: (
+                _stage_done(s, "qa.api-contract") and not _complexity_is(s, "complex") and not _is_blocked(s)
+            ),
             description="QA API PASS, not complex → deploy",
         )
 
         # QA Performance
         engine.add_loopback(
-            "qa-performance", "impl-code",
+            "qa-performance",
+            "impl-code",
             condition=lambda s: not _stage_done(s, "qa.performance") and not _is_blocked(s),
             description="QA Performance FAIL → retry impl.code",
         )
         engine.add_conditional(
-            "qa-performance", "__end__",
+            "qa-performance",
+            "__end__",
             condition=_is_blocked,
             edge_type="terminal",
             description="QA Performance BLOCKED → terminate",
         )
         engine.add_conditional(
-            "qa-performance", "deploy-prepare",
+            "qa-performance",
+            "deploy-prepare",
             condition=lambda s: not _is_blocked(s),
             description="QA Performance → Deploy",
         )
 
     # --- DEPLOY ---
     engine.add_loopback(
-        "deploy-prepare", "impl-code",
+        "deploy-prepare",
+        "impl-code",
         condition=lambda s: not _stage_done(s, "deploy.prepare") and not _is_blocked(s),
         description="Deploy FAIL → retry impl.code",
     )
     engine.add_conditional(
-        "deploy-prepare", "__end__",
+        "deploy-prepare",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Deploy BLOCKED → terminate",
     )
     engine.add_conditional(
-        "deploy-prepare", "smoke-test",
+        "deploy-prepare",
+        "smoke-test",
         condition=lambda s: _stage_done(s, "deploy.prepare") and _is_ui_project(s) and not _is_blocked(s),
         description="Deploy PASS, UI → smoke test",
     )
     engine.add_conditional(
-        "deploy-prepare", "doc-decisions",
-        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "deploy-prepare",
+        "doc-decisions",
+        condition=lambda s: (
+            _stage_done(s, "deploy.prepare")
+            and not _is_ui_project(s)
+            and _complexity_at_least(s, "medium")
+            and not _is_blocked(s)
+        ),
         description="Deploy PASS, medium+ → doc decisions",
     )
     engine.add_conditional(
-        "deploy-prepare", "post",
-        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "deploy-prepare",
+        "post",
+        condition=lambda s: (
+            _stage_done(s, "deploy.prepare")
+            and not _is_ui_project(s)
+            and not _complexity_at_least(s, "medium")
+            and not _is_blocked(s)
+        ),
         description="Deploy PASS, small → post",
     )
 
     # --- SMOKE TEST ---
     engine.add_loopback(
-        "smoke-test", "impl-code",
+        "smoke-test",
+        "impl-code",
         condition=lambda s: not _stage_done(s, "smoke.test") and not _is_blocked(s),
         description="Smoke FAIL → retry impl.code",
     )
     engine.add_conditional(
-        "smoke-test", "__end__",
+        "smoke-test",
+        "__end__",
         condition=_is_blocked,
         edge_type="terminal",
         description="Smoke BLOCKED → terminate",
     )
     engine.add_conditional(
-        "smoke-test", "doc-decisions",
+        "smoke-test",
+        "doc-decisions",
         condition=lambda s: _stage_done(s, "smoke.test") and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Smoke PASS, medium+ → doc decisions",
     )
     engine.add_conditional(
-        "smoke-test", "post",
-        condition=lambda s: _stage_done(s, "smoke.test") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        "smoke-test",
+        "post",
+        condition=lambda s: (
+            _stage_done(s, "smoke.test") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+        ),
         description="Smoke PASS, small → post",
     )
 

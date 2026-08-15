@@ -63,21 +63,19 @@ COMPLEXITY_ORDER = {"small": 0, "medium": 1, "large": 2, "complex": 3}
 # FixTask schema (structured verifier feedback)
 # ──────────────────────────────────────────────
 
+
 class FixTask(BaseModel):
-    source: str = Field(
-        description="Originating stage, e.g. 'verify', 'qa.security', 'e2e.execute'"
-    )
+    source: str = Field(description="Originating stage, e.g. 'verify', 'qa.security', 'e2e.execute'")
     gap: str = Field(description="Description of the problem found")
     evidence: str = Field(description="file:line evidence from verification artifact")
     severity: Literal["critical", "major", "minor"] = Field(default="critical")
-    suggested_fix: str = Field(
-        default="", description="Optional hint from the verifier for the fix"
-    )
+    suggested_fix: str = Field(default="", description="Optional hint from the verifier for the fix")
 
 
 # ──────────────────────────────────────────────
 # Reducers
 # ──────────────────────────────────────────────
+
 
 def _merge_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(old)
@@ -145,6 +143,7 @@ def rollback_to_stage(
 # Stage helpers
 # ──────────────────────────────────────────────
 
+
 class StageState(dict[str, Any]):
     done: bool = False
     attempts: int = 0
@@ -170,6 +169,7 @@ def init_stages() -> dict[str, dict[str, Any]]:
 # ──────────────────────────────────────────────
 # PipelineState (LangGraph StateGraph schema)
 # ──────────────────────────────────────────────
+
 
 class PipelineState(dict[str, Any]):
     current_stage: Annotated[str, _last_write_wins] = ""
@@ -206,6 +206,9 @@ class PipelineState(dict[str, Any]):
     rollback_target: Annotated[str, _overwrite] = ""
     explorer_evidence: Annotated[list[str], _last_write_wins] = []
     codebase_facts: Annotated[dict[str, Any], _last_write_wins] = {}
+    # Dynamic node orchestration (V1.3)
+    dynamic_plan: Annotated[dict[str, Any] | None, _last_write_wins] = None
+    dynamic_runtime: Annotated[dict[str, Any], _merge_dict] = {}
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -239,6 +242,15 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "rollback_target": "",
         "explorer_evidence": [],
         "codebase_facts": {},
+        "dynamic_plan": None,
+        "dynamic_runtime": {
+            "cursor": 0,
+            "attempts": {},
+            "completed": [],
+            "failed": [],
+            "status": "pending",
+            "step_audit": [],
+        },
     }
 
 
@@ -261,13 +273,18 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type:
         return ui_project
 
     from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES, OPERATIONAL_EXCLUDED_STAGES
+
     if work_type == "documentation" and stage_id in DOCUMENTATION_EXCLUDED_STAGES:
         return False
     if work_type == "operational" and stage_id in OPERATIONAL_EXCLUDED_STAGES:
         return False
     if work_type == "bugfix" and stage_id in (
-        "design.user-research", "design.personas", "design.info-arch",
-        "design.interaction", "design.design-system", "design.visual-design",
+        "design.user-research",
+        "design.personas",
+        "design.info-arch",
+        "design.interaction",
+        "design.design-system",
+        "design.visual-design",
     ):
         return False
 
@@ -339,5 +356,17 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
         "rollback_target": data.get("rollback_target", ""),
         "explorer_evidence": data.get("explorer_evidence", []),
         "codebase_facts": data.get("codebase_facts", {}),
+        "dynamic_plan": data.get("dynamic_plan"),
+        "dynamic_runtime": data.get(
+            "dynamic_runtime",
+            {
+                "cursor": 0,
+                "attempts": {},
+                "completed": [],
+                "failed": [],
+                "status": "pending",
+                "step_audit": [],
+            },
+        ),
     }
     return defaults

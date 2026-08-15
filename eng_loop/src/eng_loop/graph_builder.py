@@ -90,8 +90,19 @@ class GraphBuilder:
 
         builder = StateGraph(PipelineState)
 
-        # Register active nodes
+        # Register meta nodes (always active, not filtered by complexity)
+        META_NODE_NAMES = {"dynamic-architect", "meta-executor"}
+        for spec in self.registry.all_specs():
+            if spec.node_name in META_NODE_NAMES:
+                handler = trace_node(spec.id)(spec.handler)
+                builder.add_node(spec.node_name, handler)
+                active_node_names.add(spec.node_name)
+                logger.info("  Meta node registered: %s (%s)", spec.node_name, spec.description)
+
+        # Register active nodes (skip meta nodes — already registered above)
         for spec in active_specs:
+            if spec.node_name in META_NODE_NAMES:
+                continue
             handler = trace_node(spec.id)(spec.handler)
             # Apply contract gate for nodes that have outgoing contract rules
             if spec.node_name in _get_contract_sources():
@@ -99,9 +110,7 @@ class GraphBuilder:
             builder.add_node(spec.node_name, handler)
             logger.info("  Node registered: %s (%s)", spec.node_name, spec.description)
 
-        bypassed_rules = self.rules.resolve_with_bypass(
-            active_node_names | {"__start__"}, state
-        )
+        bypassed_rules = self.rules.resolve_with_bypass(active_node_names | {"__start__"}, state)
         self._add_edges(builder, bypassed_rules, active_node_names, state, topology)
 
         if self.parallel_qa:
@@ -109,7 +118,10 @@ class GraphBuilder:
 
         logger.info(
             "Graph built: %d/%d nodes active (complexity=%s, ui=%s)",
-            len(active_specs), len(self.registry), complexity, ui_project,
+            len(active_specs),
+            len(self.registry),
+            complexity,
+            ui_project,
         )
 
         return builder, topology
@@ -149,11 +161,13 @@ class GraphBuilder:
 
             if rule.edge_type == "fixed":
                 fixed_edges.setdefault(from_name, []).append(to_name)
-                topology.edges.append({
-                    "from": rule.from_node,
-                    "to": rule.to_node,
-                    "type": "fixed",
-                })
+                topology.edges.append(
+                    {
+                        "from": rule.from_node,
+                        "to": rule.to_node,
+                        "type": "fixed",
+                    }
+                )
             else:
                 conditional_sources.setdefault(from_name, []).append(rule)
 
@@ -272,7 +286,8 @@ class GraphBuilder:
 
         logger.info(
             "  Parallel QA: %s → qa-dispatcher → [%s] → qa-join → deploy-prepare",
-            upstream_nodes, ", ".join(qa_node_names),
+            upstream_nodes,
+            ", ".join(qa_node_names),
         )
 
     def _to_node_name(self, stage_id: str) -> str:

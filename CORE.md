@@ -1,8 +1,8 @@
 ---
 name: engineering-loop
-version: 11.0.0
+version: 11.5.0
 type: framework
-description: 'Dynamic graph orchestrator. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'Dynamic graph orchestrator. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution with typed validation, policy authorization, immutable contracts. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
 # Engineering Loop v11.0

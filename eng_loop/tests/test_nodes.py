@@ -3,8 +3,7 @@ from __future__ import annotations
 """Tests for node handlers - validates each node processes state correctly."""
 
 import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from langgraph.types import Command
 

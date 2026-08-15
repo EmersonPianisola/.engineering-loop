@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from eng_loop.node_registry import (
-    NodeRegistry, NodeSpec, build_registry, complexity_meets,
-)
 from eng_loop.edge_rules import (
-    EdgeRulesEngine, EdgeRule, build_edge_rules,
+    build_edge_rules,
 )
-from eng_loop.graph_builder import GraphBuilder, GraphTopology
+from eng_loop.graph_builder import GraphBuilder
+from eng_loop.node_registry import (
+    build_registry,
+    complexity_meets,
+)
 from eng_loop.state import make_initial_state
 
 
@@ -21,7 +22,7 @@ def test_complexity_meets():
 
 def test_registry_builds():
     registry = build_registry()
-    assert len(registry) == 26
+    assert len(registry) == 29
     assert "init" in registry
     assert "impl.code" in registry
     assert "post" in registry
@@ -187,8 +188,8 @@ def test_graph_compiles():
 
 def test_topology_markdown_generation():
     """Test that topology markdown is generated correctly."""
-    from eng_loop.graph_builder import GraphBuilder
     from eng_loop.cli import _topology_to_markdown
+    from eng_loop.graph_builder import GraphBuilder
 
     state = make_initial_state({}, {})
     state["complexity"] = "small"

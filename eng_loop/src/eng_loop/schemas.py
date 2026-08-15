@@ -1,8 +1,118 @@
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# ──────────────────────────────────────────────
+# DYNAMIC NODE ORCHESTRATION (V1.3)
+# ──────────────────────────────────────────────
+
+
+class TestsPassPayload(BaseModel):
+    __test__ = False
+    model_config = ConfigDict(frozen=True)
+    suite: Literal["unit", "integration", "e2e"] = "unit"
+    command: str = ""
+
+
+class FilesExistPayload(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    paths: tuple[str, ...] = Field(description="Relative paths that must exist")
+
+
+class SymbolPayload(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    symbol: str = Field(description="Regex or symbol to search for")
+    target_file: str = Field(description="Relative file path to search in")
+
+
+class ValidationRule(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    type: Literal["tests_pass", "files_exist", "contains_symbol"]
+    payload: TestsPassPayload | FilesExistPayload | SymbolPayload
+
+
+class DynamicStep(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    step_id: str = Field(description="Immutable unique identifier, e.g. 'db-migration-step'")
+    role_description: str = Field(description="Cognitive agent role for this step")
+    requested_capabilities: tuple[str, ...] = Field(default_factory=tuple)
+    validation_rules: tuple[ValidationRule, ...] = Field(default_factory=tuple)
+    max_attempts: int = Field(default=3, ge=1, le=5, description="Max attempts (1 execution + retries)")
+
+    @field_validator("step_id")
+    @classmethod
+    def validate_step_id(cls, v: str) -> str:
+        if not re.match(r"^[a-z0-9][a-z0-9-]{2,63}$", v):
+            raise ValueError(f"step_id '{v}' must match ^[a-z0-9][a-z0-9-]{{2,63}}$")
+        return v
+
+
+class DynamicBlueprintProposal(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    plan_id: str
+    trigger: Literal["none", "augment"] = "none"
+    proposed_complexity: Literal["standard", "adaptive", "restricted"] = "standard"
+    steps: tuple[DynamicStep, ...] = Field(default_factory=tuple)
+    rationale: str
+
+    @model_validator(mode="after")
+    def validate_trigger_consistency(self) -> DynamicBlueprintProposal:
+        if self.trigger == "augment" and not self.steps:
+            raise ValueError("Trigger 'augment' requires at least one dynamic step.")
+        if self.trigger == "none" and self.steps:
+            raise ValueError("Trigger 'none' cannot contain dynamic steps.")
+        return self
+
+
+class DynamicBlueprint(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    plan_id: str
+    trigger: Literal["none", "augment"]
+    authorized_complexity: Literal["standard", "adaptive", "restricted"]
+    steps: tuple[DynamicStep, ...]
+    rationale: str
+
+    @field_validator("steps")
+    @classmethod
+    def validate_unique_steps(cls, v: tuple[DynamicStep, ...]) -> tuple[DynamicStep, ...]:
+        ids = [s.step_id for s in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("All step_ids within a DynamicBlueprint must be unique.")
+        if len(v) > 5:
+            raise ValueError("DynamicBlueprint exceeds MAX_DYNAMIC_STEPS (5).")
+        return v
+
+
+class DynamicAuditEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    plan_id: str
+    step_id: str
+    attempt: int
+    status: Literal["success", "failed"]
+    started_at: float
+    finished_at: float
+    error: str | None = None
+
+
+class DynamicRuntime(BaseModel):
+    cursor: int = Field(default=0, ge=0)
+    attempts: dict[str, int] = Field(default_factory=dict)
+    completed: list[str] = Field(default_factory=list)
+    failed: list[str] = Field(default_factory=list)
+    status: Literal["pending", "running", "completed", "failed", "blocked"] = "pending"
+    step_audit: list[DynamicAuditEntry] = Field(default_factory=list)
+
+    def validate_invariants(self, total_steps: int) -> None:
+        if not (0 <= self.cursor <= total_steps):
+            raise ValueError(f"Cursor {self.cursor} out of bounds [0, {total_steps}]")
+        if set(self.completed).intersection(set(self.failed)):
+            raise ValueError("Overlap between completed and failed steps")
 
 
 # ──────────────────────────────────────────────
