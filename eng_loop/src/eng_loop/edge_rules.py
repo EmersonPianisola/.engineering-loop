@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -258,12 +258,39 @@ def _is_blocked(state: dict[str, Any]) -> bool:
     return state.get("status") == "blocked"
 
 
+def _blueprint_valid(state: dict[str, Any]) -> bool:
+    """Check that impl.design produced a valid blueprint (has tasks + sufficient length).
+    Used by edge rules to prevent impl-code from running before contract is satisfied."""
+    stages = state.get("stages", {})
+    design_stage = stages.get("impl.design", {})
+    output_str = design_stage.get("output", "")
+    if not output_str:
+        return False
+    # Parse the output to check for tasks and blueprint length
+    import json
+    import ast
+    try:
+        output_data = json.loads(output_str) if isinstance(output_str, str) else output_str
+    except (json.JSONDecodeError, TypeError):
+        # Try Python dict repr (single quotes)
+        try:
+            output_data = ast.literal_eval(output_str) if isinstance(output_str, str) else output_str
+        except (ValueError, SyntaxError, TypeError):
+            return False
+    if not isinstance(output_data, dict):
+        return False
+    tasks = output_data.get("tasks", [])
+    blueprint = output_data.get("blueprint", "")
+    return bool(tasks) and len(blueprint) >= 50
+
+
 def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     """Build the complete set of edge rules for the engineering loop graph."""
     engine = EdgeRulesEngine()
 
-    # --- Entry point ---
-    engine.add_fixed("__start__", "init", description="Entry point")
+    # --- Entry point: setup → init ---
+    engine.add_fixed("__start__", "init-setup", description="Entry → deterministic setup")
+    engine.add_fixed("init-setup", "init", description="Setup complete → INIT validation")
 
     # --- INIT chain ---
     engine.add_conditional(
@@ -330,135 +357,230 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     engine.add_fixed("arch-review", "impl-design", description="Review → Implementation")
 
     # --- IMPLEMENTATION chain ---
-    engine.add_fixed("impl-design", "impl-code", description="Design → Code")
-    engine.add_fixed("impl-code", "doc-update", description="Code → Doc Update")
-    engine.add_fixed("doc-update", "verify", description="Doc Update → Verify")
-
-    # --- VERIFICATION ---
-    # Verify PASS → next based on context
-    engine.add_loopback(
-        "verify", "impl-code",
-        condition=lambda s: not _stage_done(s, "verify"),
-        description="Verify FAIL → retry impl.code",
+    # impl-design → impl-code: conditional on valid blueprint + not blocked
+    # Prevents fixed edge from racing with contract gate retry/block
+    engine.add_conditional(
+        "impl-design", "impl-code",
+        condition=lambda s: _stage_done(s, "impl.design") and _blueprint_valid(s) and not _is_blocked(s),
+        description="Design → Code (blueprint valid)",
     )
     engine.add_conditional(
+        "impl-design", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Design BLOCKED → terminate",
+    )
+
+    # impl-code → doc-update: conditional on not blocked.
+    # If impl.code exhausted attempts and set status=blocked, route to __end__.
+    engine.add_conditional(
+        "impl-code", "doc-update",
+        condition=lambda s: not _is_blocked(s),
+        description="Code PASS → Doc Update",
+    )
+    engine.add_conditional(
+        "impl-code", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Code BLOCKED → terminate",
+    )
+
+    # doc-update → verify: same gate
+    engine.add_conditional(
+        "doc-update", "verify",
+        condition=lambda s: not _is_blocked(s),
+        description="Doc Update → Verify",
+    )
+    engine.add_conditional(
+        "doc-update", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Doc Update BLOCKED → terminate",
+    )
+
+    # --- VERIFICATION ---
+    # Verify FAIL → retry impl.code (loopback, highest priority)
+    engine.add_loopback(
+        "verify", "impl-code",
+        condition=lambda s: not _stage_done(s, "verify") and not _is_blocked(s),
+        description="Verify FAIL → retry impl.code",
+    )
+    # Blocked pipeline → terminate
+    engine.add_conditional(
+        "verify", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Verify BLOCKED → terminate",
+    )
+    # Verify PASS → next based on context
+    engine.add_conditional(
         "verify", "e2e-execute",
-        condition=lambda s: _stage_done(s, "verify") and _is_ui_project(s),
+        condition=lambda s: _stage_done(s, "verify") and _is_ui_project(s) and not _is_blocked(s),
         description="Verify PASS, UI project → E2E",
     )
     engine.add_conditional(
         "verify", "qa-security",
-        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Verify PASS, medium+ → QA security",
     )
     engine.add_conditional(
         "verify", "deploy-prepare",
-        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and not _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "verify") and not _is_ui_project(s) and not _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Verify PASS, small → deploy",
     )
 
     # --- E2E ---
     engine.add_loopback(
         "e2e-execute", "impl-code",
-        condition=lambda s: not _stage_done(s, "e2e.execute"),
+        condition=lambda s: not _stage_done(s, "e2e.execute") and not _is_blocked(s),
         description="E2E FAIL → retry impl.code",
     )
     engine.add_conditional(
+        "e2e-execute", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="E2E BLOCKED → terminate",
+    )
+    engine.add_conditional(
         "e2e-execute", "qa-security",
-        condition=lambda s: _stage_done(s, "e2e.execute") and _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "e2e.execute") and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="E2E PASS, medium+ → QA security",
     )
     engine.add_conditional(
         "e2e-execute", "deploy-prepare",
-        condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="E2E PASS, small → deploy",
     )
 
     # --- QA chain ---
     if parallel_qa:
-        # Fan-out: all QA stages run in parallel after verify/e2e
-        # Fan-in: qa-join aggregates results
-        pass  # Handled by GraphBuilder with Send commands
+        # Parallel QA: dispatcher → [Send qa-security, Send qa-api, ...] → join
+        # Edges are added by GraphBuilder._add_parallel_qa(), NOT here.
+        # We only add the verify/e2e → deploy fallback for small complexity.
+        engine.add_conditional(
+            "verify", "deploy-prepare",
+            condition=lambda s: _stage_done(s, "verify") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+            description="Verify PASS, small → deploy (parallel QA mode)",
+        )
+        engine.add_conditional(
+            "e2e-execute", "deploy-prepare",
+            condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+            description="E2E PASS, small → deploy (parallel QA mode)",
+        )
     else:
         # Sequential QA (current behavior)
         # QA Security
         engine.add_loopback(
             "qa-security", "impl-code",
-            condition=lambda s: not _stage_done(s, "qa.security"),
+            condition=lambda s: not _stage_done(s, "qa.security") and not _is_blocked(s),
             description="QA Security FAIL → retry impl.code",
         )
         engine.add_conditional(
+            "qa-security", "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description="QA Security BLOCKED → terminate",
+        )
+        engine.add_conditional(
             "qa-security", "qa-api-contract",
-            condition=lambda s: _stage_done(s, "qa.security") and _complexity_at_least(s, "medium"),
+            condition=lambda s: _stage_done(s, "qa.security") and _complexity_at_least(s, "medium") and not _is_blocked(s),
             description="QA Security PASS, medium+ → API contract",
         )
         engine.add_conditional(
             "qa-security", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "qa.security") and not _complexity_at_least(s, "medium"),
+            condition=lambda s: _stage_done(s, "qa.security") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
             description="QA Security PASS, small → deploy",
         )
 
         # QA API Contract
         engine.add_loopback(
             "qa-api-contract", "impl-code",
-            condition=lambda s: not _stage_done(s, "qa.api-contract"),
+            condition=lambda s: not _stage_done(s, "qa.api-contract") and not _is_blocked(s),
             description="QA API Contract FAIL → retry impl.code",
         )
         engine.add_conditional(
+            "qa-api-contract", "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description="QA API Contract BLOCKED → terminate",
+        )
+        engine.add_conditional(
             "qa-api-contract", "qa-performance",
-            condition=lambda s: _stage_done(s, "qa.api-contract") and _complexity_is(s, "complex"),
+            condition=lambda s: _stage_done(s, "qa.api-contract") and _complexity_is(s, "complex") and not _is_blocked(s),
             description="QA API PASS, complex → performance",
         )
         engine.add_conditional(
             "qa-api-contract", "deploy-prepare",
-            condition=lambda s: _stage_done(s, "qa.api-contract") and not _complexity_is(s, "complex"),
+            condition=lambda s: _stage_done(s, "qa.api-contract") and not _complexity_is(s, "complex") and not _is_blocked(s),
             description="QA API PASS, not complex → deploy",
         )
 
         # QA Performance
         engine.add_loopback(
             "qa-performance", "impl-code",
-            condition=lambda s: not _stage_done(s, "qa.performance"),
+            condition=lambda s: not _stage_done(s, "qa.performance") and not _is_blocked(s),
             description="QA Performance FAIL → retry impl.code",
         )
-        engine.add_fixed("qa-performance", "deploy-prepare", description="QA Performance → Deploy")
+        engine.add_conditional(
+            "qa-performance", "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description="QA Performance BLOCKED → terminate",
+        )
+        engine.add_conditional(
+            "qa-performance", "deploy-prepare",
+            condition=lambda s: not _is_blocked(s),
+            description="QA Performance → Deploy",
+        )
 
     # --- DEPLOY ---
     engine.add_loopback(
         "deploy-prepare", "impl-code",
-        condition=lambda s: not _stage_done(s, "deploy.prepare"),
+        condition=lambda s: not _stage_done(s, "deploy.prepare") and not _is_blocked(s),
         description="Deploy FAIL → retry impl.code",
     )
     engine.add_conditional(
+        "deploy-prepare", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Deploy BLOCKED → terminate",
+    )
+    engine.add_conditional(
         "deploy-prepare", "smoke-test",
-        condition=lambda s: _stage_done(s, "deploy.prepare") and _is_ui_project(s),
+        condition=lambda s: _stage_done(s, "deploy.prepare") and _is_ui_project(s) and not _is_blocked(s),
         description="Deploy PASS, UI → smoke test",
     )
     engine.add_conditional(
         "deploy-prepare", "doc-decisions",
-        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Deploy PASS, medium+ → doc decisions",
     )
     engine.add_conditional(
         "deploy-prepare", "post",
-        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and not _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "deploy.prepare") and not _is_ui_project(s) and not _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Deploy PASS, small → post",
     )
 
     # --- SMOKE TEST ---
     engine.add_loopback(
         "smoke-test", "impl-code",
-        condition=lambda s: not _stage_done(s, "smoke.test"),
+        condition=lambda s: not _stage_done(s, "smoke.test") and not _is_blocked(s),
         description="Smoke FAIL → retry impl.code",
     )
     engine.add_conditional(
+        "smoke-test", "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="Smoke BLOCKED → terminate",
+    )
+    engine.add_conditional(
         "smoke-test", "doc-decisions",
-        condition=lambda s: _stage_done(s, "smoke.test") and _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "smoke.test") and _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Smoke PASS, medium+ → doc decisions",
     )
     engine.add_conditional(
         "smoke-test", "post",
-        condition=lambda s: _stage_done(s, "smoke.test") and not _complexity_at_least(s, "medium"),
+        condition=lambda s: _stage_done(s, "smoke.test") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
         description="Smoke PASS, small → post",
     )
 

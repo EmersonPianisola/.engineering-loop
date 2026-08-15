@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import time
+import json
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import QaOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
-from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail,
-)
-from langgraph.types import Command
-
-from eng_loop.templates import load_stage_procedure, get_stage_file
 from eng_loop.tools.next_active import resolve_next
-
+from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
+from eng_loop.tools.progress import (
+    log_stage_done,
+    log_stage_fail,
+)
 
 QA_STAGES = {
     "qa.security": "OWASP WSTG",
@@ -23,9 +22,9 @@ QA_STAGES = {
 }
 
 
-def qa_node(stage_id: str):
+def qa_node(stage_id: str, parallel_mode: bool = False):
     def node_fn(state: dict[str, Any]) -> Command[str]:
-        from eng_loop.tools.agent_runner import run_agent, AgentResult
+        from eng_loop.tools.agent_runner import AgentResult, run_agent
         from eng_loop.tools.agent_tools import get_tools_for_stage
 
         stages = dict(state.get("stages", {}))
@@ -33,8 +32,16 @@ def qa_node(stage_id: str):
         paths = state.get("paths", {})
 
         if stages.get(stage_id, {}).get("done", False):
+            if parallel_mode:
+                return Command(
+                    update={"stages": stages},
+                    goto="qa-join",
+                )
             next_node = _resolve_next_qa(stage_id, state)
-            return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
+            return Command(
+                goto=next_node,
+                update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1},
+            )
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -42,9 +49,22 @@ def qa_node(stage_id: str):
 
         if stages[stage_id].get("attempts", 0) >= max_attempts:
             stages[stage_id]["done"] = True
+            if parallel_mode:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "status": "blocked",
+                        "blocking_condition": f"{stage_id} non-convergence",
+                    },
+                    goto="qa-join",
+                )
             next_node = _resolve_next_qa(stage_id, state)
             return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"},
+                update={
+                    "stages": stages,
+                    "status": "blocked",
+                    "blocking_condition": f"{stage_id} non-convergence",
+                },
                 goto=next_node,
             )
 
@@ -55,14 +75,7 @@ def qa_node(stage_id: str):
             role_description=f"{qa_type} QA agent",
             include_skill=False,
             instructions=(
-                "Use your tools to examine the actual code:\n"
-                "1. **graphify_query** for overview of relevant code areas\n"
-                "2. **graphify_path** to trace data flows (critical for security)\n"
-                "3. **graphify_explain** for specific entities under review\n"
-                "4. Read source files to inspect implementation (only after graphify context)\n"
-                "5. Use grep to search for security patterns, API endpoints, performance anti-patterns\n"
-                "6. Use bash to run security scanners, lint tools, or performance analysis tools\n"
-                "7. Use glob to find relevant files\n\n"
+                "Use your tools to examine the actual code.\n\n"
                 "Execute the QA review.\n"
                 "Return a JSON object with these fields: verdict (PASS or FAIL), findings, critical_findings, complete."
             ),
@@ -91,20 +104,24 @@ def qa_node(stage_id: str):
                 return Command(
                     update={
                         "stages": stages,
-                        "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+                        "errors": [f"{stage_id} agent error: {agent_result.error}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
                     },
                     goto=stage_id.replace(".", "-").replace("_", "-"),
                 )
             stages[stage_id]["done"] = True
+            if parallel_mode:
+                return Command(
+                    update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
+                    goto="qa-join",
+                )
             next_node = _resolve_next_qa(stage_id, state)
             return Command(
                 update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
                 goto=next_node,
             )
 
-        # Evidence gate
         is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
         if not is_valid:
             log_stage_fail(stage_id, f"evidence gate: {error_msg}")
@@ -113,7 +130,7 @@ def qa_node(stage_id: str):
                 return Command(
                     update={
                         "stages": stages,
-                        "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+                        "errors": [f"{stage_id} evidence: {error_msg}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
                     },
@@ -124,24 +141,46 @@ def qa_node(stage_id: str):
         critical = result.get("critical_findings", [])
 
         if verdict == "FAIL" or critical:
-            stages["impl.code"]["done"] = False
             stages[stage_id]["done"] = False
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
+            stages[stage_id]["output"] = json.dumps(result, default=str)
+            stages[stage_id]["verdict"] = "FAIL"
             log_stage_fail(stage_id, f"FAIL: {critical}")
+            if parallel_mode:
+                return Command(
+                    update={
+                        "stages": stages,
+                        "iteration": state.get("iteration", 0) + 1,
+                    },
+                    goto="qa-join",
+                )
+            # Sequential mode: rollback immediately
+            stages["impl.code"]["done"] = False
             return Command(
                 update={
                     "stages": stages,
                     "current_stage": "impl-code",
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} FAIL: {critical}"],
+                    "errors": [f"{stage_id} FAIL: {critical}"],
                     "iteration": state.get("iteration", 0) + 1,
                 },
                 goto="impl-code",
             )
 
+        # PASS
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
-        stages[stage_id]["output"] = str(result)
+        stages[stage_id]["output"] = json.dumps(result, default=str)
+        stages[stage_id]["verdict"] = "PASS"
         log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
+
+        if parallel_mode:
+            return Command(
+                update={
+                    "stages": stages,
+                    "iteration": state.get("iteration", 0) + 1,
+                },
+                goto="qa-join",
+            )
 
         handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
         next_node = _resolve_next_qa(stage_id, state)

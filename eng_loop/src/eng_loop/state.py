@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import copy
 import json
+from operator import add
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from langgraph.graph.message import add_messages
-from operator import add
+from pydantic import BaseModel, Field
 
 STAGE_ORDER: list[str] = [
     "init",
@@ -58,6 +59,26 @@ STAGE_MIN_COMPLEXITY: dict[str, Literal["small", "medium", "large", "complex"]] 
 COMPLEXITY_ORDER = {"small": 0, "medium": 1, "large": 2, "complex": 3}
 
 
+# ──────────────────────────────────────────────
+# FixTask schema (structured verifier feedback)
+# ──────────────────────────────────────────────
+
+class FixTask(BaseModel):
+    source: str = Field(
+        description="Originating stage, e.g. 'verify', 'qa.security', 'e2e.execute'"
+    )
+    gap: str = Field(description="Description of the problem found")
+    evidence: str = Field(description="file:line evidence from verification artifact")
+    severity: Literal["critical", "major", "minor"] = Field(default="critical")
+    suggested_fix: str = Field(
+        default="", description="Optional hint from the verifier for the fix"
+    )
+
+
+# ──────────────────────────────────────────────
+# Reducers
+# ──────────────────────────────────────────────
+
 def _merge_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(old)
     for k, v in new.items():
@@ -67,6 +88,62 @@ def _merge_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
             result[k] = v
     return result
 
+
+def _last_write_wins(current: str, update: str) -> str:
+    return update if update else current
+
+
+def _overwrite(current: Any, update: Any) -> Any:
+    """Always use the new value, even if it's empty/falsy.
+    Used for fields that must be explicitly cleared (e.g., fix_tasks, rollback_target)."""
+    return update
+
+
+def _max_int(current: int, update: int) -> int:
+    return max(current, update)
+
+
+def rollback_to_stage(
+    current_stages: dict[str, dict[str, Any]],
+    target_stage: str,
+    reset_from: str = "impl.code",
+) -> dict[str, dict[str, Any]]:
+    """Reducer: reset all stages in STAGE_ORDER between reset_from and
+    target_stage (inclusive) to their initial state.
+
+    Used when a verifier/QA node fails and needs to rewind the causal
+    chain back to the implementation node.
+
+    Example: verify FAIL → reset impl.code, doc.update, verify.
+    """
+    result = copy.deepcopy(current_stages)
+
+    try:
+        start_idx = STAGE_ORDER.index(reset_from)
+    except ValueError:
+        start_idx = 0
+
+    try:
+        end_idx = STAGE_ORDER.index(target_stage)
+    except ValueError:
+        end_idx = len(STAGE_ORDER) - 1
+
+    for i in range(start_idx, end_idx + 1):
+        sid = STAGE_ORDER[i]
+        result[sid] = {
+            "done": False,
+            "attempts": 0,
+            "essence_checked": False,
+            "output": "",
+            "artifact_path": "",
+        }
+
+    return result
+
+
+# ──────────────────────────────────────────────
+# Stage helpers
+# ──────────────────────────────────────────────
 
 class StageState(dict[str, Any]):
     done: bool = False
@@ -90,21 +167,15 @@ def init_stages() -> dict[str, dict[str, Any]]:
     return {sid: make_stage() for sid in STAGE_ORDER}
 
 
-def _last_write_wins(current: str, update: str) -> str:
-    """Reducer for current_stage: last non-empty write wins."""
-    return update if update else current
-
-
-def _max_int(current: int, update: int) -> int:
-    """Reducer for iteration: take the maximum value."""
-    return max(current, update)
-
+# ──────────────────────────────────────────────
+# PipelineState (LangGraph StateGraph schema)
+# ──────────────────────────────────────────────
 
 class PipelineState(dict[str, Any]):
     current_stage: Annotated[str, _last_write_wins] = ""
     iteration: Annotated[int, _max_int] = 0
     status: Annotated[str, _last_write_wins] = "running"
-    blocking_condition: str = ""
+    blocking_condition: Annotated[str, _last_write_wins] = ""
     complexity: Literal["unset", "small", "medium", "large", "complex"] = "unset"
     work_type: str = "feature"
     work_item: str = ""
@@ -128,6 +199,13 @@ class PipelineState(dict[str, Any]):
     context_tiers: dict[str, Any] = {}
     # Timing metrics
     timing: dict[str, Any] = {}
+
+    # Phase 1: New fields
+    fix_tasks: Annotated[list[dict[str, Any]], _overwrite] = []
+    fix_iteration: Annotated[int, _max_int] = 0
+    rollback_target: Annotated[str, _overwrite] = ""
+    explorer_evidence: Annotated[list[str], _last_write_wins] = []
+    codebase_facts: Annotated[dict[str, Any], _last_write_wins] = {}
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -156,6 +234,11 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "handoffs": {},
         "context_tiers": {},
         "timing": {},
+        "fix_tasks": [],
+        "fix_iteration": 0,
+        "rollback_target": "",
+        "explorer_evidence": [],
+        "codebase_facts": {},
     }
 
 
@@ -177,8 +260,9 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type:
     if stage_id in ("e2e.execute", "smoke.test"):
         return ui_project
 
-    # Work type exclusions
-    from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
+    from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES, OPERATIONAL_EXCLUDED_STAGES
+    if work_type == "documentation" and stage_id in DOCUMENTATION_EXCLUDED_STAGES:
+        return False
     if work_type == "operational" and stage_id in OPERATIONAL_EXCLUDED_STAGES:
         return False
     if work_type == "bugfix" and stage_id in (
@@ -250,5 +334,10 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
         "handoffs": data.get("handoffs", {}),
         "context_tiers": data.get("context_tiers", {}),
         "timing": data.get("timing", {}),
+        "fix_tasks": data.get("fix_tasks", []),
+        "fix_iteration": data.get("fix_iteration", 0),
+        "rollback_target": data.get("rollback_target", ""),
+        "explorer_evidence": data.get("explorer_evidence", []),
+        "codebase_facts": data.get("codebase_facts", {}),
     }
     return defaults
