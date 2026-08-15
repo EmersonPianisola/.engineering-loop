@@ -4,7 +4,7 @@ type: entry-point
 description: 'Start the engineering loop — quick reference for CLI and prompt mode.'
 ---
 
-# Engineering Loop v11.2 — Start Here
+# Engineering Loop v11.4 — Start Here
 
 ## Iniciar o Loop
 
@@ -128,6 +128,56 @@ eng-loop --check-model -f .eng -l .eng -p .
 eng-loop --dry-run -f .eng -l .eng -p .
 ```
 
+### Dry-Run Simulator (v11.4) — Valida Grafos Sem LLM
+
+```bash
+# Roda todos os 4 cenários
+python scripts/dry_run_simulator.py --scenario ALL
+
+# Cenário específico
+python scripts/dry_run_simulator.py --scenario VERIFY_ROLLBACK
+```
+
+Valida topologia, transições de estado e roteamento do grafo **sem chamadas LLM**. 4 cenários: HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL.
+
+---
+
+## Otimizações de Contexto (v11.3)
+
+O loop agora pré-computa o contexto estrutural do projeto, eliminando tool-calls exploratórios repetidos.
+
+### ProjectMap — Mapa Estrutural Pré-computado
+
+No stage `init`, o Python escaneia o projeto e gera um mapa compacto:
+
+```
+## PROJECT MAP
+### File Structure
+myproject/
+|-- src/
+|   |-- api/routes.ts
+|   `-- components/Login.tsx
+|-- tests/
+`-- package.json
+
+### Config Files: package.json, tsconfig.json
+### Entry Points: src/index.ts, src/main.py
+### Languages: typescript: 42, python: 8
+### Stats: total_files: 59
+```
+
+O mapa é injetado no prompt de **todas** as stages via `SystemPrefix`, eliminando 3-8 chamadas `glob`/`read` exploratórias por stage.
+
+### Tool Cache — Cache de Resultados de Ferramentas
+
+Dentro do micro-loop de cada stage, resultados de `read`, `glob` e `grep` são cacheados em memória:
+
+- **Leitura repetida**: `read("package.json")` na iteração 1 → cache; iteração 2 → hit (sem I/O)
+- **Invalidação direcionada**: `edit("src/auth.ts")` → invalida só o cache de `src/auth.ts`
+- **Invalidação total**: `bash("npm test")` → limpa cache inteiro (pode modificar qualquer coisa)
+
+Stats de hits/misses logados ao final de cada stage.
+
 ---
 
 ## Grafo Dinâmico — Stages por Complexidade
@@ -186,3 +236,23 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 | `state.json` | Estado do loop (gerado automaticamente) |
 | `.eng/history/` | Snapshots de estado para time travel (v11.2) |
 | `artifacts/graph-topology.md` | Plano de execução gerado (modo LLM) |
+| `eng_loop/src/eng_loop/tools/contract_gate.py` | Middleware de contratos entre stages (v11.4) |
+| `eng_loop/src/eng_loop/nodes/qa_parallel.py` | Fan-out/fan-in QA + rollback (v11.4) |
+| `scripts/dry_run_simulator.py` | Simulador de dry-run (v11.4) |
+
+---
+
+## Versão
+
+| Arquivo | Versão |
+|---------|--------|
+| Framework | v11.4.0 |
+| Contract Gate | Middleware valida contratos entre stages (blueprint→code, code→verify) |
+| Parallel QA | Fan-out/fan-in com qa-dispatcher + qa-join, rollback para impl.code |
+| Causal Rollback | Reducer rollback_to_stage reset causal chain (impl.code → verify) |
+| Fix Mode | impl.code executa com fix_tasks estruturados do verifier/QA |
+| Dry-Run Simulator | 4 cenários validados: HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL |
+| Deterministic Setup | init-setup separa classificação determinística do LLM |
+| State Reducers | _merge_dict, _overwrite (clear fields), rollback_to_stage |
+| Context Optimization | ProjectMap + ToolResultCache |
+| Tests | 4 dry-run scenarios (100% passing) |

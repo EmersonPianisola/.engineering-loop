@@ -4,15 +4,21 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v11.2
+# Engineering Loop v11.4
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads.
 
 | | |
 |---|---|
-| **Version** | 11.2.0 |
+| **Version** | 11.4.0 |
+| **Contract Gate** | Middleware validates handoff contracts between stages |
+| **Causal Rollback** | `rollback_to_stage` reducer resets causal chain on verifier/QA failure |
+| **Fix Mode** | `impl.code` executes with structured `fix_tasks` from verifier/QA |
+| **Dry-Run Simulator** | 4 scenarios validated: HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL |
+| **Deterministic Setup** | `init-setup` node separates classification from LLM |
+| **State Reducers** | `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage` |
 | **Architecture** | Multi-project via git submodule |
 | **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
 | **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, compliance gate, Python builds graph) |
@@ -52,6 +58,7 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 - [Continuous Decisions](#continuous-decisions)
 - [Lessons System](#lessons-system)
 - [Knowledge Graph](#knowledge-graph)
+- [Context Optimization](#context-optimization-v113)
 - [Configuration Reference](#configuration-reference)
 - [State Management](#state-management)
 - [Context Management](#context-management)
@@ -80,12 +87,17 @@ The loop is enforced by a **dynamic LangGraph StateGraph** (Python) that is **co
 - **Orchestrator is pure delegation** — never executes work directly (except `deploy.prepare` and `post-loop` finalize)
 - **Progressive disclosure** — stages, references, and skills loaded by ID only when needed
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
+- **Context optimization** — ProjectMap pre-computed at init eliminates 3-8 exploratory glob/read per stage; tool result cache prevents redundant reads within a micro-loop
 - **Full loop enforcement** — every active stage must execute; user requests are focus directives, not skip directives
 - **Essence before every stage** — inputs validated through Four Lenses before any work begins
 - **Auto-sizing** — complexity classification determines which stages are active (small → complex)
 - **TDD per task** — test-first implementation with red-green-commit per atomic task
 - **Independent verification** — author ≠ verifier; discrimination sensor confirms test quality
-- **Parallel QA** — fan-out/fan-in for security, API contract, performance stages
+- **Contract Gate Middleware** — validates handoff contracts between stages (blueprint→code, code→verify); retries or blocks on violation
+- **Parallel QA** — fan-out/fan-in for security, API contract, performance stages via `qa-dispatcher` + `qa-join`
+- **Causal Chain Rollback** — `rollback_to_stage` reducer resets impl.code through verify when verifier/QA fails
+- **Fix Mode** — `impl.code` executes with structured `fix_tasks` from verifier/QA, clears feedback on success
+- **Dry-Run Simulator** — 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) validate graph topology without LLM calls
 - **Multi-project isolation** — each project has its own config, state, and artifacts
 - **Shared lessons** — confirmed lessons propagate across all projects via the framework
 - **Continuous decisions** — every architectural decision recorded as `AD-NNN` immediately, not deferred
@@ -380,6 +392,117 @@ dynamic_graph:
 
 ---
 
+## Contract Gate Middleware (v11.4)
+
+Middleware that validates handoff contracts between stages. If a contract is violated, the gate retries the source node or blocks the pipeline.
+
+### How It Works
+
+```
+Node A (complete)
+    │
+    ▼
+┌──────────────────┐
+│  Contract Gate   │  ← Validates source→target contract
+│  (middleware)     │
+└───────┬──────────┘
+        │
+   ┌────┴────┐
+   │         │
+ PASS      FAIL
+   │         ├── retry_source → Node A (reset done=False)
+   │         └── block → __end__ (if max attempts exhausted)
+   ▼
+Node B (proceed)
+```
+
+### Contract Rules
+
+| Source | Target | Validator | On Fail |
+|--------|--------|-----------|---------|
+| `impl-design` | `impl-code` | Blueprint must have tasks + ≥50 chars | Retry or block |
+| `impl-code` | `doc-update` | Files created, tests passing, summary ≥20 chars | Retry or block |
+| `doc-update` | `verify` | impl.code artifacts exist in state | Retry or block |
+| `verify` | `qa-security` | Verdict is PASS/FAIL with evidence | Retry or block |
+| `arch-solution` | `arch-review` | Requirements + solution both exist | Block |
+
+### Edge Integration
+
+Edge rules check contract validity before routing. The `impl-design→impl-code` edge is conditional on `_blueprint_valid(state)` — if the blueprint fails validation, the edge doesn't activate, preventing impl.code from running with bad input.
+
+---
+
+## Causal Chain Rollback (v11.4)
+
+When a verifier or QA stage fails, the `rollback_to_stage` reducer resets all stages in the causal chain back to `impl.code`, enabling clean re-execution.
+
+### How It Works
+
+```
+impl.code (done) → doc.update (done) → verify (FAIL: 2 gaps)
+    │
+    ▼
+rollback_to_stage(target="verify", reset_from="impl.code")
+    │
+    ▼
+impl.code (reset) → doc.update (reset) → verify (reset)
+    │
+    ▼
+impl.code runs in FIX MODE with structured fix_tasks
+```
+
+### Fix Mode
+
+When `impl.code` receives `fix_tasks` from verifier/QA, it enters FIX MODE:
+- Reads `fix_tasks` and `fix_iteration` from state
+- Prompt includes each gap with file:line evidence
+- Agent addresses each gap minimally (no full rewrite)
+- On success, clears `fix_tasks`, `rollback_target`, and `fix_iteration`
+- On repeated failure (≥3 iterations), pipeline blocks
+
+---
+
+## Dry-Run Simulator (v11.4)
+
+Standalone test script that validates graph topology, state transitions, and routing — **without any LLM API calls**. All node handlers are mocked with deterministic `AgentResult` objects.
+
+### Scenarios
+
+| Scenario | What It Tests | Assertions |
+|----------|--------------|------------|
+| **HAPPY_PATH** | All stages pass, graph reaches `__end__` | No errors, no rollback, all stages done |
+| **CONTRACT_VIOLATION** | impl.design returns empty blueprint | Contract gate catches violation, pipeline blocks |
+| **VERIFY_ROLLBACK** | verify FAILs → rollback → fix → verify PASSes | fix_iteration ≥ 1, fix_tasks cleared, verify done |
+| **QA_FANOUT_FAIL** | qa-security PASS, qa-api-contract FAIL | fix_tasks from QA, rollback to impl.code, blocks after fix limit |
+
+### Usage
+
+```bash
+# Run all scenarios
+python scripts/dry_run_simulator.py --scenario ALL
+
+# Run single scenario
+python scripts/dry_run_simulator.py --scenario VERIFY_ROLLBACK
+```
+
+### Architecture
+
+```
+Dry-Run Simulator
+├── InvocationTracker     ← Tracks run_agent calls per stage
+├── Mock Functions        ← Deterministic AgentResult per scenario
+├── Scenario Registry     ← Configuration (complexity, work_type, parallel_qa)
+└── Assertion Helpers     ← assert_true, assert_false, assert_equals, etc.
+```
+
+Mocks intercept:
+- `eng_loop.tools.agent_runner.run_agent` — returns scenario-specific `AgentResult`
+- `eng_loop.model.create_model_from_config` — returns `MagicMock`
+
+---
+
+---
+
 ## Dual-Mode Architecture
 
 The loop runs in two modes:
@@ -452,15 +575,15 @@ v10.3 migrated to programmatic flow control. v11 added dynamic graph constructio
 
 ### Why LangGraph
 
-| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) | v11.1 (Enforcement) | v11.2 (Surgical CLI) |
+| Prompt-Based (v10.2) | LangGraph (v10.3) | v10.4 (Structured Output) | v11.0 (Dynamic Graph) | v11.1 (Enforcement) | v11.2 (Surgical CLI) | v11.3 (Context) | v11.4 (Contracts) |
 |---|---|---|---|---|---|
-| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated | Work type classification (feature/bugfix/operational) | Breakpoint pauses with `interrupt_before` + `MemorySaver` |
-| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time | Compliance gate (`--check-compliance`) enforces transitions | State editing via `$EDITOR` with context slicing |
-| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode | Edge bypass skips inactive intermediate nodes automatically | Time-travel rollback from per-stage snapshots |
+| Model reads `ORCHESTRATOR.md` and follows instructions | `StateGraph` executes flow programmatically | `StateGraph` + Pydantic schemas enforce output shape | Graph built per work item — only active nodes instantiated | Work type classification (feature/bugfix/operational) | Breakpoint pauses with `interrupt_before` + `MemorySaver` | ProjectMap + ToolResultCache | Contract gate middleware, causal rollback |
+| Model eventually drifts from the loop | Flow enforced by code — no drift possible | Evidence gates catch low-quality output before advancing | Declarative edge rules resolve connections at build time | Compliance gate (`--check-compliance`) enforces transitions | State editing via `$EDITOR` with context slicing | Pre-computed context eliminates redundant tool-calls | Contract gate validates handoffs, rollback resets causal chain |
+| `WHILE loop` described in pseudocode | Edges with cycles + recursion limit | Automatic retry on evidence gate failure | Topology generated for LLM orchestrator mode | Edge bypass skips inactive intermediate nodes automatically | Time-travel rollback from per-stage snapshots | Graphify passive mode, ProjectMap pre-computed | Dry-run simulator validates 4 graph scenarios |
 | `stage.attempts++` in text | State reducer increments automatically | Iteration counter tracks total loop progress | `NodeRegistry` (26 NodeSpec) filtered by complexity/UI/tags | Tool scope enforcement blocks out-of-scope tool calls | Single-step replay (`run-node`) for isolated testing |
-| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` | Smart error summarization protects context from stack traces | State mutation (`clear-state`, `skip-node`) for recovery |
-| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items | Operational work items generate 7-stage graphs instead of 11+ | Snapshot retention policy, `history` command |
-| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility | Stage scope rules (ALLOWED/FORBIDDEN) per stage | Editor fallback: `$EDITOR` → vim → nano → `code --wait` → notepad |
+| `IF attempts >= max → blocked` in prompt | Conditional edges route to `__end__` | LLM errors trigger retry, not silent pass | Parallel QA fan-out/fan-in via `--parallel-qa` | Smart error summarization protects context from stack traces | State mutation (`clear-state`, `skip-node`) for recovery | Tool cache with targeted invalidation | Contract gate retries/block, rollback reducer |
+| `reset impl.code.done = false` in text | `Command(goto="impl-code", update={...})` | Structured output eliminates JSON parse failures | Graph size reduced by up to ~65% for small work items | Operational work items generate 7-stage graphs instead of 11+ | Snapshot retention policy, `history` command | Context window protected from redundant reads | FIX MODE, structured fix_tasks from verifier/QA |
+| Lens 4 escalation via prompt | `interrupt()` native to LangGraph | 27 Pydantic schemas (one per stage) | Static graph mode preserved for backward compatibility | Stage scope rules (ALLOWED/FORBIDDEN) per stage | Editor fallback: `$EDITOR` → vim → nano → `code --wait` → notepad | 29 new tests, graphify passive prompt | 4 dry-run scenarios, deterministic init-setup |
 
 ### How Structured Output Works
 
@@ -528,12 +651,12 @@ This protects the context window from being flooded with stack traces while pres
 
 ```
 eng_loop/
-├── state.py                  # PipelineState schema, 26 stages, reducers
+├── state.py                  # PipelineState schema, 26 stages, reducers (_merge_dict, _overwrite, rollback_to_stage)
 ├── config.py                 # YAML loader, deep merge, path resolution
 ├── graph.py                  # Delegates to GraphBuilder in dynamic mode; static mode preserved
-├── graph_builder.py          # Dynamic graph construction per work item + work type
-├── node_registry.py          # NodeSpec + registry of 26 stages
-├── edge_rules.py             # Declarative edge rules (~40 rules) + bypass resolution
+├── graph_builder.py          # Dynamic graph construction, contract gate integration, parallel QA wiring
+├── node_registry.py          # NodeSpec + registry of 26 stages (+ init-setup, qa-dispatcher, qa-join)
+├── edge_rules.py             # Declarative edge rules (~40 rules), conditional blueprint validation, blocked-aware
 ├── routing.py                # Conditional edge functions (retry, block, advance)
 ├── model.py                  # Model factory (OpenAI-compatible local endpoints)
 ├── schemas.py                # 27 Pydantic schemas (one per stage) for structured output
@@ -541,12 +664,14 @@ eng_loop/
 ├── cli.py                    # Entry point (eng-loop CLI) + compliance checker
 ├── nodes/                    # One node per stage group
 │   ├── essence.py            # Four Lenses gate (pre-stage)
-│   ├── init.py               # init, ideate, bdd, refine
+│   ├── init_setup.py         # Deterministic setup: classify complexity, graphify, deactivate stages
+│   ├── init.py               # init, ideate, bdd, refine (LLM-only)
 │   ├── design.py             # 6 design stages (factory)
 │   ├── architecture.py       # requirements, solution, review
-│   ├── implementation.py     # impl.design, impl.code, doc.update
-│   ├── verification.py       # verify, e2e.execute
-│   ├── qa.py                 # security, api-contract, performance
+│   ├── implementation.py     # impl.design, impl.code (FIX MODE), doc.update
+│   ├── verification.py       # verify (rollback + fix_tasks), e2e.execute
+│   ├── qa.py                 # security, api-contract, performance (parallel_mode)
+│   ├── qa_parallel.py        # qa-dispatcher (fan-out), qa-join (fan-in + rollback)
 │   ├── deploy.py             # deploy.prepare, smoke.test
 │   ├── documentation.py      # doc.decisions, doc.project
 │   └── post.py               # post-loop finalize
@@ -554,6 +679,7 @@ eng_loop/
     ├── file_ops.py           # read/write/json helpers
     ├── json_parse.py         # Robust JSON extraction (3 strategies)
     ├── evidence_gate.py      # Stage output quality validation
+    ├── contract_gate.py      # Handoff contract middleware (blueprint→code, code→verify)
     ├── stage_runner.py       # Shared stage execution helper
     ├── context_slice.py      # Context slicing per stage
     ├── decisions.py          # AD-NNN extraction/recording
@@ -1236,6 +1362,121 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 
 > Graph is the map, Read is the terrain — never substitute Read with query when contract/type is critical.
 
+### Graphify Tools (Passive Mode, v11.3)
+
+The graphify tools remain available but operate in **passive mode**: the prompt no longer issues imperative commands like "USE GRAPHIFY FIRST." Instead, the tools are described as optional deep-dive resources for questions the PROJECT MAP doesn't answer. When the Preload feature (future) injects pre-computed graph context, the LLM naturally stops calling the tools because the information is already in the prompt.
+
+---
+
+## Context Optimization (v11.3)
+
+The framework transitions from **"trust the LLM to follow exploration instructions"** to **"Python pre-computes context, LLM receives it as fact."** This is the core principle for extracting performance from Small Language Models (SMLs) running locally.
+
+### The Problem
+
+Without context optimization, every stage begins blind:
+1. LLM calls `glob("**/*.ts")` to discover structure — **1 tool-call, ~2s**
+2. LLM calls `read("src/")` to list directory — **1 tool-call, ~1s**
+3. LLM calls `glob("**/test*")` to find tests — **1 tool-call, ~1s**
+4. LLM calls `read("package.json")` to check deps — **1 tool-call, ~1s**
+5. ...repeats for every stage, every retry
+
+That's 3-8 exploratory tool-calls **per stage** that could be eliminated by pre-computing the information once at init.
+
+Additionally, within a single stage's micro-loop, the LLM frequently re-reads the same files (e.g., `package.json` read 4 times across iterations), wasting tokens and wall-clock time.
+
+### Solution 1: ProjectMap — Pre-computed Structural Overview
+
+At `init`, the Python code scans the project and builds a compact structural map:
+
+```
+## PROJECT MAP
+### File Structure
+```
+myproject/
+|-- src/
+|   |-- api/
+|   |   |-- routes.ts
+|   |   `-- middleware/
+|   |       `-- auth.ts
+|   `-- components/
+|       `-- Login.tsx
+|-- tests/
+|   `-- auth.test.ts
+`-- package.json
+```
+
+### Config Files (2)
+- `package.json`
+- `tsconfig.json`
+
+### Entry Points (2)
+- `src/index.ts`
+- `src/main.py`
+
+### Languages
+- typescript: 42 files
+- python: 8 files
+
+### Module Boundaries (3)
+- `src/`
+- `tests/`
+- `lib/`
+
+### Stats
+- total_files: 59
+```
+
+**How it works:**
+1. `init_node` calls `ProjectMap.build(project_root)` — pure Python, no external dependencies
+2. Map serialized to `state.json.project_map`
+3. `SystemPrefix.build()` injects `## PROJECT MAP` into **every** stage prompt
+4. After `impl.code` creates new files, the map is rebuilt incrementally
+
+**Impact:** Eliminates 3-8 exploratory `glob`/`read` tool-calls per stage. For a 12-stage loop, that's ~48 fewer tool-calls.
+
+### Solution 2: Tool Result Cache — Eliminate Redundant Reads
+
+Within a stage's micro-loop, the `ToolResultCache` caches results of idempotent tools (`read`, `glob`, `grep`) and invalidates on mutations:
+
+```
+Iteration 1: read("package.json") → disk I/O → cache miss → store result
+Iteration 2: read("package.json") → cache hit → return immediately (no disk I/O)
+Iteration 3: edit("src/auth.ts", ...) → invalidate cache for src/auth.ts
+Iteration 4: read("src/auth.ts") → disk I/O (fresh) → cache miss → store
+Iteration 5: read("package.json") → cache hit → return immediately
+```
+
+**Invalidation rules:**
+- **`edit` / `write`**: Invalidate only the modified file's cache entries (targeted)
+- **`bash`**: Invalidate entire cache (can modify anything)
+- **`read` / `glob` / `grep`**: No invalidation (idempotent)
+
+**Impact:** Prevents the LLM from wasting 20-40 seconds re-reading the same files within a single stage.
+
+### Architecture
+
+```
+Before (v11.2):                    After (v11.3):
+┌─────────────────────┐            ┌──────────────────────────────┐
+│ Prompt:              │            │ Prompt:                      │
+│ "Use glob to find    │            │ "## PROJECT MAP (pre-built)  │
+│  files, then read    │            │  myproject/                  │
+│  them."              │            │  |-- src/                    │
+│                      │            │  |   |-- main.ts             │
+│ LLM: glob → read →   │            │  |-- tests/                  │
+│ glob → read → ...    │            │  `-- package.json            │
+│ (8 tool-calls)       │            │                              │
+└─────────────────────┘            │ LLM: edit → read (cached) →  │
+                                   │ write → read (cached) → ...  │
+                                   │ (2-3 tool-calls)             │
+                                   └──────────────────────────────┘
+```
+
+### Future: Graphify Preload (Phase 2)
+
+When `graphify.enabled == true`, the plan is to pre-compute graph context (architecture overview, entity explanations) and inject it into the prompt — same principle as ProjectMap but for semantic relationships. The graphify tools will remain as a fallback for hyper-specific questions.
+
 ---
 
 ## Configuration Reference
@@ -1414,10 +1655,20 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 
 | Agent | Receives | Does NOT receive |
 |-------|----------|-----------------|
-| Verifier | diff + blueprint + ACs + test file paths | Full context, other feature specs |
-| Security Reviewer | diff + blueprint + architecture | Test files |
-| API Contract Validator | blueprint + API source + integration tests | E2E tests, full diff |
-| Performance Checker | blueprint + architecture + build output | Test files |
+| Verifier | diff + blueprint + ACs + test file paths + **project map** | Full context, other feature specs |
+| Security Reviewer | diff + blueprint + architecture + **project map** | Test files |
+| API Contract Validator | blueprint + API source + integration tests + **project map** | E2E tests, full diff |
+| Performance Checker | blueprint + architecture + build output + **project map** | Test files |
+
+### Context Optimization (v11.3)
+
+Two mechanisms reduce redundant tool-calls and token waste:
+
+1. **ProjectMap** — Pre-computed at `init`, injected into every stage's system prompt. Provides file tree, config files, entry points, module boundaries, test dirs, languages, routes, and components. Eliminates 3-8 exploratory `glob`/`read` calls per stage. Rebuilt incrementally after `impl.code` if new files are created.
+
+2. **ToolResultCache** — In-memory cache for `read`, `glob`, `grep` within each stage's micro-loop. Invalidates on `edit`/`write` (targeted, by file path) and `bash` (full cache). Prevents the LLM from re-reading the same files across iterations. Cache stats (hits/misses) logged at stage completion.
+
+See [Context Optimization](#context-optimization-v113) for details.
 
 ---
 
@@ -1513,7 +1764,8 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 │   │       ├── lessons.py       # Lessons lifecycle
 │   │       ├── autosizing.py        # Complexity + work type classification
 │   │       ├── topology_compliance.py # Stage transition validation (v11.1)
-│   │       ├── agent_runner.py      # Agentic loop + tool scope + error summarization
+│   │       ├── agent_runner.py      # Agentic loop + tool scope + error summarization + tool cache (v11.3)
+│   │       ├── project_map.py       # Pre-computed structural overview (v11.3)
 │   │       ├── progress.py          # Terminal logging, node tracing, breakpoint menu
 │   │       ├── state_history.py     # Snapshot lifecycle, time travel, retention (v11.2)
 │   │       └── interactive.py       # State slicing, $EDITOR integration (v11.2)
@@ -1763,6 +2015,8 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | v11.0.0 | 2026-08-10 | **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`, `--build-topology`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |
 | v11.1.0 | 2026-08-11 | **Dynamic graph enforcement**: Work type classification (feature/bugfix/operational) generates different topologies. Compliance gate (`--check-compliance`) validates stage transitions. Edge bypass skips inactive intermediate nodes automatically. Tool scope enforcement blocks out-of-scope tool calls. Smart error summarization protects context from stack traces. Stage scope rules (ALLOWED/FORBIDDEN) per stage. Topology markdown includes checklist, deactivated stages, stage scope. `topology_compliance.py`, `autosizing.py` extended, `agent_runner.py` middleware |
 | v11.2.0 | 2026-08-12 | **Surgical CLI operations**: Breakpoint pauses (`--pause-at`) with LangGraph `interrupt_before` + `MemorySaver`. State editing via `$EDITOR` with context slicing (`interactive.py`). Time-travel rollback (`eng-loop rollback`) from per-stage snapshots (`state_history.py`). Single-step replay (`eng-loop run-node`). State mutation (`eng-loop clear-state`, `eng-loop skip-node`). Snapshot listing (`eng-loop history`). Retention policy per stage. Editor fallback chain: `$EDITOR` → vim → nano → `code --wait` → notepad |
+| v11.3.0 | 2026-08-13 | **Context optimization**: `ProjectMap` pre-computed at init eliminates 3-8 exploratory glob/read per stage (ASCII tree, configs, entry points, modules, languages, routes, components). `ToolResultCache` in micro-loop eliminates redundant read/glob/grep calls with targeted invalidation on edit/write (full invalidation on bash). Graphify prompt softened from imperative to passive. `project_map.py` (370 lines), `ToolResultCache` in `agent_runner.py`, 29 new tests |
+| v11.4.0 | 2026-08-14 | **Contract gate middleware + causal rollback**: `contract_gate.py` validates handoff contracts between stages (blueprint→code, code→verify); retries source or blocks pipeline. `qa_parallel.py` fan-out/fan-in with `qa-dispatcher` + `qa-join` for parallel QA. `rollback_to_stage` reducer resets causal chain (impl.code → verify) on verifier/QA failure. `impl.code` FIX MODE with structured `fix_tasks`. Deterministic `init-setup` node separates classification from LLM. State reducers: `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage`. Edge rules: conditional blueprint validation, blocked-aware routing. Dry-run simulator: 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) — all assertions green |
 
 ---
 
@@ -1779,7 +2033,13 @@ Each sub-agent receives only its relevant context slice. Total tokens across all
 | `eng_loop/src/eng_loop/tools/evidence_gate.py` | Stage output quality validation |
 | `eng_loop/src/eng_loop/tools/stage_runner.py` | Shared stage execution helper |
 | `eng_loop/src/eng_loop/tools/topology_compliance.py` | Stage transition validation (v11.1) |
-| `eng_loop/src/eng_loop/tools/agent_runner.py` | Agentic loop + tool scope enforcement + error summarization |
+| `eng_loop/src/eng_loop/tools/agent_runner.py` | Agentic loop + tool scope + error summarization + ToolResultCache (v11.3) |
+| `eng_loop/src/eng_loop/tools/contract_gate.py` | Handoff contract middleware + `@with_contract_gate` decorator (v11.4) |
+| `eng_loop/src/eng_loop/nodes/init_setup.py` | Deterministic setup: classify, graphify, deactivate stages (v11.4) |
+| `eng_loop/src/eng_loop/nodes/qa_parallel.py` | `qa-dispatcher` (fan-out) + `qa-join` (fan-in + rollback) (v11.4) |
+| `eng_loop/src/eng_loop/state.py` | Reducers: `_merge_dict`, `_overwrite`, `rollback_to_stage` (v11.4) |
+| `scripts/dry_run_simulator.py` | 4 scenario dry-run tests, zero LLM calls (v11.4) |
+| `eng_loop/src/eng_loop/tools/project_map.py` | Pre-computed structural project map (v11.3) |
 | `eng_loop/src/eng_loop/tools/state_history.py` | Snapshot lifecycle, time travel, retention (v11.2) |
 | `eng_loop/src/eng_loop/tools/interactive.py` | State slicing, $EDITOR integration (v11.2) |
 | `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
