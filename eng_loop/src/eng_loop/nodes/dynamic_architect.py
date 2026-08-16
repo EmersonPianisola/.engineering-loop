@@ -218,7 +218,12 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
         "propose dynamic steps with specific roles, tool capabilities, and validation rules.\n"
         "Each step must have a unique step_id matching ^[a-z0-9][a-z0-9-]{{2,63}}$\n"
         "Max 5 steps allowed. Use trigger='augment' only if dynamic steps are truly needed.\n\n"
-        "Return a JSON object with fields: plan_id, trigger, proposed_complexity, steps, rationale."
+        "Return a JSON object with fields:\n"
+        "- plan_id: unique identifier\n"
+        "- trigger: 'none' or 'augment'\n"
+        "- proposed_complexity: 'standard', 'adaptive', or 'restricted' (NOT 'small', 'medium', 'large', 'complex')\n"
+        "- steps: array of dynamic steps (empty if trigger='none')\n"
+        "- rationale: explanation"
     )
 
     prompt = build_node_prompt(
