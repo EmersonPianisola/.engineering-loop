@@ -221,6 +221,38 @@ class TestTopologyProposalSchema:
                 rationale="test",
             )
 
+    def test_loopback_edges_rejected(self):
+        """Loopback edges are not allowed — injected automatically by framework."""
+        with pytest.raises(ValidationError) as exc_info:
+            GraphTopologyProposal(
+                plan_id="bad",
+                required_stages=("init", "impl.code", "post"),
+                edges=(
+                    EdgeDefinition(from_stage="init", to_stage="impl.code", edge_type="fixed"),
+                    EdgeDefinition(from_stage="impl.code", to_stage="init", edge_type="loopback"),
+                    EdgeDefinition(from_stage="impl.code", to_stage="post", edge_type="fixed"),
+                    EdgeDefinition(from_stage="post", to_stage="__end__", edge_type="fixed"),
+                ),
+                rationale="test",
+            )
+        assert "Loopback edges are not allowed" in str(exc_info.value)
+
+    def test_terminal_edges_rejected(self):
+        """Terminal edges are not allowed — injected automatically by framework."""
+        with pytest.raises(ValidationError) as exc_info:
+            GraphTopologyProposal(
+                plan_id="bad",
+                required_stages=("init", "impl.code", "post"),
+                edges=(
+                    EdgeDefinition(from_stage="init", to_stage="impl.code", edge_type="fixed"),
+                    EdgeDefinition(from_stage="impl.code", to_stage="__end__", edge_type="terminal"),
+                    EdgeDefinition(from_stage="impl.code", to_stage="post", edge_type="fixed"),
+                    EdgeDefinition(from_stage="post", to_stage="__end__", edge_type="fixed"),
+                ),
+                rationale="test",
+            )
+        assert "Terminal edges are not allowed" in str(exc_info.value)
+
     def test_allowed_conditions_set_not_empty(self):
         assert len(ALLOWED_CONDITIONS) > 0
         assert "always" in ALLOWED_CONDITIONS

@@ -106,9 +106,22 @@ class GraphTopologyProposal(BaseModel):
 
     @field_validator("edges")
     @classmethod
-    def validate_edges_not_empty(cls, v):
+    def validate_edges(cls, v):
         if not v:
             raise ValueError("edges must not be empty")
+        # The LLM should only propose happy-path edges.
+        # Loopback and terminal edges are injected automatically by the framework.
+        for edge in v:
+            if edge.edge_type == "loopback":
+                raise ValueError(
+                    "Loopback edges are not allowed in proposals. "
+                    "Failure routing is injected automatically by the framework."
+                )
+            if edge.edge_type == "terminal":
+                raise ValueError(
+                    "Terminal edges are not allowed in proposals. "
+                    "Blocked routing is injected automatically by the framework."
+                )
         return v
 
     @model_validator(mode="after")
