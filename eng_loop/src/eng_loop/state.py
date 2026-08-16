@@ -312,6 +312,43 @@ def all_active_stages_done(state: dict[str, Any]) -> bool:
     return next_incomplete_stage(state) is None
 
 
+def compute_task_outcome(stages: dict[str, dict], post_final_status: str) -> str:
+    """Compute the honest task outcome based on stage results and post status.
+
+    Returns one of: "done", "failed", "partial", "done_with_warnings".
+
+    Logic:
+    - If post stage failed, task is failed.
+    - If any active stage has attempts > 0 but done == False, task is partial.
+    - If all active stages done but some had retries (attempts >= 2), done_with_warnings.
+    - Otherwise, done.
+    """
+    # Post is the final gate — if it failed, nothing is "done"
+    post_stage = stages.get("post", {})
+    if post_stage.get("done") and "failed" in str(post_stage.get("output", "")).lower():
+        return "failed"
+
+    if post_final_status == "failed":
+        return "failed"
+
+    # Check for active stages that were attempted but not completed
+    active_failed = []
+    for sid, s in stages.items():
+        if s.get("attempts", 0) > 0 and not s.get("done"):
+            active_failed.append(sid)
+
+    if active_failed:
+        return "partial"
+
+    # Check for retried stages (warnings)
+    retried = [
+        sid for sid, s in stages.items()
+        if s.get("done") and s.get("attempts", 0) >= 2
+    ]
+
+    return "done_with_warnings" if retried else "done"
+
+
 def load_state_template(template_path: str | Path) -> dict[str, Any]:
     with open(template_path, "r", encoding="utf-8") as f:
         return json.load(f)

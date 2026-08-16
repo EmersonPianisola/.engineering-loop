@@ -282,7 +282,11 @@ def _validate_semantic_policy(
     Raises TopologyValidationError for fatal policy violations.
     """
     notes = []
-    work_item = state.get("work_item", "").lower()
+    raw_work_item = state.get("work_item", "")
+    if isinstance(raw_work_item, dict):
+        work_item = str(raw_work_item.get("title", "")).lower()
+    else:
+        work_item = str(raw_work_item).lower()
     complexity = state.get("complexity", "small")
     ui_project = state.get("ui_project", False)
     stage_set = set(proposal.required_stages)

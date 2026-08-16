@@ -13,7 +13,19 @@ def create_bash_tool(
 ) -> Tool:
     """Create a Bash tool that executes shell commands in the project directory."""
 
-    def _bash(command: str) -> str:
+    def _bash(*args, **kwargs) -> str:
+        # Support: _bash(command), _bash(cmd=...)
+        if "command" in kwargs:
+            command = kwargs.get("command", "")
+        elif "cmd" in kwargs:
+            command = kwargs.get("cmd", "")
+        elif args:
+            command = args[0]
+        else:
+            return "Error: command is required"
+
+        if not command:
+            return "Error: command is required"
         workdir_path = Path(workdir)
         if not workdir_path.exists():
             return f"Error: working directory does not exist: {workdir}"

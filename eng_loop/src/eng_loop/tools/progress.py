@@ -247,31 +247,82 @@ class UIManager:
         iterations: int,
         decisions: list[str],
         stages: dict[str, dict],
+        *,
+        task_outcome: str | None = None,
+        artifact_evidence: dict[str, Any] | None = None,
+        work_item: Any = None,
+        active_nodes: list[str] | None = None,
+        topology_fidelity: dict[str, Any] | None = None,
     ) -> None:
-        """Render final loop result as a summary panel."""
+        """Render final loop result as an evidence-based summary panel."""
+        outcome = task_outcome or status
         status_style = {
             "done": "[bold green]DONE[/]",
+            "failed": "[bold red]FAILED[/]",
+            "partial": "[bold red]PARTIAL[/]",
+            "done_with_warnings": "[bold yellow]DONE (with warnings)[/]",
             "blocked": "[bold red]BLOCKED[/]",
             "halted": "[bold yellow]HALTED[/]",
-        }.get(status, f"[white]{status}[/]")
+        }.get(outcome, f"[white]{outcome}[/]")
+
+        # Count only active stages, not all 26
+        if active_nodes:
+            active_set = set(active_nodes)
+            active_done = sum(1 for s in active_set if stages.get(s, {}).get("done"))
+            active_total = len(active_set)
+        else:
+            active_done = sum(1 for s in stages.values() if s.get("done") and s.get("attempts", 0) > 0)
+            active_total = sum(1 for s in stages.values() if s.get("attempts", 0) > 0 or s.get("done"))
+            if active_total == 0:
+                active_done = sum(1 for s in stages.values() if s.get("done"))
+                active_total = len(stages)
 
         lines = [
             f"[bold]Status:[/bold] {status_style}",
             f"[bold]Iterations:[/bold] {iterations}",
             (
-                f"[bold]Stages:[/bold] "
-                f"[green]{sum(1 for s in stages.values() if s.get('done'))}[/green]"
-                f"/{len(stages)} complete"
+                f"[bold]Active Stages:[/bold] "
+                f"[green]{active_done}[/green]"
+                f"/{active_total} complete"
             ),
             f"[bold]Total Time:[/bold] [cyan]{tracker.get_loop_elapsed_formatted()}[/cyan]",
         ]
-        if blocking_condition:
-            lines.append(f"[bold red]Blocking:[/bold red] {blocking_condition}")
 
-        # Show failed stages for blocked pipelines
-        if status in ("blocked", "halted"):
-            [sid for sid, s in stages.items() if not s.get("done") or s.get("attempts", 0) > 1]
-            # Filter to only show stages that were attempted but not cleanly done
+        # Artifact evidence section
+        if artifact_evidence:
+            lines.append("")
+            lines.append("[bold]Artifact Delivery:[/bold]")
+            for artifact_path, evidence in artifact_evidence.items():
+                exists = evidence.get("exists", False)
+                icon = "[green]\u2713[/]" if exists else "[red]\u2717[/]"
+                lines.append(f"  {icon} {artifact_path}")
+
+        # Acceptance criteria check
+        if isinstance(work_item, dict):
+            ac = work_item.get("acceptance_criteria", [])
+            if ac:
+                lines.append("")
+                lines.append(f"[bold]Acceptance Criteria:[/bold] {len(ac)} defined")
+
+        # Post stage failure details
+        post_stage = stages.get("post", {})
+        if post_stage.get("done") and "failed" in str(post_stage.get("output", "")).lower():
+            lines.append("")
+            lines.append("[bold red]Post Stage Failed:[/bold red]")
+            output_str = str(post_stage.get("output", ""))
+            if "summary" in output_str:
+                import json as _json
+                try:
+                    parsed = _json.loads(output_str)
+                    summary = parsed.get("summary", output_str[:200])
+                except Exception:
+                    summary = output_str[:200]
+            else:
+                summary = output_str[:200]
+            lines.append(f"  {summary}")
+
+        # Show troubled stages for any non-clean outcome
+        if outcome not in ("done",):
             troubled = [
                 sid
                 for sid, s in stages.items()
@@ -285,6 +336,20 @@ class UIManager:
                     done_str = "[green]done[/]" if s.get("done") else "[red]not done[/]"
                     lines.append(f"  \u2022 [bold]{sid}[/bold]: {s.get('attempts', 0)} attempts, {done_str}")
 
+        if blocking_condition:
+            lines.append(f"[bold red]Blocking:[/bold red] {blocking_condition}")
+
+        # Topology fidelity warning
+        if topology_fidelity and topology_fidelity.get("integrity") == "warning":
+            lines.append("")
+            lines.append("[bold yellow]Topology Fidelity Warning:[/bold yellow]")
+            dropped = topology_fidelity.get("dropped", [])
+            added = topology_fidelity.get("added", [])
+            if dropped:
+                lines.append(f"  Stages dropped during compilation: {', '.join(dropped)}")
+            if added:
+                lines.append(f"  Stages added during compilation: {', '.join(added)}")
+
         if decisions:
             lines.append(f"[bold]Decisions:[/bold] {len(decisions)}")
             for d in decisions:
@@ -292,15 +357,21 @@ class UIManager:
 
         panel_title = {
             "done": "[bold]Engineering Loop Complete[/bold]",
+            "failed": "[bold red]Engineering Loop FAILED[/bold red]",
+            "partial": "[bold red]Engineering Loop PARTIAL[/bold red]",
+            "done_with_warnings": "[bold yellow]Engineering Loop Complete (Warnings)[/bold yellow]",
             "blocked": "[bold red]Engineering Loop BLOCKED[/bold red]",
             "halted": "[bold yellow]Engineering Loop HALTED[/bold yellow]",
-        }.get(status, "[bold]Engineering Loop Complete[/bold]")
+        }.get(outcome, "[bold]Engineering Loop Complete[/bold]")
 
         panel_style = {
             "done": "green",
+            "failed": "red",
+            "partial": "red",
+            "done_with_warnings": "yellow",
             "blocked": "red",
             "halted": "yellow",
-        }.get(status, "blue")
+        }.get(outcome, "blue")
 
         self.console.print(Rule(panel_title, style=panel_style))
         self.console.print(Panel("\n".join(lines), border_style=panel_style))

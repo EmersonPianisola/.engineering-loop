@@ -9,17 +9,32 @@ from langchain_core.tools import Tool
 def create_read_tool() -> Tool:
     """Create a Read tool for reading files and directories."""
 
-    def _read(file_path: str, offset: int = 1, limit: int = 500) -> str:
-        p = Path(file_path)
+    def _read(*args, **kwargs) -> str:
+        # Support: _read(file_path), _read(file_path, offset, limit), _read(filePath=...)
+        if "file_path" in kwargs or "filePath" in kwargs:
+            actual_path = kwargs.get("file_path") or kwargs.get("filePath", "")
+        elif args:
+            actual_path = args[0]
+        else:
+            return "Error: file_path is required"
+
+        offset = kwargs.get("offset", 1)
+        limit = kwargs.get("limit", 500)
+        if len(args) >= 2:
+            offset = args[1]
+        if len(args) >= 3:
+            limit = args[2]
+
+        p = Path(actual_path)
         if not p.exists():
-            return f"Error: path not found: {file_path}"
+            return f"Error: path not found: {actual_path}"
 
         if p.is_dir():
             try:
                 entries = sorted(str(e) for e in p.iterdir())
                 dirs = [e + "/" for e in entries if p.joinpath(e).is_dir()]
                 files = [e for e in entries if p.joinpath(e).is_file()]
-                return f"Directory {file_path}:\n" + "\n".join(dirs + files)
+                return f"Directory {actual_path}:\n" + "\n".join(dirs + files)
             except Exception as e:
                 return f"Error listing directory: {e}"
 

@@ -154,15 +154,52 @@ class GraphBuilder:
 
         The proposal has passed all 5 layers of policy validation.
         This method is purely a compiler: authorized topology → executable graph.
+
+        IMPORTANT: The architect can override complexity-based filtering (it knows
+        better than heuristics). But work_type filtering is enforced — a documentation
+        task should not include impl.design, verify, deploy, etc.
         """
         from eng_loop.edge_rules import build_rules_from_proposal
+        from eng_loop.tools.autosizing import (
+            DOCUMENTATION_EXCLUDED_STAGES,
+            OPERATIONAL_EXCLUDED_STAGES,
+        )
+
+        complexity = state.get("complexity", "small")
+        ui_project = state.get("ui_project", False)
+        work_type = state.get("work_type", "feature")
 
         topology = GraphTopology()
-        topology.complexity = state.get("complexity", "small")
-        topology.ui_project = state.get("ui_project", False)
+        topology.complexity = complexity
+        topology.ui_project = ui_project
         topology.total_available = len(self.registry)
-        topology.active_nodes = list(authorized.authorized_stages)
-        topology.nodes_included = len(authorized.authorized_stages)
+
+        # Filter authorized stages: only enforce work_type constraints.
+        # The architect can override complexity-based filtering — it has more context.
+        # But work_type is structural: documentation tasks don't need impl.design/verify/deploy.
+        excluded_for_work_type = set()
+        if work_type == "documentation":
+            excluded_for_work_type = set(DOCUMENTATION_EXCLUDED_STAGES)
+        elif work_type == "operational":
+            excluded_for_work_type = set(OPERATIONAL_EXCLUDED_STAGES)
+        elif work_type == "bugfix":
+            excluded_for_work_type = {
+                "design.user-research", "design.personas", "design.info-arch",
+                "design.interaction", "design.design-system", "design.visual-design",
+            }
+
+        filtered_stages = []
+        for stage_id in authorized.authorized_stages:
+            if stage_id in excluded_for_work_type:
+                logger.warning(
+                    "  [proposal] Skipping stage '%s': excluded for work_type=%s",
+                    stage_id, work_type,
+                )
+            else:
+                filtered_stages.append(stage_id)
+
+        topology.active_nodes = filtered_stages
+        topology.nodes_included = len(filtered_stages)
 
         builder = StateGraph(PipelineState)
 
@@ -191,8 +228,8 @@ class GraphBuilder:
                 active_node_names.add(spec.node_name)
                 logger.info("  [proposal] Meta node: %s", spec.node_name)
 
-        # Then: register all authorized stages
-        for stage_id in authorized.authorized_stages:
+        # Then: register filtered authorized stages
+        for stage_id in filtered_stages:
             spec = self.registry.get(stage_id)
             if not spec:
                 logger.warning("  [proposal] Stage '%s' not in registry, skipping", stage_id)

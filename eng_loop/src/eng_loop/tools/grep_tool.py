@@ -10,7 +10,31 @@ from langchain_core.tools import Tool
 def create_grep_tool() -> Tool:
     """Create a Grep tool for content search using regex."""
 
-    def _grep(pattern: str, path: str = ".", include: str = "*") -> str:
+    def _grep(*args, **kwargs) -> str:
+        # Support: _grep(pattern, path, include), _grep(pattern=..., path=...)
+        if "pattern" in kwargs:
+            pattern = kwargs.get("pattern", "")
+        elif args:
+            pattern = args[0]
+        else:
+            return "Error: pattern is required"
+
+        if "path" in kwargs or "searchPath" in kwargs:
+            path = kwargs.get("path") or kwargs.get("searchPath", ".")
+        elif len(args) >= 2:
+            path = args[1]
+        else:
+            path = "."
+
+        if "include" in kwargs:
+            include = kwargs.get("include", "*")
+        elif len(args) >= 3:
+            include = args[2]
+        else:
+            include = "*"
+
+        if not pattern:
+            return "Error: pattern is required"
         base = Path(path)
         if not base.exists():
             return f"Error: path not found: {path}"
@@ -26,7 +50,6 @@ def create_grep_tool() -> Tool:
         for file_path in base.glob(f"**/{include}"):
             if not file_path.is_file():
                 continue
-            # Skip binary files and large files
             if file_path.suffix in (".png", ".jpg", ".gif", ".ico", ".exe", ".dll", ".so", ".pyc"):
                 continue
             try:

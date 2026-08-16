@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any
 
 from rich.panel import Panel
+
+# Suppress LangGraph internal warnings (unknown channel, deprecated features)
+logging.getLogger("langgraph").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="langgraph")
 
 from eng_loop.config import ensure_directories, load_config, resolve_paths
 from eng_loop.graph import compile_graph
@@ -284,6 +290,29 @@ def main():
 
         state["graph_topology"] = topology.to_dict()
         state["active_nodes"] = topology.active_nodes
+
+        # Topology fidelity tracking: proposed vs compiled
+        if use_proposal and authorized_topology:
+            proposed_stages = set(authorized_topology.authorized_stages)
+            compiled_stages = set(topology.active_nodes)
+            dropped = proposed_stages - compiled_stages
+            added = compiled_stages - proposed_stages
+            if dropped or added:
+                state["topology_fidelity"] = {
+                    "proposed": list(proposed_stages),
+                    "compiled": list(compiled_stages),
+                    "dropped": list(dropped),
+                    "added": list(added),
+                    "integrity": "warning" if (dropped or added) else "clean",
+                }
+            else:
+                state["topology_fidelity"] = {
+                    "proposed": list(proposed_stages),
+                    "compiled": list(compiled_stages),
+                    "dropped": [],
+                    "added": [],
+                    "integrity": "clean",
+                }
 
         if not hud_mode:
             ui.render_topology(
@@ -1046,8 +1075,20 @@ def _print_result(state: dict) -> None:
     decisions = state.get("decisions", [])
     iteration = state.get("iteration", 0)
     stages = state.get("stages", {})
+    task_outcome = state.get("task_outcome", None)
+    artifact_evidence = state.get("artifact_evidence", None)
+    work_item = state.get("work_item", None)
+    active_nodes = state.get("active_nodes", None)
+    topology_fidelity = state.get("topology_fidelity", None)
 
-    ui.render_result(status, blocking, iteration, decisions, stages)
+    ui.render_result(
+        status, blocking, iteration, decisions, stages,
+        task_outcome=task_outcome,
+        artifact_evidence=artifact_evidence,
+        work_item=work_item,
+        active_nodes=active_nodes,
+        topology_fidelity=topology_fidelity,
+    )
 
 
 def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
