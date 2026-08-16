@@ -14,7 +14,7 @@ def create_edit_tool() -> Tool:
         if not p.exists():
             return f"Error: file not found: {file_path}"
         if old_string == new_string:
-            return f"Error: old_string and new_string are identical"
+            return "Error: old_string and new_string are identical"
 
         try:
             content = p.read_text(encoding="utf-8")
@@ -25,10 +25,7 @@ def create_edit_tool() -> Tool:
             # Provide context for what was found near the expected location
             lines = content.split("\n")
             snippet = "\n".join(lines[:20]) if len(lines) > 20 else content
-            return (
-                f"Error: old_string not found in {file_path}. "
-                f"First 20 lines for context:\n{snippet}"
-            )
+            return f"Error: old_string not found in {file_path}. First 20 lines for context:\n{snippet}"
 
         if content.count(old_string) > 1:
             return (

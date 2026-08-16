@@ -117,6 +117,7 @@ def edit_state_in_editor(state: dict[str, Any], node_id: str, max_attempts: int 
             edited, error = validate_edited_json(tmp_path)
             if error:
                 from eng_loop.tools.progress import ui
+
                 ui.console.print(f"\n  [bold red]JSON error (attempt {attempt}/{max_attempts}):[/bold red] {error}")
                 if attempt < max_attempts:
                     ui.console.print("  [yellow]Reopening editor. Fix the JSON and save.[/yellow]")
@@ -131,5 +132,6 @@ def edit_state_in_editor(state: dict[str, Any], node_id: str, max_attempts: int 
                 pass
 
     from eng_loop.tools.progress import ui
+
     ui.console.print("\n  [bold red]Editor validation failed after 3 attempts. Aborting edit.[/bold red]")
     return state

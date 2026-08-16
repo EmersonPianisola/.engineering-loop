@@ -112,7 +112,7 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
             log_stage_fail("meta.executor", f"Step '{step_id}' attempt {current_attempts}/{max_attempts} failed: {err}")
             return Command(
                 update={"dynamic_runtime": runtime, "errors": [err]},
-goto="meta-executor",
+                goto="meta-executor",
             )
         else:
             runtime["failed"].append(step_id)

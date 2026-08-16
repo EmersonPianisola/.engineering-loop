@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
-from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import Tool
@@ -39,9 +37,7 @@ def create_graphify_explain_tool(project_root: str) -> Tool:
             "Use this BEFORE reading files to understand structure, location, and impact scope. "
             "Example: graphify_explain('AuthMiddleware'), graphify_explain('Firebase setup')"
         ),
-        func=lambda entity: _run_graphify_cmd(
-            ["explain", entity], cwd=project_root
-        ),
+        func=lambda entity: _run_graphify_cmd(["explain", entity], cwd=project_root),
     )
 
 
@@ -54,9 +50,7 @@ def create_graphify_path_tool(project_root: str) -> Tool:
             "Use for tracing data flow, dependency chains, and connection mapping. "
             "Example: graphify_path('login', 'database'), graphify_path('API route', 'Firebase')"
         ),
-        func=lambda pair: _run_graphify_cmd(
-            ["path"] + pair.split(","), cwd=project_root
-        ),
+        func=lambda pair: _run_graphify_cmd(["path"] + pair.split(","), cwd=project_root),
     )
 
 
@@ -70,9 +64,7 @@ def create_graphify_query_tool(project_root: str) -> Tool:
             "Use for high-level understanding before diving into files. "
             "Example: graphify_query('how is Firebase configured'), graphify_query('E2E test infrastructure')"
         ),
-        func=lambda question: _run_graphify_cmd(
-            ["query", question], cwd=project_root
-        ),
+        func=lambda question: _run_graphify_cmd(["query", question], cwd=project_root),
     )
 
 

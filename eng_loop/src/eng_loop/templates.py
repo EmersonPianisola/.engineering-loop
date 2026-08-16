@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from eng_loop.tools.prompt_builder import load_cached_markdown
 
@@ -93,7 +92,9 @@ def is_self_constructed(skill_name: str) -> bool:
     return skill_name.startswith("__") and skill_name.endswith("__")
 
 
-def build_stage_prompt(stage_id: str, stage_procedure: str, skill_content: str, work_item: str, context_slice: str) -> str:
+def build_stage_prompt(
+    stage_id: str, stage_procedure: str, skill_content: str, work_item: str, context_slice: str
+) -> str:
     parts = []
     parts.append(f"# STAGE: {stage_id}")
     parts.append("")

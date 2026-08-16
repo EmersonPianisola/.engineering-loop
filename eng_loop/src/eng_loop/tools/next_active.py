@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from eng_loop.state import STAGE_ORDER, STAGE_MIN_COMPLEXITY, COMPLEXITY_ORDER
-
+from eng_loop.state import COMPLEXITY_ORDER, STAGE_MIN_COMPLEXITY, STAGE_ORDER
 
 _STAGE_TO_NODE: dict[str, str] = {}
 _NODE_TO_STAGE: dict[str, str] = {}
@@ -33,20 +32,26 @@ def _is_active(stage_id: str, state: dict[str, Any]) -> bool:
 
     work_type = state.get("work_type", "feature")
     from eng_loop.tools.autosizing import (
-        OPERATIONAL_EXCLUDED_STAGES,
         DOCUMENTATION_EXCLUDED_STAGES,
+        OPERATIONAL_EXCLUDED_STAGES,
     )
+
     if work_type == "documentation" and stage_id in DOCUMENTATION_EXCLUDED_STAGES:
         return False
     if work_type == "operational" and stage_id in OPERATIONAL_EXCLUDED_STAGES:
         return False
-    if work_type == "bugfix" and stage_id in (
-        "design.user-research", "design.personas", "design.info-arch",
-        "design.interaction", "design.design-system", "design.visual-design",
-    ):
-        return False
-
-    return True
+    return not (
+        work_type == "bugfix"
+        and stage_id
+        in (
+            "design.user-research",
+            "design.personas",
+            "design.info-arch",
+            "design.interaction",
+            "design.design-system",
+            "design.visual-design",
+        )
+    )
 
 
 def resolve_next(intended_node: str, state: dict[str, Any]) -> str:

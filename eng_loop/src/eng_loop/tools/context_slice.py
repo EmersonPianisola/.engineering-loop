@@ -154,9 +154,7 @@ def build_context_slice(
         if key in rules.get("exclude", []):
             continue
 
-        content = _resolve_context_key(
-            key, stage_id, state, stage_artifacts, artifact_root
-        )
+        content = _resolve_context_key(key, stage_id, state, stage_artifacts, artifact_root)
         if not content:
             continue
 
@@ -188,7 +186,10 @@ def build_context_slice_references(
     Maximum token efficiency — artifacts are accessed via read tool.
     """
     return build_context_slice(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         use_references=True,
         inline_threshold=0,
     )

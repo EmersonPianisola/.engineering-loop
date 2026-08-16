@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from eng_loop.tools.graphify import get_graphify_injection
+from eng_loop.templates import get_skill_name, get_stage_file, load_skill, load_stage_procedure
+from eng_loop.tools.graphify import get_graphify_injection, precompute_graph_context
 from eng_loop.tools.prompt_builder import PromptBuilder
-from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
 
 
 def build_node_prompt(
@@ -19,6 +20,7 @@ def build_node_prompt(
     include_skill: bool = True,
     include_procedure: bool = True,
     use_artifact_references: bool = True,
+    include_graph_context: bool = True,
 ) -> str:
     """Build a stage prompt using the centralized PromptBuilder.
 
@@ -36,6 +38,7 @@ def build_node_prompt(
         include_skill: Whether to load and include the skill file
         include_procedure: Whether to load and include the stage procedure
         use_artifact_references: Use file paths instead of inline content
+        include_graph_context: Whether to pre-compute graph context and inject it
 
     Returns:
         Complete prompt string ready for agent invocation.
@@ -45,17 +48,32 @@ def build_node_prompt(
 
     stage_proc = ""
     if include_procedure:
-        stage_proc = load_stage_procedure(
-            paths.get("framework_stage_root", ""), stage_file
-        )
+        stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
 
     skill_content = ""
     if include_skill and not (skill_name.startswith("__") and skill_name.endswith("__")):
-        skill_content = load_skill(
-            paths.get("framework_skill_root", ""), skill_name
-        )
+        skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
 
-    graphify_injection = get_graphify_injection(state, paths)
+    # Graphify tools are NOT available in opencode backend (subprocess mode).
+    # In that mode, rely entirely on pre-computed graph context in the prompt.
+    _is_opencode = os.environ.get("ENG_AGENT_BACKEND", "") == "opencode"
+    graphify_injection = get_graphify_injection(state, paths, tools_available=not _is_opencode)
+
+    # Pre-compute graph context from work item and blueprint entities
+    # In opencode mode, this is the PRIMARY mechanism — use more entities
+    graph_context = ""
+    if include_graph_context:
+        max_entities = 8 if _is_opencode else 5
+        graph_context = precompute_graph_context(state, paths, config, max_entities=max_entities)
+
+    # Combine pre-computed graph context with any extra sections
+    combined_extra = ""
+    parts = []
+    if graph_context:
+        parts.append(graph_context)
+    if extra_sections:
+        parts.append(extra_sections)
+    combined_extra = "\n\n".join(parts)
 
     builder = PromptBuilder(state, paths, config)
     return builder.build(
@@ -66,7 +84,7 @@ def build_node_prompt(
         graphify_injection=graphify_injection,
         instructions=instructions,
         use_artifact_references=use_artifact_references,
-        extra_sections=extra_sections,
+        extra_sections=combined_extra,
     )
 
 

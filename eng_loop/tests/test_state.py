@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from eng_loop.state import (
     STAGE_ORDER,
-    make_initial_state,
-    next_incomplete_stage,
     all_active_stages_done,
     get_active_stages,
-    is_stage_active,
     get_max_attempts,
+    make_initial_state,
+    next_incomplete_stage,
 )
 
 

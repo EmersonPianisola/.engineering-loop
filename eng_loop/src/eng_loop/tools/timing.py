@@ -60,19 +60,19 @@ class TimingTracker:
         rows = []
         for stage_id in self._stage_durations:
             durations = self._stage_durations[stage_id]
-            rows.append({
-                "stage_id": stage_id,
-                "durations": durations,
-                "total_seconds": sum(durations),
-                "total": format_time(sum(durations)),
-                "attempts": len(durations),
-            })
+            rows.append(
+                {
+                    "stage_id": stage_id,
+                    "durations": durations,
+                    "total_seconds": sum(durations),
+                    "total": format_time(sum(durations)),
+                    "attempts": len(durations),
+                }
+            )
         return rows
 
     def get_total_seconds(self) -> float:
-        return sum(
-            sum(durs) for durs in self._stage_durations.values()
-        )
+        return sum(sum(durs) for durs in self._stage_durations.values())
 
     def to_json(self) -> dict[str, Any]:
         stages_json = {}

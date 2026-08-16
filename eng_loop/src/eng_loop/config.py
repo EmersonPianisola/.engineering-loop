@@ -40,7 +40,9 @@ def load_config(framework_root: str | Path, loop_root: str | Path) -> dict[str, 
     return defaults
 
 
-def resolve_paths(config: dict[str, Any], framework_root: str | Path, loop_root: str | Path, project_root: str | Path) -> dict[str, str]:
+def resolve_paths(
+    config: dict[str, Any], framework_root: str | Path, loop_root: str | Path, project_root: str | Path
+) -> dict[str, str]:
     framework_root = Path(framework_root)
     loop_root = Path(loop_root)
     project_root = Path(project_root)
@@ -52,12 +54,16 @@ def resolve_paths(config: dict[str, Any], framework_root: str | Path, loop_root:
         "framework_skill_root": str(framework_root / config.get("framework_skill_root", "skills")),
         "framework_reference_root": str(framework_root / config.get("framework_reference_root", "references")),
         "framework_stage_root": str(framework_root / config.get("framework_stage_root", "stages")),
-        "framework_template_path": str(framework_root / config.get("framework_template_path", "references/skill-templates.md")),
+        "framework_template_path": str(
+            framework_root / config.get("framework_template_path", "references/skill-templates.md")
+        ),
         "artifact_root": str(loop_root / config.get("artifact_root", "artifacts")),
         "log_root": str(project_root / config.get("log_root", "../_bmad-output/process-logs")),
         "state_file": str(loop_root / config.get("state_file", "state.json")),
         "context_file": str(loop_root / config.get("context_file", "context.md")),
-        "planning_artifacts_root": str(loop_root / config.get("planning_artifacts_root", "../_bmad-output/implementation-artifacts")),
+        "planning_artifacts_root": str(
+            loop_root / config.get("planning_artifacts_root", "../_bmad-output/implementation-artifacts")
+        ),
     }
 
 

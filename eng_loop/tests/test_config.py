@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from eng_loop.config import deep_merge, load_config, resolve_paths, ensure_directories
-from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
-from eng_loop.templates import get_stage_file, get_skill_name, is_self_constructed
-from eng_loop.tools.decisions import extract_decisions, next_ad_number, record_decision
-import tempfile
 import os
+import tempfile
+
+from eng_loop.config import deep_merge, ensure_directories, load_config, resolve_paths
+from eng_loop.templates import get_skill_name, get_stage_file, is_self_constructed
+from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages
+from eng_loop.tools.decisions import extract_decisions, next_ad_number, record_decision
 
 
 def test_deep_merge():
@@ -17,6 +18,7 @@ def test_deep_merge():
 
 def test_load_config_template():
     import pathlib
+
     repo_root = pathlib.Path(__file__).parent.parent.parent
     framework_root = repo_root
     config = load_config(framework_root, framework_root)
@@ -27,6 +29,7 @@ def test_load_config_template():
 
 def test_resolve_paths():
     import pathlib
+
     repo_root = pathlib.Path(__file__).parent.parent.parent
     config = {
         "framework_skill_root": "skills",
@@ -101,6 +104,7 @@ def test_record_decision():
 
 def test_deactivate_inactive_stages():
     from eng_loop.state import init_stages
+
     stages = init_stages()
     result = deactivate_inactive_stages(stages, "small", False)
     assert result["design.user-research"]["done"] is True

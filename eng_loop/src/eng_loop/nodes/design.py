@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DesignOutput
-from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
-from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
-)
-from langgraph.types import Command
-
-from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
 from eng_loop.tools.next_active import resolve_next
-
+from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
+from eng_loop.tools.progress import (
+    log_artifact,
+    log_stage_done,
+    log_stage_fail,
+)
 
 DESIGN_STAGES = [
     "design.user-research",
@@ -37,7 +35,7 @@ DESIGN_NEXT_MAP = {
 
 def design_node(stage_id: str):
     def node_fn(state: dict[str, Any]) -> Command[str]:
-        from eng_loop.tools.agent_runner import run_agent, AgentResult
+        from eng_loop.tools.agent_runner import AgentResult, run_agent
         from eng_loop.tools.agent_tools import get_tools_for_stage
 
         stages = dict(state.get("stages", {}))
@@ -46,7 +44,9 @@ def design_node(stage_id: str):
 
         if stages.get(stage_id, {}).get("done", False):
             next_node = _resolve_next(stage_id, state)
-            return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
+            return Command(
+                goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1}
+            )
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -61,7 +61,10 @@ def design_node(stage_id: str):
             )
 
         prompt = build_node_prompt(
-            stage_id, state, paths, config,
+            stage_id,
+            state,
+            paths,
+            config,
             role_description="Design agent",
             instructions=(
                 "Use your tools to explore the project for context:\n"
@@ -117,6 +120,7 @@ def design_node(stage_id: str):
         design_output = result.get("design_output", "")
         if design_output:
             from eng_loop.tools.file_ops import write_file
+
             safe_name = stage_id.replace(".", "-").replace("_", "-")
             artifact_path = f"{artifact_root}/design/{safe_name}.md"
             write_file(artifact_path, design_output)
@@ -125,6 +129,7 @@ def design_node(stage_id: str):
         new_decisions = list(state.get("decisions", []))
         for d in result.get("decisions", []):
             from eng_loop.tools.decisions import record_decision
+
             record_decision({"decisions": new_decisions}, d)
 
         next_node = _resolve_next(stage_id, state)

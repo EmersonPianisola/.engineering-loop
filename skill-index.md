@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v11.5.0
+**Framework:** Engineering Loop v11.6.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -37,6 +37,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, query-first for architecture |
+| `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
 
 ## Self-Constructed Skills
 
@@ -76,3 +77,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-04 | all | v10.4.0 — **Structured output + evidence gates**: 27 Pydantic schemas (one per stage), `model.with_structured_output()` enforces output shape, evidence gates validate quality before advancing, robust JSON extraction (3 strategies in `json_parse.py`), automatic retry on failure, iteration counter tracking, `stage_runner.py` shared helper |
 | 2026-08-10 | all | v11.0.0 — **Dynamic graph engineering**: `GraphBuilder` constructs graph per work item based on complexity/UI/tags. `NodeRegistry` (26 NodeSpec), `EdgeRulesEngine` (declarative routing). Parallel QA fan-out/fan-in. CLI: `--dynamic-graph`, `--parallel-qa`. Config: `dynamic_graph.enabled`. Topology saved to `state.json.graph_topology`. Static graph mode preserved for backward compatibility |
 | 2026-08-15 | all | v11.5.0 — **Dynamic Node Orchestration (V1.3)**: Meta-orchestration layer for runtime sub-task generation. `dynamic-architect` node (LLM proposes → framework authorizes → immutable blueprint). `meta-executor` node (sequential cursor-based execution, strict attempt counting, typed validation). 9 new Pydantic schemas (frozen payloads, discriminated union rules, audit entries). Policy resolver: risk keyword analysis, tool sandboxing. Validation engine: `tests_pass`, `files_exist`, `contains_symbol`. Governance: `MAX_DYNAMIC_STEPS=5`, `max_attempts` per step (1-5), `authorized_complexity` override. Topology: `__start__ → init-setup → dynamic-architect → [meta-executor loop] → init`. 54 tests, 29 total nodes |
+| 2026-08-15 | all | v11.6.0 — **Dynamic Graph Topology Proposal**: LLM architect proposes optimal graph per task, authorized by 5-layer policy firewall, compiled by deterministic builder. Invariant: LLM proposes → Policy authorizes → Builder compiles → Runtime executes. 5 new schemas: `GraphTopologyProposal`, `EdgeDefinition`, `PhaseGroup`, `ExecutionPolicy`, `AuthorizedGraphTopology`. Policy firewall: structural, registry, boundary, connectivity (cycle detection + reachability), semantic. Dual-path compilation: proposal (LLM-optimized) or deterministic (fallback). Allowed conditions enum: LLM may reference conditions (`stage_done`, `complexity_at_least_medium`, `is_ui_project`) but never arbitrary code. Failure routing injected automatically (operational policy, not topology decision). Pre-build architect invocation in CLI. 34 new tests, 1484 total tests pass |

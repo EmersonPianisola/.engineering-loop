@@ -1,22 +1,24 @@
 ---
 name: engineering-loop
-version: 11.5.0
+version: 11.6.0
 type: framework
-description: 'Dynamic graph orchestrator. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution with typed validation, policy authorization, immutable contracts. Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'Dynamic graph orchestrator. Topology proposed by LLM architect, authorized by 5-layer policy firewall, compiled by deterministic builder. LLM proposes, Policy authorizes, Builder compiles, Runtime executes. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution. 5 new topology schemas (frozen, validated). Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v11.0
+# Engineering Loop v11.6
 
 **Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
 
-Persistent while-loop engine with **dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, and tags. Only the nodes required for the task are instantiated. Parallel QA fan-out/fan-in available. Auto-sizes stages by complexity. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
+Persistent while-loop engine with **AI-proposed graph topology** — the LLM architect analyzes the work item and codebase, proposes an optimal execution graph, which is authorized by a 5-layer policy firewall, then compiled into an executable LangGraph StateGraph. If the architect is unavailable or the proposal is rejected, a deterministic fallback builder ensures execution always proceeds. Parallel QA fan-out/fan-in available. TDD per task. Independent Verifier with discrimination sensor. Essence Sidecar validates inputs before every stage. BMAD Ideation stage (Party Mode + Brainstorming + SDD) enriches raw work items. Multi-project architecture — framework code and project artifacts are isolated.
 
-**Orchestrator:** `eng_loop/` (LangGraph Python, Dynamic Graph Builder, CLI: `eng-loop --dynamic-graph`)
+**Invariant:** LLM proposes → Policy authorizes → Builder compiles → Runtime executes.
+
+**Orchestrator:** `eng_loop/` (LangGraph Python, Graph Architect + Policy Firewall + Dual-Path Builder, CLI: `eng-loop --dynamic-graph`)
 **Legacy:** `ORCHESTRATOR.md` (prompt-based, deprecated)
 **Model:** Any OpenAI-compatible local endpoint (llama.cpp, vLLM, Ollama)
-**Structured Output:** 27 Pydantic schemas, one per stage, enforced via `model.with_structured_output()`
+**Structured Output:** 31 Pydantic schemas (5 topology + 26 stage), enforced via `model.with_structured_output()`
 **Evidence Gates:** Quality validation after every stage; failures trigger automatic retry
-**Dynamic Graph:** `eng_loop/graph_builder.py` — constructs graph per work item. Enable via `--dynamic-graph` or `config.dynamic_graph.enabled`
+**Dynamic Graph:** `eng_loop/graph_builder.py` — dual-path compilation (proposal or deterministic). Enable via `--dynamic-graph` or `config.dynamic_graph.enabled`
 
 ```
                         INIT (Phase 0)
@@ -70,9 +72,56 @@ The framework is installed as a **git submodule** (`.eng/`). Project artifacts l
 
 The orchestrator deep-merges: template defaults → project overrides.
 
-## Auto-Sizing
+## Dynamic Graph Architecture
 
-Complexity determines depth — not a fixed pipeline. The orchestrator classifies each work item before the loop:
+The execution graph is no longer determined by hardcoded rules. Instead, a three-phase pipeline produces the optimal graph for each task:
+
+```
+                     ┌───────────────┐
+                     │  Node Catalog │  (29 stages, 10 phases)
+                     └───────┬───────┘
+                             │
+Task ──→ Dynamic Architect ──┤  (LLM proposes topology)
+                             ↓
+                    GraphTopologyProposal
+                             │
+                             ↓
+                    Policy Firewall (5 layers)
+                    1. Structural: non-empty, no duplicates
+                    2. Registry: all stages exist in catalog
+                    3. Boundary: init + post required
+                    4. Connectivity: no cycles, all reachable
+                    5. Semantic: risk, UI, complexity checks
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+           VALID                         INVALID
+              │                             │
+              ↓                             ↓
+    AuthorizedGraphTopology        Deterministic Builder
+              │                             │
+              └──────────────┬──────────────┘
+                             │
+                             ↓
+                      Graph Builder
+                    (compiler only)
+                             │
+                             ↓
+                     LangGraph Execution
+```
+
+**Key invariant:** The LLM has authority to propose topology, never authority to define execution.
+
+### Dual-Path Compilation
+
+| Path | Trigger | Graph Source |
+|------|---------|--------------|
+| **Proposal** | Architect produces valid, authorized topology | LLM-proposed stages + edges |
+| **Deterministic** | Architect unavailable, proposal rejected, or error | Registry filter + hardcoded edge rules |
+
+### Auto-Sizing (Deterministic Fallback)
+
+When the deterministic builder is used (fallback), complexity determines depth:
 
 | Level | Design | Arch | QA | Verify | Example |
 |-------|--------|------|----|--------|---------|
@@ -83,12 +132,29 @@ Complexity determines depth — not a fixed pipeline. The orchestrator classifie
 
 Heuristics: files affected, new domains, external integrations, work item ambiguity, AC count.
 
+### Topology Schemas
+
+5 new Pydantic schemas govern the topology proposal contract:
+
+| Schema | Purpose |
+|--------|---------|
+| `GraphTopologyProposal` | LLM's proposed graph (stages, edges, phases, policies) |
+| `EdgeDefinition` | Declarative edge with allowed condition identifiers |
+| `PhaseGroup` | Logical grouping of stages for display |
+| `ExecutionPolicy` | Per-stage runtime policies (retry, failure routing) |
+| `AuthorizedGraphTopology` | Policy-authorized, immutable version of proposal |
+
+The LLM may only reference **allowed conditions** (e.g., `stage_done`, `complexity_at_least_medium`, `is_ui_project`) — never arbitrary code.
+
 ---
 
 ## Stages
 
 | # | ID | Stage | Skill(s) | Procedure | Min Complexity |
 |---|----|-------|----------|-----------|----------------|
+| -1 | `init.setup` | Deterministic Setup | — | autosizing.py | — |
+| -0.5 | `dynamic.architect` | Graph Topology Architect | — | dynamic_architect.py | — (pre-build + runtime) |
+| -0.5 | `meta.executor` | Meta Executor | — | meta_executor.py | — (runtime augmentation) |
 | 0 | `init` | INIT | `bmad-integration` | `{stage-root}/init.md` | — |
 | 0.25 | `init.ideate` | Ideation + Decomposition | `bmad-ideation` | `{stage-root}/init-ideate.md` | — |
 | 0.5 | `init.bdd` | BDD Journey | `bmad-bdd-mapper` | `{stage-root}/init-bdd.md` | `large` |
@@ -116,12 +182,15 @@ Heuristics: files affected, new domains, external integrations, work item ambigu
 | 13 | `doc.project` | Doc > Project Docs | arc42 + C4 Model (self-constructed) | `{stage-root}/doc-project.md` | `medium` |
 | 14 | `post` | POST-LOOP | — | `{stage-root}/post-loop.md` | — |
 
+**Meta nodes** (`init.setup`, `dynamic.architect`, `meta.executor`) are always registered regardless of complexity filtering. The `dynamic.architect` node serves dual roles: (1) **pre-build topology proposal** — proposes `GraphTopologyProposal` before graph compilation, and (2) **runtime augmentation gate** — proposes `DynamicBlueprint` micro-steps during execution.
+
 ---
 
 ## References
 
 | ID | Topic | Path |
 |----|-------|------|
+| `topology` | Dynamic Graph Architecture (Topology Proposal) | `eng_loop/src/eng_loop/schemas.py` + `policy_resolver.py` |
 | `essence` | Essence Sidecar (Four Lenses) | `{reference-root}/essence-sidecar.md` |
 | `bmad-ideation` | BMAD Ideation Patterns (Party Mode, Brainstorming, SDD) | `{reference-root}/bmad-ideation-patterns.md` |
 | `graphify` | Knowledge Graph (Graphify, opt-in) | `{reference-root}/graphify.md` |

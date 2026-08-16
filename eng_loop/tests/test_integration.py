@@ -145,7 +145,8 @@ def test_small_feature_flow():
         updated = _apply_update(state, result.update or {})
         assert updated["complexity"] == "small"
         assert updated["stages"]["init"]["done"] is True
-        assert updated["stages"]["init.bdd"]["done"] is True
+        # init.bdd is min_complexity=large, not active for small
+        assert updated["stages"]["init.bdd"]["done"] is False
 
         from eng_loop.nodes.init import init_ideate_node
 
@@ -550,4 +551,4 @@ def test_dynamic_graph_complex_ui_all_nodes():
 
     registry = build_registry()
     all_specs = registry.filter(complexity="complex", ui_project=True)
-    assert len(all_specs) == 26
+    assert len(all_specs) == 29  # 26 classic + init.setup, dynamic.architect, meta.executor

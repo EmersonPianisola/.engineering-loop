@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import Tool
 
 if TYPE_CHECKING:
-    from eng_loop.schemas import DynamicBlueprint, DynamicBlueprintProposal
+    from eng_loop.schemas import (
+        AuthorizedGraphTopology,
+        DynamicBlueprint,
+        DynamicBlueprintProposal,
+        GraphTopologyProposal,
+    )
 
 
 SAFE_TOOL_POOL: set[str] = {"read", "glob", "grep", "write", "edit", "bash"}
@@ -101,4 +106,251 @@ def authorize_blueprint(
         authorized_complexity=auth_complexity,
         steps=proposal.steps,
         rationale=proposal.rationale,
+    )
+
+
+# ───────────────────────────────────────────────────────────────────
+# TOPOLOGY FIREWALL — 5-layer validation
+# LLM proposes → Policy authorizes → Builder compiles → Runtime executes
+# ───────────────────────────────────────────────────────────────────
+
+class TopologyValidationError(Exception):
+    """Raised when a topology proposal fails policy validation."""
+
+    def __init__(self, layer: str, message: str):
+        self.layer = layer
+        self.message = message
+        super().__init__(f"[{layer}] {message}")
+
+
+def _get_registry_stage_ids() -> set[str]:
+    """Return all known stage IDs from the registry."""
+    from eng_loop.node_registry import build_registry
+
+    registry = build_registry()
+    return {spec.id for spec in registry.all_specs()}
+
+
+def _validate_structural(proposal: GraphTopologyProposal) -> None:
+    """Layer 1: Structural integrity — basic sanity checks."""
+    if not proposal.required_stages:
+        raise TopologyValidationError("structural", "required_stages is empty")
+
+    if len(proposal.required_stages) != len(set(proposal.required_stages)):
+        raise TopologyValidationError("structural", "required_stages contains duplicates")
+
+    if not proposal.edges:
+        raise TopologyValidationError("structural", "edges is empty")
+
+    # Check for duplicate edges
+    seen_edges = set()
+    for edge in proposal.edges:
+        key = (edge.from_stage, edge.to_stage, edge.edge_type)
+        if key in seen_edges:
+            raise TopologyValidationError("structural", f"Duplicate edge: {key}")
+        seen_edges.add(key)
+
+    # Check for unauthorized self-loops
+    for edge in proposal.edges:
+        if edge.from_stage == edge.to_stage and edge.edge_type != "loopback":
+            raise TopologyValidationError(
+                "structural",
+                f"Self-loop on '{edge.from_stage}' requires edge_type='loopback'",
+            )
+
+
+def _validate_registry(proposal: GraphTopologyProposal) -> None:
+    """Layer 2: Registry validation — all stages must exist in the catalog."""
+    known_stages = _get_registry_stage_ids()
+    # Meta nodes are always allowed
+    meta_nodes = {"init.setup", "dynamic.architect", "meta.executor"}
+    valid_ids = known_stages | meta_nodes
+
+    for stage_id in proposal.required_stages:
+        if stage_id not in valid_ids:
+            raise TopologyValidationError(
+                "registry",
+                f"Stage '{stage_id}' not found in node catalog",
+            )
+
+    for edge in proposal.edges:
+        if edge.from_stage not in ("__start__",) and edge.from_stage not in valid_ids:
+            raise TopologyValidationError(
+                "registry",
+                f"Edge source '{edge.from_stage}' not in node catalog",
+            )
+        if edge.to_stage not in ("__end__",) and edge.to_stage not in valid_ids:
+            raise TopologyValidationError(
+                "registry",
+                f"Edge target '{edge.to_stage}' not in node catalog",
+            )
+
+
+def _validate_boundary(proposal: GraphTopologyProposal) -> None:
+    """Layer 3: Boundary validation — entry/exit nodes must exist."""
+    stage_set = set(proposal.required_stages)
+
+    # Entry: init must be present
+    if "init" not in stage_set:
+        raise TopologyValidationError("boundary", "Entry node 'init' is required")
+
+    # Exit: post must be present
+    if "post" not in stage_set:
+        raise TopologyValidationError("boundary", "Exit node 'post' is required")
+
+
+def _validate_connectivity(proposal: GraphTopologyProposal) -> None:
+    """Layer 4: Cycle detection and reachability analysis.
+
+    Ensures:
+    - No cycles in the graph
+    - All nodes are reachable from entry
+    - Exit is reachable from entry
+    - No isolated nodes
+    """
+    stage_set = set(proposal.required_stages)
+    # Build adjacency list (node_name format for graph operations)
+    adj: dict[str, list[str]] = {s: [] for s in stage_set}
+
+    for edge in proposal.edges:
+        from_id = edge.from_stage
+        to_id = edge.to_stage
+        if from_id == "__start__":
+            from_id = "init"
+        if to_id == "__end__":
+            # __end__ is not in stage_set, skip this edge for connectivity check
+            # (it just means the source node can reach the exit)
+            continue
+        if from_id in stage_set and to_id in stage_set:
+            adj.setdefault(from_id, []).append(to_id)
+
+    # Cycle detection via DFS
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {s: WHITE for s in stage_set}
+
+    def has_cycle(node: str) -> bool:
+        color[node] = GRAY
+        for neighbor in adj.get(node, []):
+            if color.get(neighbor) == GRAY:
+                return True
+            if color.get(neighbor) == WHITE and has_cycle(neighbor):
+                return True
+        color[node] = BLACK
+        return False
+
+    for start_node in stage_set:
+        if color.get(start_node) == WHITE:
+            if has_cycle(start_node):
+                raise TopologyValidationError("connectivity", "Graph contains a cycle")
+
+    # Reachability: BFS from entry
+    entry = "init"
+    visited = set()
+    queue = [entry]
+    while queue:
+        node = queue.pop(0)
+        if node in visited:
+            continue
+        visited.add(node)
+        for neighbor in adj.get(node, []):
+            if neighbor not in visited:
+                queue.append(neighbor)
+
+    # All stages must be reachable from entry
+    unreachable = stage_set - visited
+    if unreachable:
+        raise TopologyValidationError(
+            "connectivity",
+            f"Stages not reachable from entry: {unreachable}",
+        )
+
+    # Exit must be reachable
+    if "post" not in visited:
+        raise TopologyValidationError(
+            "connectivity",
+            "Exit node 'post' is not reachable from entry",
+        )
+
+
+def _validate_semantic_policy(
+    proposal: GraphTopologyProposal,
+    state: dict[str, Any],
+) -> str:
+    """Layer 5: Semantic policy — context-aware restrictions.
+
+    Returns policy notes string (may be empty for clean pass).
+    Raises TopologyValidationError for fatal policy violations.
+    """
+    notes = []
+    work_item = state.get("work_item", "").lower()
+    complexity = state.get("complexity", "small")
+    ui_project = state.get("ui_project", False)
+    stage_set = set(proposal.required_stages)
+
+    # Risk keywords: flag but don't reject topology
+    if any(kw in work_item for kw in RISK_KEYWORDS):
+        notes.append("Risk keywords detected in work item — topology authorized with monitoring")
+
+    # UI-only stages without UI project
+    ui_only_stages = {"e2e.execute", "smoke.test"}
+    if not ui_project:
+        for s in ui_only_stages:
+            if s in stage_set:
+                notes.append(f"UI-only stage '{s}' included but project is not a UI project")
+
+    # Min-complexity violations (warning, not fatal)
+    from eng_loop.state import COMPLEXITY_ORDER, STAGE_MIN_COMPLEXITY
+
+    for stage_id in stage_set:
+        min_c = STAGE_MIN_COMPLEXITY.get(stage_id)
+        if min_c:
+            if COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_c, 0):
+                notes.append(
+                    f"Stage '{stage_id}' requires min_complexity={min_c}, current={complexity}"
+                )
+
+    return "; ".join(notes)
+
+
+def authorize_topology(
+    proposal: GraphTopologyProposal,
+    state: dict[str, Any],
+) -> AuthorizedGraphTopology:
+    """5-layer topology firewall.
+
+    Validates a GraphTopologyProposal through five sequential layers:
+    1. Structural: basic integrity (non-empty, no duplicates, valid self-loops)
+    2. Registry: all stages/edges reference known catalog entries
+    3. Boundary: entry (init) and exit (post) nodes present
+    4. Connectivity: no cycles, all nodes reachable, exit reachable from entry
+    5. Semantic: context-aware policy checks (risk, UI, complexity)
+
+    Returns an AuthorizedGraphTopology on success.
+    Raises TopologyValidationError on any failure (caller should catch and fallback).
+    """
+    from eng_loop.schemas import AuthorizedGraphTopology
+
+    # Layer 1: Structural
+    _validate_structural(proposal)
+
+    # Layer 2: Registry
+    _validate_registry(proposal)
+
+    # Layer 3: Boundary
+    _validate_boundary(proposal)
+
+    # Layer 4: Connectivity
+    _validate_connectivity(proposal)
+
+    # Layer 5: Semantic policy
+    policy_notes = _validate_semantic_policy(proposal, state)
+
+    return AuthorizedGraphTopology(
+        plan_id=proposal.plan_id,
+        authorized_stages=proposal.required_stages,
+        authorized_edges=proposal.edges,
+        phase_groups=proposal.phase_groups,
+        execution_policies=proposal.execution_policies,
+        rationale=proposal.rationale,
+        policy_notes=policy_notes,
     )

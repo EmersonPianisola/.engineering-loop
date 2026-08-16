@@ -36,6 +36,7 @@ def merge_lessons(lessons_data: dict[str, Any]) -> dict[str, Any]:
 
 def distill_lesson(failure_stage: str, failure_description: str, root_cause: str, fix: str) -> dict[str, Any]:
     import hashlib
+
     key = hashlib.md5(f"{failure_stage}:{root_cause}".encode()).hexdigest()[:8]
     return {
         "id": f"L-{key.upper()}",

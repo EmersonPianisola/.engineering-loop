@@ -4,6 +4,7 @@ langchain-openai>=1.0
 pydantic>=2.0
 pyyaml>=6.0
 rich>=13.0
+textual>=0.69
 
 [dev]
 pytest>=8.0

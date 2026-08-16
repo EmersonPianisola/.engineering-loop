@@ -175,7 +175,16 @@ class TestE2eExecuteNode:
             spec = build_registry().get("e2e.execute")
             s = _st(tmpdir=tmp)
             s["ui_project"] = True
-            mock = _mr({"verdict": "PASS", "test_results": [], "console_errors": [], "network_errors": [], "bdd_coverage": 1.0, "complete": True})
+            mock = _mr(
+                {
+                    "verdict": "PASS",
+                    "test_results": [],
+                    "console_errors": [],
+                    "network_errors": [],
+                    "bdd_coverage": 1.0,
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
                 result = spec.handler(s)
             assert isinstance(result, Command)
@@ -191,7 +200,16 @@ class TestE2eExecuteNode:
             spec = build_registry().get("e2e.execute")
             s = _st(tmpdir=tmp)
             s["ui_project"] = True
-            mock = _mr({"verdict": "FAIL", "test_results": [], "console_errors": [], "network_errors": [], "bdd_coverage": 0.5, "complete": False})
+            mock = _mr(
+                {
+                    "verdict": "FAIL",
+                    "test_results": [],
+                    "console_errors": [],
+                    "network_errors": [],
+                    "bdd_coverage": 0.5,
+                    "complete": False,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
                 result = spec.handler(s)
             assert result.goto == "impl-code"
@@ -236,7 +254,9 @@ class TestSmokeTestNode:
             spec = build_registry().get("smoke.test")
             s = _st(tmpdir=tmp)
             s["ui_project"] = True
-            mock = _mr({"verdict": "PASS", "critical_paths": [], "console_errors": [], "network_errors": [], "complete": True})
+            mock = _mr(
+                {"verdict": "PASS", "critical_paths": [], "console_errors": [], "network_errors": [], "complete": True}
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
                 result = spec.handler(s)
             assert isinstance(result, Command)
@@ -252,7 +272,15 @@ class TestSmokeTestNode:
             spec = build_registry().get("smoke.test")
             s = _st(tmpdir=tmp)
             s["ui_project"] = True
-            mock = _mr({"verdict": "FAIL", "critical_paths": [], "console_errors": ["err"], "network_errors": [], "complete": False})
+            mock = _mr(
+                {
+                    "verdict": "FAIL",
+                    "critical_paths": [],
+                    "console_errors": ["err"],
+                    "network_errors": [],
+                    "complete": False,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
                 result = spec.handler(s)
             assert result.goto == "impl-code"

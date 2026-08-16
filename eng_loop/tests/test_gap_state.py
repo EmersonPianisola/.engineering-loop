@@ -14,6 +14,7 @@ from eng_loop.state import STAGE_ORDER, make_initial_state, restore_snapshot
 class TestStateHistory:
     def test_save_snapshot(self):
         from eng_loop.tools.state_history import save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             s = make_initial_state({}, {})
             s["work_item"] = "Test"
@@ -25,6 +26,7 @@ class TestStateHistory:
 
     def test_list_snapshots(self):
         from eng_loop.tools.state_history import get_history_dir, list_snapshots, save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             paths = {"artifact_root": tmp}
             config = {"state_history": {"history_dir": f"{tmp}/history"}}
@@ -40,6 +42,7 @@ class TestStateHistory:
 
     def test_restore(self):
         from eng_loop.tools.state_history import save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             s = make_initial_state({}, {})
             s["work_item"] = "Orig"
@@ -52,6 +55,7 @@ class TestStateHistory:
 
     def test_snapshot_merge(self):
         from eng_loop.tools.state_history import save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             s = make_initial_state({}, {})
             s["work_item"] = "T"
@@ -63,6 +67,7 @@ class TestStateHistory:
 
     def test_template_fields(self):
         from eng_loop.state import make_initial_state
+
         t = make_initial_state({}, {})
         assert "stages" in t
         assert "status" in t
@@ -76,9 +81,12 @@ class TestSchemas:
 
     def test_valid_data(self):
         from eng_loop.schemas import InitOutput, QaOutput, VerifyOutput
+
         i = InitOutput(valid=True, work_item_refined="t", estimated_files=5, estimated_tasks=3, notes="ok")
         assert i.valid
-        v = VerifyOutput(verdict="PASS", per_ac_evidence=[], discrimination_sensor="ok", coverage_audit="ok", gaps=[], complete=True)
+        v = VerifyOutput(
+            verdict="PASS", per_ac_evidence=[], discrimination_sensor="ok", coverage_audit="ok", gaps=[], complete=True
+        )
         assert v.verdict == "PASS"
         q = QaOutput(verdict="PASS", findings=[], critical_findings=[], complete=True)
         assert q.verdict == "PASS"
@@ -87,6 +95,7 @@ class TestSchemas:
         from pydantic import ValidationError
 
         from eng_loop.schemas import InitOutput
+
         try:
             InitOutput(valid="no", work_item_refined=123, estimated_files="five", estimated_tasks=[], notes={})
             assert False
@@ -98,6 +107,7 @@ class TestSchemas:
 
     def test_get_schema(self):
         from eng_loop.schemas import ArchOutput, DesignOutput, InitOutput, VerifyOutput
+
         assert get_schema("init") == InitOutput
         assert get_schema("verify") == VerifyOutput
         assert get_schema("design.user-research") == DesignOutput
@@ -124,6 +134,7 @@ class TestConfig:
 
     def test_resolve_paths(self):
         from eng_loop.config import resolve_paths
+
         with tempfile.TemporaryDirectory() as tmp:
             config = {"paths": {}}
             p = resolve_paths(config, Path(tmp), Path(tmp), Path(tmp))
@@ -131,6 +142,14 @@ class TestConfig:
 
     def test_ensure_dirs(self):
         from eng_loop.config import ensure_directories
+
         with tempfile.TemporaryDirectory() as tmp:
-            ensure_directories({"project_root": tmp, "artifact_root": f"{tmp}/artifacts", "log_root": f"{tmp}/logs", "history_dir": f"{tmp}/history"})
+            ensure_directories(
+                {
+                    "project_root": tmp,
+                    "artifact_root": f"{tmp}/artifacts",
+                    "log_root": f"{tmp}/logs",
+                    "history_dir": f"{tmp}/history",
+                }
+            )
             assert Path(f"{tmp}/artifacts").exists()

@@ -18,6 +18,7 @@ from eng_loop.edge_rules import (
 # EDGE RULE HELPERS
 # ============================================================
 
+
 class TestStageDone:
     def test_stage_done_true(self):
         state = {"stages": {"init": {"done": True}}}
@@ -88,6 +89,7 @@ class TestIsBlocked:
 # EDGE RULE ENGINE
 # ============================================================
 
+
 class TestEdgeRule:
     def test_fixed_rule_matches(self):
         rule = EdgeRule(from_node="init", to_node="init-ideate", edge_type="fixed")
@@ -104,7 +106,8 @@ class TestEdgeRule:
 
     def test_evaluate_with_condition(self):
         rule = EdgeRule(
-            from_node="init", to_node="post",
+            from_node="init",
+            to_node="post",
             condition=lambda s: s.get("done", False),
         )
         assert rule.evaluate({"done": True}) is True
@@ -180,7 +183,7 @@ class TestBuildEdgeRules:
 
     def test_parallel_qa_flag(self):
         engine_seq = build_edge_rules(parallel_qa=False)
-        engine_par = build_edge_rules(parallel_qa=True)
+        build_edge_rules(parallel_qa=True)
         # Sequential should have QA loopback rules
         qa_rules_seq = engine_seq.get_rules_for_node("qa-security")
         assert len(qa_rules_seq) > 0
@@ -189,6 +192,7 @@ class TestBuildEdgeRules:
 # ============================================================
 # ROUTING SCENARIOS
 # ============================================================
+
 
 class TestRoutingScenarios:
     def test_small_complexity_flow(self):
@@ -201,7 +205,17 @@ class TestRoutingScenarios:
                 "init.refine": {"done": True, "attempts": 1},
             },
         }
-        active = {"init", "init-ideate", "init-refine", "impl-design", "impl-code", "verify", "deploy-prepare", "post", "__end__"}
+        active = {
+            "init",
+            "init-ideate",
+            "init-refine",
+            "impl-design",
+            "impl-code",
+            "verify",
+            "deploy-prepare",
+            "post",
+            "__end__",
+        }
         resolved = engine.resolve(active, state)
         assert len(resolved) > 0
 
@@ -215,7 +229,19 @@ class TestRoutingScenarios:
                 "init.refine": {"done": True},
             },
         }
-        active = {"init", "init-refine", "arch-requirements", "arch-solution", "impl-design", "impl-code", "verify", "qa-security", "deploy-prepare", "post", "__end__"}
+        active = {
+            "init",
+            "init-refine",
+            "arch-requirements",
+            "arch-solution",
+            "impl-design",
+            "impl-code",
+            "verify",
+            "qa-security",
+            "deploy-prepare",
+            "post",
+            "__end__",
+        }
         resolved = engine.resolve(active, state)
         assert len(resolved) > 0
 

@@ -1,0 +1,257 @@
+{
+  "iteration": 7,
+  "status": "blocked",
+  "blocking_condition": "impl.code agent error",
+  "complexity": "small",
+  "work_type": "documentation",
+  "work_item": "{'title': 'Create artifacts/project-summary.md — Engineering Loop v11.3 Project Summary', 'description': 'Create a comprehensive markdown summary document at `artifacts/project-summary.md` covering all major aspects of the Engineering Loop v11.3 framework.', 'sections': [{'heading': 'Project Overview', 'content': 'Persistent while-loop engine for AI-assisted software development. Dynamic graph construction via LangGraph StateGraph built per work item based on complexity, UI context, work type, and tags. Orchestrates AI sub-agents through the complete SDLC with progressive disclosure, structured output (Pydantic), evidence gates, and auto-sizing. Works with any OpenAI-compatible local model (llama.cpp, vLLM, Ollama). Version 11.3.0.'}, {'heading': 'Architecture', 'content': 'Multi-project via git submodule (.eng/). Dual-mode: (1) CLI mode — Python LangGraph orchestrator with dynamic graph, surgical operations, parallel QA; (2) LLM mode — topology-enforced via ORCHESTRATOR.md with compliance gates. Core components: GraphBuilder (per-work-item graph construction), NodeRegistry (26 NodeSpec), EdgeRulesEngine (declarative routing), StateGraph (programmatic flow control), Pydantic schemas (27 structured outputs), Evidence Gates (quality validation), Essence Sidecar (Four Lenses pre-stage validation).'}, {'heading': 'Key Features', 'content': '26 stages across 7 phases (init, design, arch, impl, verify, QA, deploy, doc, post-loop). Auto-sizing by complexity (small/medium/large/complex). Work type classification (feature/bugfix/operational). TDD per task with red-green-commit. Independent verifier with discrimination sensor. Parallel QA fan-out/fan-in. Surgical CLI (rollback, run-node, clear-state, skip-node, history, --pause-at). State history with retention policy. Context optimization (ProjectMap pre-computed at init, ToolResultCache within micro-loop). BMAD ideation (Party Mode, Brainstorming, SDD). Continuous decisions (AD-NNN). Self-improving lessons system. Knowledge graph (Graphify, opt-in). Compliance gates between stages.'}, {'heading': 'Directory Structure', 'content': 'Framework root (.eng/): stages/ (24 stage procedure markdown files), skills/ (11 built-in skill directories), references/ (15 reference files), eng_loop/ (Python package: cli.py, config.py, graph_builder.py, node_registry.py, edge_rules.py, graph.py, routing.py, schemas.py, state.py, model.py, templates.py, nodes/, tools/), config-template.yaml, state-template.json, skill-index.md, CORE.md, ORCHESTRATOR.md, START.md, README.md. Project artifacts: artifacts/ (architectures/, blueprints/, bdd-journeys/, design/, test-plans/, graph-topology.md, lessons.json, lessons-shared.json).'}, {'heading': 'Stages', 'content': 'Phase 0 (Init): init, init.ideate, init.bdd (large+), init.refine. Phase 1 (Design): design.user-research, design.personas, design.info-arch, design.interaction, design.design-system, design.visual-design (all large+). Phase 2 (Architecture): arch.requirements (medium+), arch.solution (medium+), arch.review (complex+). Phase 3 (Implementation): impl.design, impl.code. Phase 4 (Documentation): doc.update. Phase 5 (Verification): verify, e2e.execute (UI projects). Phase 6 (QA): qa.security (medium+), qa.api-contract (medium+), qa.performance (complex+). Phase 7 (Deploy): deploy.prepare, smoke.test (UI projects). Phase 8 (Docs): doc.decisions (medium+), doc.project (medium+). Phase 9 (Post-loop): post.'}, {'heading': 'Skills', 'content': '11 built-in: bmad-integration, bmad-ideation, bmad-bdd-mapper, bmad-brainstorming, bmad-user-research, bmad-personas, bmad-info-arch, bmad-interaction, bmad-design-system, bmad-visual-design, cloud-architect, e2e-playwright, essence, graphify, implementation-architect, requirements-refiner, solution-designer, verifier. 7 self-constructed at runtime: OWASP WSTG (qa.security), OpenAPI (qa.api-contract), performance testing, Project Doc Updater (doc.update), MADR+C4 (doc.decisions), arc42+C4 (doc.project), domain-specific skills (impl.code).'}, {'heading': 'Configuration', 'content': 'Two-layer config: config-template.yaml (framework defaults) + config.yaml (project overrides, gitignored). Sections: model (base_url, model name, temperature, max_tokens, per-stage overrides), framework paths (skill_root, reference_root, stage_root), project paths (artifact_root, log_root, state_file, context_file), auto_sizing (heuristics per complexity level), constraints (per-stage max attempts, E2E gates), hardware (context_window, max_parallel_agents, timeouts), essence (enabled, skill, run_before_stage), agent (max_iterations, tool_timeout, backend, stall_detection), lessons (enabled, files, confirm_threshold), graphify (opt-in), dynamic_graph (enabled, parallel_qa, log_topology), state_history (enabled, retention_per_stage, history_dir), compliance (enabled, mode, check_before_stage, enforce_tool_scope).'}, {'heading': 'Version History', 'content': 'v9.0.0 (2026-07-27): Auto-sizing, TDD per task, Verifier with discrimination sensor, continuous AD-NNN decisions, self-improving lessons. v10.0.0 (2026-07-29): Multi-project architecture via git submodule, isolated artifacts, two-layer config, shared lessons. v10.1.0 (2026-07-31): Continuous documentation (doc.update after impl.code). v10.2.0 (2026-07-31): BMAD Ideation stage (Party Mode, Brainstorming, SDD). v10.3.0 (2026-08-01): Shared lessons from kapa. v10.3.1 (2026-08-01): LangGraph orchestrator, programmatic flow control, local model support, CLI. v10.4.0 (2026-08-04): Structured output + evidence gates, 27 Pydantic schemas, automatic retry. v11.0.0 (2026-08-10): Dynamic graph engineering, GraphBuilder, NodeRegistry, EdgeRulesEngine, parallel QA. v11.1.0: Work type classification (feature/bugfix/operational), compliance gates. v11.2.0: Surgical CLI (rollback, run-node, clear-state, skip-node, history), state history with retention, --pause-at breakpoints. v11.3.0: Context optimization (ProjectMap + ToolResultCache), Graphify passive mode, 88 tests.'}], 'output_path': 'artifacts/project-summary.md', 'format': 'markdown', 'constraints': {'max_length': 'comprehensive but concise', 'style': 'technical documentation', 'sections_required': ['Project Overview', 'Architecture', 'Key Features', 'Directory Structure', 'Stages', 'Skills', 'Configuration', 'Version History']}}",
+  "ideation": "The work item requires creating `artifacts/project-summary.md` — a comprehensive summary of Engineering Loop v11.3. Based on my exploration of the project, I've gathered all necessary information from README.md (1923 lines), CORE.md (237 lines), ORCHESTRATOR.md (750 lines), START.md (238 lines), config-template.yaml (206 lines), state-template.json (45 lines), skill-index.md (79 lines), and directory listings for stages/ (24 stage files), skills/ (11 built-in skill directories), references/ (15 reference files), and eng_loop/src/eng_loop/ (14 Python modules). The summary needs to cover: project overview (persistent while-loop engine for AI-assisted dev, dynamic graph construction), architecture (multi-project via git submodule, LangGraph StateGraph, dual-mode CLI/LLM), key features (26 stages across 7 phases, auto-sizing by complexity, TDD per task, evidence gates, surgical CLI, context optimization with ProjectMap + ToolResultCache), directory structure (framework root, stages, skills, references, eng_loop Python package), stages (full catalog with IDs, phases, min complexity), skills (11 built-in + 7 self-constructed), configuration (two-layer config, model settings, constraints, hardware, dynamic graph, state history), and version history (v9.0.0 through v11.3.0). This is a small complexity documentation task — a single focused write operation.",
+  "ui_project": false,
+  "stages": {
+    "init": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.ideate": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "{'ideation_results': \"The work item requires creating `artifacts/project-summary.md` — a comprehensive summary of Engineering Loop v11.3. Based on my exploration of the project, I've gathered all necessary information from README.md (1923 lines), CORE.md (237 lines), ORCHESTRATOR.md (750 lines), START.md (238 lines), config-template.yaml (206 lines), state-template.json (45 lines), skill-index.md (79 lines), and directory listings for stages/ (24 stage files), skills/ (11 built-in skill directories), references/ (15 reference files), and eng_loop/src/eng_loop/ (14 Python modules). The summary needs to cover: project overview (persistent while-loop engine for AI-assisted dev, dynamic graph construction), architecture (multi-project via git submodule, LangGraph StateGraph, dual-mode CLI/LLM), key features (26 stages across 7 phases, auto-sizing by complexity, TDD per task, evidence gates, surgical CLI, context optimization with ProjectMap + ToolResultCache), directory structure (framework root, stages, skills, references, eng_loop Python package), stages (full catalog with IDs, phases, min complexity), skills (11 built-in + 7 self-constructed), configuration (two-layer config, model settings, constraints, hardware, dynamic graph, state history), and version history (v9.0.0 through v11.3.0). This is a small complexity documentation task — a single focused write operation.\", 'decomposed_tasks': [{'id': 'task-1', 'description': 'Write the complete artifacts/project-summary.md file covering all required sections: project overview, architecture, key features, directory structure, stages catalog, skills registry, configuration reference, and version history', 'complexity': 'small', 'work_type': 'documentation', 'estimated_effort': 'single write operation', 'dependencies': [], 'acceptance_criteria': 'File exists at artifacts/project-summary.md with all 8 required sections populated with accurate information from the project'}], 'ready_for_next': True}",
+      "artifact_path": ""
+    },
+    "init.bdd": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.refine": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "{'refined_work_item': {'title': 'Create artifacts/project-summary.md — Engineering Loop v11.3 Project Summary', 'description': 'Create a comprehensive markdown summary document at `artifacts/project-summary.md` covering all major aspects of the Engineering Loop v11.3 framework.', 'sections': [{'heading': 'Project Overview', 'content': 'Persistent while-loop engine for AI-assisted software development. Dynamic graph construction via LangGraph StateGraph built per work item based on complexity, UI context, work type, and tags. Orchestrates AI sub-agents through the complete SDLC with progressive disclosure, structured output (Pydantic), evidence gates, and auto-sizing. Works with any OpenAI-compatible local model (llama.cpp, vLLM, Ollama). Version 11.3.0.'}, {'heading': 'Architecture', 'content': 'Multi-project via git submodule (.eng/). Dual-mode: (1) CLI mode — Python LangGraph orchestrator with dynamic graph, surgical operations, parallel QA; (2) LLM mode — topology-enforced via ORCHESTRATOR.md with compliance gates. Core components: GraphBuilder (per-work-item graph construction), NodeRegistry (26 NodeSpec), EdgeRulesEngine (declarative routing), StateGraph (programmatic flow control), Pydantic schemas (27 structured outputs), Evidence Gates (quality validation), Essence Sidecar (Four Lenses pre-stage validation).'}, {'heading': 'Key Features', 'content': '26 stages across 7 phases (init, design, arch, impl, verify, QA, deploy, doc, post-loop). Auto-sizing by complexity (small/medium/large/complex). Work type classification (feature/bugfix/operational). TDD per task with red-green-commit. Independent verifier with discrimination sensor. Parallel QA fan-out/fan-in. Surgical CLI (rollback, run-node, clear-state, skip-node, history, --pause-at). State history with retention policy. Context optimization (ProjectMap pre-computed at init, ToolResultCache within micro-loop). BMAD ideation (Party Mode, Brainstorming, SDD). Continuous decisions (AD-NNN). Self-improving lessons system. Knowledge graph (Graphify, opt-in). Compliance gates between stages.'}, {'heading': 'Directory Structure', 'content': 'Framework root (.eng/): stages/ (24 stage procedure markdown files), skills/ (11 built-in skill directories), references/ (15 reference files), eng_loop/ (Python package: cli.py, config.py, graph_builder.py, node_registry.py, edge_rules.py, graph.py, routing.py, schemas.py, state.py, model.py, templates.py, nodes/, tools/), config-template.yaml, state-template.json, skill-index.md, CORE.md, ORCHESTRATOR.md, START.md, README.md. Project artifacts: artifacts/ (architectures/, blueprints/, bdd-journeys/, design/, test-plans/, graph-topology.md, lessons.json, lessons-shared.json).'}, {'heading': 'Stages', 'content': 'Phase 0 (Init): init, init.ideate, init.bdd (large+), init.refine. Phase 1 (Design): design.user-research, design.personas, design.info-arch, design.interaction, design.design-system, design.visual-design (all large+). Phase 2 (Architecture): arch.requirements (medium+), arch.solution (medium+), arch.review (complex+). Phase 3 (Implementation): impl.design, impl.code. Phase 4 (Documentation): doc.update. Phase 5 (Verification): verify, e2e.execute (UI projects). Phase 6 (QA): qa.security (medium+), qa.api-contract (medium+), qa.performance (complex+). Phase 7 (Deploy): deploy.prepare, smoke.test (UI projects). Phase 8 (Docs): doc.decisions (medium+), doc.project (medium+). Phase 9 (Post-loop): post.'}, {'heading': 'Skills', 'content': '11 built-in: bmad-integration, bmad-ideation, bmad-bdd-mapper, bmad-brainstorming, bmad-user-research, bmad-personas, bmad-info-arch, bmad-interaction, bmad-design-system, bmad-visual-design, cloud-architect, e2e-playwright, essence, graphify, implementation-architect, requirements-refiner, solution-designer, verifier. 7 self-constructed at runtime: OWASP WSTG (qa.security), OpenAPI (qa.api-contract), performance testing, Project Doc Updater (doc.update), MADR+C4 (doc.decisions), arc42+C4 (doc.project), domain-specific skills (impl.code).'}, {'heading': 'Configuration', 'content': 'Two-layer config: config-template.yaml (framework defaults) + config.yaml (project overrides, gitignored). Sections: model (base_url, model name, temperature, max_tokens, per-stage overrides), framework paths (skill_root, reference_root, stage_root), project paths (artifact_root, log_root, state_file, context_file), auto_sizing (heuristics per complexity level), constraints (per-stage max attempts, E2E gates), hardware (context_window, max_parallel_agents, timeouts), essence (enabled, skill, run_before_stage), agent (max_iterations, tool_timeout, backend, stall_detection), lessons (enabled, files, confirm_threshold), graphify (opt-in), dynamic_graph (enabled, parallel_qa, log_topology), state_history (enabled, retention_per_stage, history_dir), compliance (enabled, mode, check_before_stage, enforce_tool_scope).'}, {'heading': 'Version History', 'content': 'v9.0.0 (2026-07-27): Auto-sizing, TDD per task, Verifier with discrimination sensor, continuous AD-NNN decisions, self-improving lessons. v10.0.0 (2026-07-29): Multi-project architecture via git submodule, isolated artifacts, two-layer config, shared lessons. v10.1.0 (2026-07-31): Continuous documentation (doc.update after impl.code). v10.2.0 (2026-07-31): BMAD Ideation stage (Party Mode, Brainstorming, SDD). v10.3.0 (2026-08-01): Shared lessons from kapa. v10.3.1 (2026-08-01): LangGraph orchestrator, programmatic flow control, local model support, CLI. v10.4.0 (2026-08-04): Structured output + evidence gates, 27 Pydantic schemas, automatic retry. v11.0.0 (2026-08-10): Dynamic graph engineering, GraphBuilder, NodeRegistry, EdgeRulesEngine, parallel QA. v11.1.0: Work type classification (feature/bugfix/operational), compliance gates. v11.2.0: Surgical CLI (rollback, run-node, clear-state, skip-node, history), state history with retention, --pause-at breakpoints. v11.3.0: Context optimization (ProjectMap + ToolResultCache), Graphify passive mode, 88 tests.'}], 'output_path': 'artifacts/project-summary.md', 'format': 'markdown', 'constraints': {'max_length': 'comprehensive but concise', 'style': 'technical documentation', 'sections_required': ['Project Overview', 'Architecture', 'Key Features', 'Directory Structure', 'Stages', 'Skills', 'Configuration', 'Version History']}}, 'ready_for_architecture': True}",
+      "artifact_path": ""
+    },
+    "design.user-research": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.personas": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.info-arch": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.interaction": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.design-system": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.visual-design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.requirements": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.solution": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.review": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.code": {
+      "done": true,
+      "attempts": 3,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.update": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "verify": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "e2e.execute": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.security": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.api-contract": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.performance": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "deploy.prepare": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "smoke.test": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.decisions": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.project": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "post": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    }
+  },
+  "decisions": [],
+  "stage_artifacts": {},
+  "lessons": [],
+  "errors": [
+    "impl.code agent error: agent_stalled: 'bash' called 10 times consecutively without progress",
+    "impl.code agent error: agent_stalled: 'bash' called 10 times consecutively without progress",
+    "impl.code agent error: agent_stalled: exact repeat of 'bash' 3 times (args: {__arg1: echo \"import os\" > tmp_write.py})"
+  ],
+  "handoffs": {
+    "init": "Stage: init",
+    "init.ideate": "Stage: init.ideate",
+    "init.refine": "Stage: init.refine"
+  },
+  "context_tiers": {},
+  "tags": [],
+  "active_nodes": [
+    "init",
+    "init.ideate",
+    "init.refine",
+    "impl.design",
+    "impl.code",
+    "doc.update",
+    "verify",
+    "deploy.prepare",
+    "post"
+  ],
+  "graph_topology": {
+    "active_nodes": [
+      "init",
+      "init.ideate",
+      "init.refine",
+      "impl.design",
+      "impl.code",
+      "doc.update",
+      "verify",
+      "deploy.prepare",
+      "post"
+    ],
+    "edges": [
+      {
+        "from": "__start__",
+        "to": "init",
+        "type": "fixed"
+      },
+      {
+        "from": "impl-design",
+        "to": "impl-code",
+        "type": "fixed"
+      },
+      {
+        "from": "post",
+        "to": "__end__",
+        "type": "fixed"
+      }
+    ],
+    "parallel_groups": {},
+    "complexity": "unset",
+    "ui_project": false,
+    "total_available": 26,
+    "nodes_included": 9
+  },
+  "parallel_groups": {},
+  "timing": {}
+}

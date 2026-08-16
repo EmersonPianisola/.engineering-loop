@@ -69,7 +69,7 @@ def deduplicate_stage_artifacts(
                 break
 
         if not is_duplicate:
-            for existing_key, _ in seen_hashes.items():
+            for existing_key in seen_hashes:
                 existing_content = result.get(existing_key, "")
                 if estimate_similarity(content, existing_content) >= threshold:
                     removed.append(f"{key} (similar to {existing_key})")
@@ -129,9 +129,12 @@ def build_handoff_summary(
     parts = []
     parts.append(f"Stage: {stage_id}")
 
-    output = stage_result.get("output", stage_result.get("design_output",
-              stage_result.get("architecture_output",
-              stage_result.get("implementation_summary", ""))))
+    output = stage_result.get(
+        "output",
+        stage_result.get(
+            "design_output", stage_result.get("architecture_output", stage_result.get("implementation_summary", ""))
+        ),
+    )
     if output:
         output_str = str(output)
         if len(output_str) > 200:
@@ -195,9 +198,7 @@ class ContextConsolidator:
         existing_handoffs[stage_id] = handoff
         update["handoffs"] = existing_handoffs
 
-        self._artifact_history.setdefault(stage_id, []).append(
-            (compute_text_hash(str(stage_result)), handoff)
-        )
+        self._artifact_history.setdefault(stage_id, []).append((compute_text_hash(str(stage_result)), handoff))
 
         return update
 

@@ -6,14 +6,13 @@ from typing import Any
 from langgraph.types import Command, Send
 
 from eng_loop.state import rollback_to_stage
-from eng_loop.tools.progress import log_stage_done, log_stage_fail
 
 logger = logging.getLogger(__name__)
 
 QA_STAGE_DEFINITIONS = [
-    {"id": "qa.security",     "node": "qa-security",     "min_complexity": "medium"},
+    {"id": "qa.security", "node": "qa-security", "min_complexity": "medium"},
     {"id": "qa.api-contract", "node": "qa-api-contract", "min_complexity": "medium"},
-    {"id": "qa.performance",  "node": "qa-performance",  "min_complexity": "complex"},
+    {"id": "qa.performance", "node": "qa-performance", "min_complexity": "complex"},
 ]
 
 COMPLEXITY_ORDER = {"small": 0, "medium": 1, "large": 2, "complex": 3}
@@ -46,7 +45,8 @@ def qa_dispatcher_node(state: dict[str, Any]) -> Command[str]:
 
     logger.info(
         "qa_dispatcher: fanning out to %d QA nodes: %s",
-        len(qa_nodes), qa_nodes,
+        len(qa_nodes),
+        qa_nodes,
     )
 
     # Use Command.goto with list[Send] for parallel fan-out
@@ -113,13 +113,15 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
 
             gaps = output_data.get("findings", []) + output_data.get("critical_findings", [])
             for gap in gaps:
-                all_fix_tasks.append({
-                    "source": qa_stage_id,
-                    "gap": gap,
-                    "evidence": output_data.get("evidence", ""),
-                    "severity": "critical",
-                    "suggested_fix": "",
-                })
+                all_fix_tasks.append(
+                    {
+                        "source": qa_stage_id,
+                        "gap": gap,
+                        "evidence": output_data.get("evidence", ""),
+                        "severity": "critical",
+                        "suggested_fix": "",
+                    }
+                )
 
     if any_blocked:
         logger.warning("qa_join: one or more QA stages blocked, halting pipeline")
@@ -163,7 +165,8 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
 
         logger.warning(
             "qa_join: %d QA issues, rolling back to impl.code (fix_iteration=%d)",
-            len(all_fix_tasks), fix_iteration,
+            len(all_fix_tasks),
+            fix_iteration,
         )
 
         return Command(
@@ -171,13 +174,19 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                 "stages": reset_stages,
                 "current_stage": "impl-code",
                 "rollback_target": "impl.code",
-                "fix_tasks": all_fix_tasks if all_fix_tasks else [
-                    {"source": "qa.join", "gap": "QA failure detected", "evidence": "", "severity": "critical", "suggested_fix": ""}
+                "fix_tasks": all_fix_tasks
+                if all_fix_tasks
+                else [
+                    {
+                        "source": "qa.join",
+                        "gap": "QA failure detected",
+                        "evidence": "",
+                        "severity": "critical",
+                        "suggested_fix": "",
+                    }
                 ],
                 "fix_iteration": fix_iteration,
-                "errors": [
-                    f"QA join: {len(all_fix_tasks)} issues from parallel QA"
-                ],
+                "errors": [f"QA join: {len(all_fix_tasks)} issues from parallel QA"],
                 "iteration": state.get("iteration", 0) + 1,
             },
             goto="impl-code",

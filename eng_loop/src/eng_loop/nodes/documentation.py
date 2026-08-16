@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DocDecisionsOutput, DocProjectOutput
-from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
-from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
-)
-from langgraph.types import Command
-
-from eng_loop.templates import load_stage_procedure, get_stage_file
 from eng_loop.tools.next_active import resolve_next
+from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
+from eng_loop.tools.progress import (
+    log_artifact,
+    log_stage_done,
+    log_stage_fail,
+)
 
 
 def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -39,7 +39,10 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     extra = f"## DECISIONS RECORDED\n{decisions}" if decisions else ""
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="Decision Log Consolidator",
         include_skill=False,
         extra_sections=extra,
@@ -91,6 +94,7 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
+
     decision_log = result.get("decision_log", "")
     write_file(f"{artifact_root}/decision-log.md", decision_log)
     log_artifact(stage_id, f"{artifact_root}/decision-log.md")
@@ -113,7 +117,7 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
 
 
 def doc_project_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -135,12 +139,16 @@ def doc_project_node(state: dict[str, Any]) -> Command[str]:
     decision_log = state.get("stage_artifacts", {}).get("doc.decisions", "")
     if not decision_log:
         from eng_loop.tools.file_ops import read_file
+
         decision_log = read_file(f"{paths.get('artifact_root', '')}/decision-log.md")
 
     extra = f"## DECISION LOG\n{decision_log}" if decision_log else ""
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="Project Documentation agent",
         include_skill=False,
         extra_sections=extra,

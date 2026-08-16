@@ -42,6 +42,7 @@ def list_dir(path: str | Path, pattern: str | None = None) -> list[str]:
 
 def save_json(path: str | Path, data: dict | list) -> str:
     import json
+
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
@@ -51,6 +52,7 @@ def save_json(path: str | Path, data: dict | list) -> str:
 
 def load_json(path: str | Path) -> dict | list:
     import json
+
     p = Path(path)
     if not p.exists():
         return {}

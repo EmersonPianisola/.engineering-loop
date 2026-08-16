@@ -2,14 +2,13 @@ from __future__ import annotations
 
 """Tests for agent control fixes: stall detection, JSON template, no_write_count."""
 
-import json
-import textwrap
-from eng_loop.tools.stall_detector import StallDetector, create_stall_detector
-from eng_loop.tools.json_parse import extract_json
 from pydantic import BaseModel
 
+from eng_loop.tools.json_parse import extract_json
+from eng_loop.tools.stall_detector import create_stall_detector
 
 # --- Stall Detection: Read-only stages ---
+
 
 def test_readonly_stall_enabled():
     """Read-only stages now have stall detection enabled (was disabled)."""
@@ -31,6 +30,7 @@ def test_readonly_stall_enabled():
     report = sd.check()
     assert report is not None, "Stall detection should catch 25 non-productive reads"
     assert report.stall_type in ("same_tool_repeat", "no_progress")
+    assert report.severity == "soft"
 
 
 def test_readonly_same_file_stall():
@@ -53,6 +53,7 @@ def test_readonly_same_file_stall():
     assert report is not None
     assert report.stall_type == "exact_repeat"
     assert report.count >= 6
+    assert report.severity == "soft"
 
 
 def test_readonly_pagination_stall():
@@ -74,6 +75,7 @@ def test_readonly_pagination_stall():
     report = sd.check()
     assert report is not None
     assert report.stall_type == "exact_repeat"
+    assert report.severity == "soft"
 
 
 def test_readonly_exploration_allowed():
@@ -98,6 +100,7 @@ def test_readonly_exploration_allowed():
 
 # --- Stall Detection: Productive stages ---
 
+
 def test_productive_no_progress_threshold():
     """Productive stages: no_progress threshold lowered from 30 to 15."""
     cfg = {
@@ -116,6 +119,7 @@ def test_productive_no_progress_threshold():
 
     report = sd.check()
     assert report is not None, "15 non-productive reads should trigger stall"
+    assert report.severity == "soft"
 
 
 def test_productive_same_tool_triggers():
@@ -137,6 +141,7 @@ def test_productive_same_tool_triggers():
     report = sd.check()
     assert report is not None
     assert report.stall_type in ("exact_repeat", "same_tool_repeat")
+    assert report.severity == "soft"
 
 
 def test_productive_write_resets_streak():
@@ -164,8 +169,10 @@ def test_productive_write_resets_streak():
 
 # --- JSON Template Generation ---
 
+
 def test_json_template_bool_field():
     """JSON template should generate correct defaults for bool fields."""
+
     class TestSchema(BaseModel):
         complete: bool
 
@@ -179,6 +186,7 @@ def test_json_template_bool_field():
 
 def test_json_template_str_field():
     """JSON template should generate correct defaults for str fields."""
+
     class TestSchema(BaseModel):
         summary: str
 
@@ -192,6 +200,7 @@ def test_json_template_str_field():
 
 def test_json_template_complex_field():
     """JSON template should handle list/dict/optional fields gracefully."""
+
     class TestSchema(BaseModel):
         files: list[str]
         notes: dict[str, str]
@@ -212,6 +221,7 @@ def test_json_template_complex_field():
 
 # --- JSON Extraction ---
 
+
 def test_extract_json_basic():
     """Basic JSON extraction should work."""
     text = 'Here is the result:\n{"complete": true, "summary": "done"}\nEnd.'
@@ -222,7 +232,7 @@ def test_extract_json_basic():
 
 def test_extract_json_markdown_block():
     """JSON inside markdown code block should be extracted."""
-    text = "```json\n{\"complete\": true}\n```"
+    text = '```json\n{"complete": true}\n```'
     result = extract_json(text)
     assert result is not None
     assert result.get("complete") is True
@@ -244,6 +254,7 @@ def test_extract_json_brace_matching():
 
 
 # --- no_write_count enforcement ---
+
 
 def test_no_write_count_threshold():
     """no_write_count should trigger at NO_WRITE_KILL=25 (was 35)."""
@@ -272,6 +283,7 @@ def test_no_write_count_reset_on_write():
 
 
 # --- Integration: Config propagation ---
+
 
 def test_stall_config_productive_stage():
     """Productive stage config should have correct thresholds."""

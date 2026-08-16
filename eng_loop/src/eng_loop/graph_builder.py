@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -12,6 +12,9 @@ from eng_loop.node_registry import NodeRegistry, NodeSpec, build_registry
 from eng_loop.state import PipelineState
 from eng_loop.tools.contract_gate import CONTRACT_RULES, with_contract_gate
 from eng_loop.tools.progress import trace_node
+
+if TYPE_CHECKING:
+    from eng_loop.schemas import AuthorizedGraphTopology
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,23 @@ class GraphBuilder:
         self,
         state: dict[str, Any],
         config: dict[str, Any] | None = None,
+        authorized_topology: AuthorizedGraphTopology | None = None,
     ) -> tuple[StateGraph, GraphTopology]:
+        """Build graph — dual-path compilation.
+
+        If authorized_topology is provided, builds from the architect's proposal.
+        Otherwise, falls back to deterministic filtering + hardcoded edge rules.
+        """
+        if authorized_topology:
+            return self._build_from_proposal(authorized_topology, state)
+        return self._build_deterministic(state, config)
+
+    def _build_deterministic(
+        self,
+        state: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> tuple[StateGraph, GraphTopology]:
+        """Fallback: deterministic graph from registry filter + hardcoded rules."""
         complexity = state.get("complexity", "small")
         ui_project = state.get("ui_project", False)
         tags = state.get("tags", [])
@@ -78,7 +97,7 @@ class GraphBuilder:
             tags=tags,
             work_type=work_type,
         )
-        active_ids = {s.id for s in active_specs}
+        {s.id for s in active_specs}
         active_node_names = {s.node_name for s in active_specs}
 
         topology = GraphTopology()
@@ -117,11 +136,104 @@ class GraphBuilder:
             self._add_parallel_qa(builder, active_specs, active_node_names, state, topology)
 
         logger.info(
-            "Graph built: %d/%d nodes active (complexity=%s, ui=%s)",
+            "Graph built (deterministic): %d/%d nodes active (complexity=%s, ui=%s)",
             len(active_specs),
             len(self.registry),
             complexity,
             ui_project,
+        )
+
+        return builder, topology
+
+    def _build_from_proposal(
+        self,
+        authorized: AuthorizedGraphTopology,
+        state: dict[str, Any],
+    ) -> tuple[StateGraph, GraphTopology]:
+        """Build graph from an authorized topology proposal.
+
+        The proposal has passed all 5 layers of policy validation.
+        This method is purely a compiler: authorized topology → executable graph.
+        """
+        from eng_loop.edge_rules import build_rules_from_proposal
+
+        topology = GraphTopology()
+        topology.complexity = state.get("complexity", "small")
+        topology.ui_project = state.get("ui_project", False)
+        topology.total_available = len(self.registry)
+        topology.active_nodes = list(authorized.authorized_stages)
+        topology.nodes_included = len(authorized.authorized_stages)
+
+        builder = StateGraph(PipelineState)
+
+        # Build node name set from authorized stages
+        stage_id_to_name = {}
+        for spec in self.registry.all_specs():
+            stage_id_to_name[spec.id] = spec.node_name
+
+        # Register all authorized nodes
+        META_NODE_NAMES = {"dynamic-architect", "meta-executor"}
+        active_node_names = set()
+
+        # Always register init-setup (deterministic entry point)
+        setup_spec = self.registry.get("init.setup")
+        if setup_spec:
+            handler = trace_node(setup_spec.id)(setup_spec.handler)
+            builder.add_node(setup_spec.node_name, handler)
+            active_node_names.add(setup_spec.node_name)
+            logger.info("  [proposal] Entry node: %s", setup_spec.node_name)
+
+        # First: always register meta nodes (they handle runtime augmentation)
+        for spec in self.registry.all_specs():
+            if spec.node_name in META_NODE_NAMES:
+                handler = trace_node(spec.id)(spec.handler)
+                builder.add_node(spec.node_name, handler)
+                active_node_names.add(spec.node_name)
+                logger.info("  [proposal] Meta node: %s", spec.node_name)
+
+        # Then: register all authorized stages
+        for stage_id in authorized.authorized_stages:
+            spec = self.registry.get(stage_id)
+            if not spec:
+                logger.warning("  [proposal] Stage '%s' not in registry, skipping", stage_id)
+                continue
+            if spec.node_name in META_NODE_NAMES:
+                continue  # Already registered
+
+            handler = trace_node(spec.id)(spec.handler)
+            if spec.node_name in _get_contract_sources():
+                handler = with_contract_gate(spec.node_name)(handler)
+            builder.add_node(spec.node_name, handler)
+            active_node_names.add(spec.node_name)
+            stage_id_to_name[stage_id] = spec.node_name
+            logger.info("  [proposal] Node: %s (%s)", spec.node_name, spec.description)
+
+        # Build edges from proposal
+        # Reconstruct a temporary proposal object for build_rules_from_proposal
+        from eng_loop.schemas import GraphTopologyProposal
+
+        temp_proposal = GraphTopologyProposal(
+            plan_id=authorized.plan_id,
+            work_type=state.get("work_type", "feature"),
+            complexity=state.get("complexity", "small"),
+            required_stages=authorized.authorized_stages,
+            edges=authorized.authorized_edges,
+            phase_groups=authorized.phase_groups,
+            execution_policies=authorized.execution_policies,
+            rationale=authorized.rationale,
+        )
+
+        proposal_rules = build_rules_from_proposal(temp_proposal, self.parallel_qa)
+        bypassed = proposal_rules.resolve_with_bypass(active_node_names | {"__start__"}, state)
+        self._add_edges(builder, bypassed, active_node_names, state, topology)
+
+        if authorized.policy_notes:
+            logger.info("  [proposal] Policy notes: %s", authorized.policy_notes)
+
+        logger.info(
+            "Graph built (proposal %s): %d nodes",
+            authorized.plan_id,
+            len(active_node_names),
         )
 
         return builder, topology
@@ -132,8 +244,9 @@ class GraphBuilder:
         config: dict[str, Any] | None = None,
         checkpointer: Any | None = None,
         interrupt_before: list[str] | None = None,
+        authorized_topology: AuthorizedGraphTopology | None = None,
     ) -> tuple[Any, GraphTopology]:
-        builder, topology = self.build(state, config)
+        builder, topology = self.build(state, config, authorized_topology)
         kwargs: dict[str, Any] = {}
         if checkpointer:
             kwargs["checkpointer"] = checkpointer
@@ -300,7 +413,8 @@ def build_dynamic_graph(
     state: dict[str, Any],
     config: dict[str, Any] | None = None,
     checkpointer: Any | None = None,
+    authorized_topology: AuthorizedGraphTopology | None = None,
 ) -> tuple[Any, GraphTopology]:
     parallel_qa = (config or {}).get("dynamic_graph", {}).get("parallel_qa", False)
     builder = GraphBuilder(parallel_qa=parallel_qa)
-    return builder.compile(state, config, checkpointer)
+    return builder.compile(state, config, checkpointer, authorized_topology=authorized_topology)

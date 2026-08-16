@@ -26,6 +26,7 @@ def _make_mock_agent_result(data, error=None):
 # NODE REGISTRY VALIDATION
 # ============================================================
 
+
 class TestNodeRegistry:
     def test_all_handlers_callable(self):
         registry = build_registry()
@@ -54,6 +55,7 @@ class TestNodeRegistry:
 # NODE HANDLERS - STATE PROCESSING
 # ============================================================
 
+
 class TestInitNode:
     def test_init_node_receives_state(self):
         registry = build_registry()
@@ -61,13 +63,15 @@ class TestInitNode:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test work item"
-        mock_result = _make_mock_agent_result({
-            "valid": True,
-            "work_item_refined": "Test work item",
-            "estimated_files": 5,
-            "estimated_tasks": 3,
-            "notes": "validated",
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "valid": True,
+                "work_item_refined": "Test work item",
+                "estimated_files": 5,
+                "estimated_tasks": 3,
+                "notes": "validated",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -78,11 +82,13 @@ class TestInitNode:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "ideation_results": "some ideas",
-            "decomposed_tasks": ["task1"],
-            "ready_for_next": True,
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "ideation_results": "some ideas",
+                "decomposed_tasks": ["task1"],
+                "ready_for_next": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -93,10 +99,12 @@ class TestInitNode:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "refined_work_item": "Refined test",
-            "ready_for_architecture": True,
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "refined_work_item": "Refined test",
+                "ready_for_architecture": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -109,9 +117,15 @@ class TestImplNodes:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "blueprint": "plan", "tasks": [], "file_structure": {}, "complete": True, "decisions": [],
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "blueprint": "plan",
+                "tasks": [],
+                "file_structure": {},
+                "complete": True,
+                "decisions": [],
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -122,10 +136,16 @@ class TestImplNodes:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "implementation_summary": "done", "files_created": [], "tests_passed": True,
-            "complete": True, "decisions": [], "diff": "",
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "implementation_summary": "done",
+                "files_created": [],
+                "tests_passed": True,
+                "complete": True,
+                "decisions": [],
+                "diff": "",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -151,10 +171,16 @@ class TestVerifyNodes:
             state = make_initial_state({}, {})
             state["work_item"] = "Test"
             state["paths"] = {"artifact_root": tmp}
-            mock_result = _make_mock_agent_result({
-                "verdict": "PASS", "per_ac_evidence": [], "discrimination_sensor": {},
-                "coverage_audit": {}, "gaps": [], "complete": True,
-            })
+            mock_result = _make_mock_agent_result(
+                {
+                    "verdict": "PASS",
+                    "per_ac_evidence": [],
+                    "discrimination_sensor": {},
+                    "coverage_audit": {},
+                    "gaps": [],
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
                 result = spec.handler(state)
             assert isinstance(result, Command)
@@ -167,9 +193,14 @@ class TestQANodes:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "verdict": "PASS", "findings": [], "critical_findings": [], "complete": True,
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "verdict": "PASS",
+                "findings": [],
+                "critical_findings": [],
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -179,9 +210,14 @@ class TestQANodes:
         spec = registry.get("qa.api-contract")
         assert spec is not None
         state = make_initial_state({}, {})
-        mock_result = _make_mock_agent_result({
-            "verdict": "PASS", "findings": [], "critical_findings": [], "complete": True,
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "verdict": "PASS",
+                "findings": [],
+                "critical_findings": [],
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -194,10 +230,16 @@ class TestDeployNodes:
         assert spec is not None
         state = make_initial_state({}, {})
         state["work_item"] = "Test"
-        mock_result = _make_mock_agent_result({
-            "build_status": "ok", "lint_status": "ok", "type_check_status": "ok",
-            "verdict": "PASS", "errors": [], "complete": True,
-        })
+        mock_result = _make_mock_agent_result(
+            {
+                "build_status": "ok",
+                "lint_status": "ok",
+                "type_check_status": "ok",
+                "verdict": "PASS",
+                "errors": [],
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             result = spec.handler(state)
         assert isinstance(result, Command)
@@ -211,9 +253,12 @@ class TestDocNodes:
         with tempfile.TemporaryDirectory() as tmp:
             state = make_initial_state({}, {})
             state["paths"] = {"artifact_root": tmp}
-            mock_result = _make_mock_agent_result({
-                "decisions_document": "AD-001: Use REST", "complete": True,
-            })
+            mock_result = _make_mock_agent_result(
+                {
+                    "decisions_document": "AD-001: Use REST",
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
                 result = spec.handler(state)
             assert isinstance(result, Command)
@@ -225,9 +270,12 @@ class TestDocNodes:
         with tempfile.TemporaryDirectory() as tmp:
             state = make_initial_state({}, {})
             state["paths"] = {"artifact_root": tmp}
-            mock_result = _make_mock_agent_result({
-                "project_documentation": "arc42 doc", "complete": True,
-            })
+            mock_result = _make_mock_agent_result(
+                {
+                    "project_documentation": "arc42 doc",
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
                 result = spec.handler(state)
             assert isinstance(result, Command)
@@ -242,9 +290,14 @@ class TestPostNode:
             state = make_initial_state({}, {})
             state["paths"] = {"artifact_root": tmp}
             state["config"] = {"lessons": {"enabled": False}}
-            mock_result = _make_mock_agent_result({
-                "summary": "done", "lessons_to_share": 0, "final_status": "done", "complete": True,
-            })
+            mock_result = _make_mock_agent_result(
+                {
+                    "summary": "done",
+                    "lessons_to_share": 0,
+                    "final_status": "done",
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
                 result = spec.handler(state)
             assert isinstance(result, Command)
@@ -253,6 +306,7 @@ class TestPostNode:
 # ============================================================
 # NODE METADATA VALIDATION
 # ============================================================
+
 
 class TestNodeMetadata:
     def test_complexity_thresholds(self):

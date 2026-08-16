@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import PostOutput
+from eng_loop.templates import get_stage_file, load_stage_procedure
 from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
+    log_artifact,
+    log_stage_done,
+    log_stage_fail,
 )
-from langgraph.types import Command
-
-from eng_loop.templates import load_stage_procedure, get_stage_file
 
 
 def post_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -34,7 +35,8 @@ def post_node(state: dict[str, Any]) -> Command[str]:
     lessons_data = {}
     confirmed = []
     if config.get("lessons", {}).get("enabled", True):
-        from eng_loop.tools.lessons import load_lessons, get_confirmed_lessons, promote_to_pending, save_lessons
+        from eng_loop.tools.lessons import get_confirmed_lessons, load_lessons, promote_to_pending, save_lessons
+
         lessons_data = load_lessons(paths.get("artifact_root", ""))
         confirmed = get_confirmed_lessons(lessons_data) or []
         promoted = promote_to_pending(lessons_data.get("local", {}))
@@ -48,7 +50,7 @@ def post_node(state: dict[str, Any]) -> Command[str]:
 {stage_proc}
 
 ## WORK ITEM
-{state.get('work_item', '')}
+{state.get("work_item", "")}
 
 ## DECISIONS
 {decisions}
@@ -60,13 +62,13 @@ def post_node(state: dict[str, Any]) -> Command[str]:
 {len(confirmed) if confirmed else 0}
 
 ## PROJECT ROOT
-{paths.get('project_root', '.')}
+{paths.get("project_root", ".")}
 
 Use your tools to:
 1. Run full test suite with bash
 2. Run lint/build with bash
 3. Commit changes with bash: git add + git commit
-4. Write final summary to {paths.get('artifact_root', '')}/post-loop-summary.md
+4. Write final summary to {paths.get("artifact_root", "")}/post-loop-summary.md
 
 Execute:
 1. Skill improvement — extract lessons, update skills
@@ -103,6 +105,7 @@ Return a JSON object with these fields: summary, lessons_to_share, final_status,
     summary = result.get("summary", "")
     if summary:
         from eng_loop.tools.file_ops import write_file
+
         artifact_root = paths.get("artifact_root", "")
         write_file(f"{artifact_root}/post-loop-summary.md", summary)
         log_artifact(stage_id, f"{artifact_root}/post-loop-summary.md")

@@ -117,6 +117,7 @@ STAGE_ARTIFACT_INCLUDES: dict[str, list[str]] = {
 # PROMPT BUILDER
 # ============================================================
 
+
 class SystemPrefix:
     """Shared system prefix that is constructed once and reused across stages.
 
@@ -161,6 +162,11 @@ class SystemPrefix:
         if ideation:
             parts.append(f"## IDEATION\n{ideation}")
 
+        # Project Map — pre-computed structural overview (eliminates exploratory glob/read)
+        project_map_section = self._get_project_map_section()
+        if project_map_section:
+            parts.append(project_map_section)
+
         decisions = self._state.get("decisions", [])
         if decisions:
             parts.append("## DECISIONS (accumulated)")
@@ -171,6 +177,16 @@ class SystemPrefix:
         self._hash = state_hash
         return self._prefix
 
+    def _get_project_map_section(self) -> str:
+        """Get project map section from state. Returns empty string if not built."""
+        pm_data = self._state.get("project_map")
+        if not pm_data or not pm_data.get("tree"):
+            return ""
+        from eng_loop.tools.project_map import ProjectMap
+
+        pm = ProjectMap.from_dict(pm_data)
+        return pm.to_prompt_section()
+
     def _compute_hash(self) -> str:
         hashable = (
             self._state.get("work_item", ""),
@@ -179,6 +195,7 @@ class SystemPrefix:
             self._state.get("ui_project", False),
             self._state.get("ideation", ""),
             str(self._state.get("decisions", [])),
+            str(self._state.get("project_map", {}).get("tree", "")[:500]),
             str(self._paths),
         )
         return hashlib.md5(str(hashable).encode()).hexdigest()
@@ -275,7 +292,7 @@ class StageContext:
                 ref_path = mapping["disk_path"] or f"(in-memory artifact: {key})"
                 parts.append(f"## {key.upper().replace('_', ' ')}")
                 parts.append(f"Path: {ref_path}")
-                parts.append(f"Use `read` tool to access this artifact. Do NOT embed content in your reasoning.")
+                parts.append("Use `read` tool to access this artifact. Do NOT embed content in your reasoning.")
                 parts.append("")
             else:
                 parts.append(f"## {key.upper().replace('_', ' ')}")
@@ -312,6 +329,7 @@ class StageContext:
 
     def _get_upstream_stages(self) -> list[str]:
         from eng_loop.state import STAGE_ORDER
+
         current_idx = None
         for i, s in enumerate(STAGE_ORDER):
             if s == self.stage_id:
@@ -319,7 +337,7 @@ class StageContext:
                 break
         if current_idx is None or current_idx <= 0:
             return []
-        recent = STAGE_ORDER[max(0, current_idx - 5):current_idx]
+        recent = STAGE_ORDER[max(0, current_idx - 5) : current_idx]
         return list(reversed(recent))
 
 

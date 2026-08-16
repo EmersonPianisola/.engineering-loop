@@ -69,6 +69,7 @@ class TestWorkTypeRouting:
     def test_documentation(self):
         from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES
         from eng_loop.tools.next_active import _is_active
+
         s = _ms(wt="documentation")
         assert _is_active("init", s)
         assert _is_active("impl.code", s)
@@ -79,6 +80,7 @@ class TestWorkTypeRouting:
     def test_operational(self):
         from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
         from eng_loop.tools.next_active import _is_active
+
         s = _ms(wt="operational")
         assert _is_active("init", s)
         for sid in OPERATIONAL_EXCLUDED_STAGES:
@@ -86,8 +88,16 @@ class TestWorkTypeRouting:
 
     def test_bugfix(self):
         from eng_loop.tools.next_active import _is_active
+
         s = _ms(wt="bugfix")
-        for sid in ["design.user-research", "design.personas", "design.info-arch", "design.interaction", "design.design-system", "design.visual-design"]:
+        for sid in [
+            "design.user-research",
+            "design.personas",
+            "design.info-arch",
+            "design.interaction",
+            "design.design-system",
+            "design.visual-design",
+        ]:
             assert not _is_active(sid, s), f"{sid} excluded for bugfix"
         assert _is_active("impl.code", s)
         assert _is_active("verify", s)
@@ -96,8 +106,36 @@ class TestWorkTypeRouting:
 class TestLargeUIFlow:
     def test_all_nodes_active(self):
         from eng_loop.tools.next_active import _is_active
+
         s = _ms(complexity="complex", ui=True)
-        for sid in ["init", "init.ideate", "init.bdd", "init.refine", "design.user-research", "design.personas", "design.info-arch", "design.interaction", "design.design-system", "design.visual-design", "arch.requirements", "arch.solution", "arch.review", "impl.design", "impl.code", "doc.update", "verify", "e2e.execute", "qa.security", "qa.api-contract", "qa.performance", "deploy.prepare", "smoke.test", "doc.decisions", "doc.project", "post"]:
+        for sid in [
+            "init",
+            "init.ideate",
+            "init.bdd",
+            "init.refine",
+            "design.user-research",
+            "design.personas",
+            "design.info-arch",
+            "design.interaction",
+            "design.design-system",
+            "design.visual-design",
+            "arch.requirements",
+            "arch.solution",
+            "arch.review",
+            "impl.design",
+            "impl.code",
+            "doc.update",
+            "verify",
+            "e2e.execute",
+            "qa.security",
+            "qa.api-contract",
+            "qa.performance",
+            "deploy.prepare",
+            "smoke.test",
+            "doc.decisions",
+            "doc.project",
+            "post",
+        ]:
             assert _is_active(sid, s), f"{sid} should be active for complex+UI"
 
     def test_verify_to_e2e(self):

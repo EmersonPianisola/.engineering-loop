@@ -2,92 +2,125 @@
 
 ## What This Repo Is
 
-Framework documentation for an AI-assisted development loop engine. Consumer projects install it as a git submodule at `.eng/`. This repo contains **only framework code** — stages, skills, references, templates, and install scripts. No application code, no tests, no build system.
+Framework for an AI-assisted development loop engine. Consumer projects install it as a git submodule at `.eng/`. Contains framework code only: stages, skills, references, templates, install scripts, and the `eng_loop/` Python package.
 
-## Dual-Mode Architecture (v11)
+## Two Kinds of Files — Don't Confuse Them
 
-The loop runs in two modes:
-
-| Mode | How | Enforcement |
-|------|-----|-------------|
-| **Python CLI** | `eng-loop --dynamic-graph` | LangGraph executes compiled graph — deterministic |
-| **LLM Prompt** | LLM reads `ORCHESTRATOR.md` | LLM builds topology via Python, then follows generated plan |
-
-### Python CLI Mode (deterministic)
-
-```bash
-eng-loop --dynamic-graph -w "Add OAuth2 login"
-eng-loop --dynamic-graph --parallel-qa -w "Add OAuth2 login"
-```
-
-LangGraph compiles the graph from active nodes only. The LLM has no choice about routing.
-
-### LLM Prompt Mode (topology-enforced)
-
-The LLM reads `ORCHESTRATOR.md`, which instructs it to:
-1. Run `eng-loop --build-topology -w "work item"` — Python generates the graph
-2. Read `{artifact-root}/graph-topology.md` — the execution plan
-3. Follow the plan exactly — active stages, routing rules, constraints
-
-This solves the problem of LLM ignoring the loop: the graph is built by Python, the LLM follows it.
-
-### Dynamic Graph Components
-
-- `node_registry.py` — 26 stages registered as `NodeSpec` with metadata
-- `edge_rules.py` — Declarative `EdgeRule` connections between nodes
-- `graph_builder.py` — `GraphBuilder` class that builds and compiles the graph
-- `graph.py` — Delegates to `GraphBuilder` when dynamic mode is enabled; static mode preserved
-- `cli.py --build-topology` — Generates topology markdown for LLM orchestrator
-
-Parallel QA (`--parallel-qa` or `config.dynamic_graph.parallel_qa: true`) enables fan-out/fan-in for `qa.security`, `qa.api-contract`, `qa.performance`.
-
-## Key Constraint: Read-Only Framework vs. Project Files
-
-Framework files (git-tracked) must never be modified at runtime. Project files (gitignored) are generated per-project:
-
-| Tracked (read-only) | Gitignored (project) |
+| Read-only (git-tracked) | Project-specific (gitignored) |
 |---|---|
 | `config-template.yaml` | `config.yaml` |
 | `state-template.json` | `state.json` |
 | `stages/`, `skills/`, `references/` | `artifacts/` |
 | `ORCHESTRATOR.md`, `CORE.md`, `START.md` | `STATE.md`, `context.md` |
+| `eng_loop/` (Python package) | — |
 
-See `.gitignore` for the full list. If you're editing a file that should be project-specific, you're in the wrong place — that belongs in the consumer project.
+If you're about to edit a file that should be project-specific, you're in the wrong place.
 
-## Directory Structure
+## Python Package: `eng_loop/`
 
-- `stages/` — 23 stage procedure files. Each is a markdown document describing one phase of the loop (init → design → arch → impl → verify → qa → deploy → doc → post).
-- `skills/` — 9 skill definitions (`SKILL.md` per skill). Skills like `verifier`, `solution-designer`, `requirements-refiner`, `implementation-architect`, `bmad-integration`, `bmad-bdd-mapper`, `e2e-playwright`, `graphify`, `cloud-architect`.
-- `references/` — 12 shared reference documents (essence-sidecar, exit-conditions, anti-patterns, lessons, etc.).
-- `setup/` — Install scripts (`install.sh`, `install.ps1`). Copy templates → project files, create directories.
-- `skill-index.md` — Skill registry. Single source of truth for skill ID → stage mapping.
-- `config-template.yaml` — Framework defaults. Deep-merged with project `config.yaml`.
-- `state-template.json` — Initial state for all 23 stages.
+The orchestrator is a real Python package, not just docs. It has tests, linting, and a CLI.
 
-## Editing Stages
+```
+eng_loop/
+├── pyproject.toml          # Package config: ruff, pytest, entry point
+├── src/eng_loop/           # Package source
+│   ├── cli.py              # Entry point (eng-loop command, pre-build architect)
+│   ├── graph_builder.py    # Dual-path builder (proposal or deterministic)
+│   ├── node_registry.py    # 29 registered NodeSpec stages
+│   ├── edge_rules.py       # Declarative edge rules + proposal compiler
+│   ├── state.py            # PipelineState schema + reducers + node catalog
+│   ├── schemas.py          # 31 Pydantic schemas (5 topology + 26 stage)
+│   ├── config.py           # YAML loader, deep merge
+│   ├── nodes/              # One module per stage group (init, design, impl, qa, etc.)
+│   │   └── dynamic_architect.py  # Pre-build topology + runtime augmentation
+│   └── tools/              # ~35 tool modules
+│       └── policy_resolver.py    # 5-layer topology firewall + tool sandboxing
+└── tests/                  # 28+ test files (1484 tests)
+```
 
-Each stage file in `stages/` follows the pattern `{stage-id}.md`. Stage IDs use dot notation (e.g., `impl.code`, `qa.security`). The file name must match the ID with dots replaced by hyphens (e.g., `impl-code.md`, `qa-security.md`). The orchestrator loads stages by ID → file lookup.
+Install (editable) and run commands from the `eng_loop/` directory:
 
-## Editing Skills
+```bash
+# Install package with dev deps
+pip install -e "eng_loop/[dev]"
 
-Each skill lives in `skills/{name}/SKILL.md`. If you add or rename a skill, update `skill-index.md` — it is the authoritative registry that maps skill IDs to stages.
+# Lint
+ruff check eng_loop/src eng_loop/tests
 
-## Editing Config Defaults
+# Format
+ruff format eng_loop/src eng_loop/tests
 
-`config-template.yaml` contains framework defaults. Projects override via their own `config.yaml`. Never change a default without updating any docs that reference the old value. Key config sections: `constraints`, `hardware`, `essence`, `auto_sizing`, `lessons`, `graphify`.
+# Run all tests
+pytest eng_loop/tests
+
+# Run single test file
+pytest eng_loop/tests/test_config.py -v
+
+# Run single test
+pytest eng_loop/tests/test_config.py -v -k "test_merge"
+```
+
+The CLI entry point is `eng-loop` (defined in `pyproject.toml` → `[project.scripts]`). After editable install, it's available on PATH.
+
+## Stage Files (`stages/`)
+
+24 markdown files, one per stage. Naming: stage ID with dots replaced by hyphens (e.g., `impl.code` → `impl-code.md`). These are **prompt templates** loaded at runtime by `templates.py`, not instructions for the orchestrator.
+
+## Skills (`skills/`)
+
+11 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
+
+## References (`references/`)
+
+15 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, etc.).
+
+## Config
+
+`config-template.yaml` contains framework defaults. Projects override via `config.yaml`. Deep-merge: project values win. Key sections: `constraints`, `hardware`, `essence`, `auto_sizing`, `lessons`, `graphify`, `dynamic_graph`.
 
 ## State Template
 
-`state-template.json` must stay in sync with the stage registry in `CORE.md` and `skill-index.md`. If a stage is added or removed, update all three: the template, the stage file, and the registry.
+`state-template.json` must stay in sync with:
+- Stage registry in `node_registry.py`
+- Stage catalog in `CORE.md`
+- Skill mapping in `skill-index.md`
 
-## No Build, Test, or Lint
+If a stage is added or removed, update all four.
 
-This is a documentation/template repo. There are no executable commands to run. Validation is done by loading `ORCHESTRATOR.md` in an agent session and verifying the loop runs correctly against a consumer project.
+## Editing Conventions
+
+- **Stage ID → filename**: `impl.code` → `stages/impl-code.md`
+- **NodeSpec registration**: Add to `node_registry.py` with `NodeSpec(id=..., node_name=..., handler=..., phase=...)`
+- **Edge rules**: Add declarative `EdgeRule` in `edge_rules.py`
+- **Pydantic schema**: Add matching schema in `schemas.py` for structured output
+- **Topology proposal**: New schemas in `schemas.py` (topology section, before DYNAMIC NODE ORCHESTRATION)
+- **Policy firewall**: New validation layers in `policy_resolver.py` (after `authorize_blueprint`)
+- **ruff config**: `target-version = "py310"`, `line-length = 120` (in `eng_loop/pyproject.toml`)
+
+## Topology Proposal Architecture
+
+The graph is no longer built from hardcoded rules. Instead:
+
+1. **LLM Architect** proposes `GraphTopologyProposal` (stages, edges, phases, policies)
+2. **Policy Firewall** authorizes through 5 layers (structural, registry, boundary, connectivity, semantic)
+3. **Graph Builder** compiles authorized topology into executable LangGraph
+4. **Fallback**: If architect unavailable or proposal rejected, deterministic builder ensures execution
+
+**Invariant:** LLM proposes → Policy authorizes → Builder compiles → Runtime executes.
+
+When modifying the topology system, update these components in order:
+1. `schemas.py` — contract (topology schemas)
+2. `edge_rules.py` — proposal compiler
+3. `policy_resolver.py` — firewall validation
+4. `graph_builder.py` — dual-path compilation
+5. `dynamic_architect.py` — LLM architect
+6. `cli.py` — pre-build invocation
+7. Tests — invariant matrix
+
+## Git Submodule
+
+This repo is consumed as a submodule. Breaking changes (renamed stages, removed config keys) should be noted in `skill-index.md`'s improvement log. Consumer projects pick up changes with `git submodule update --remote`.
 
 ## OpenCode Config
 
-`.opencode/opencode.json` contains local model provider config. The `.opencode/` directory is gitignored by the repo's `.gitignore` and should not be committed.
-
-## Git Submodule Considerations
-
-This repo is consumed as a submodule. Any change here requires consumer projects to run `git submodule update --remote` to pick it up. Breaking changes (renamed stages, removed config keys) should be noted in `skill-index.md`'s improvement log.
+`.opencode/opencode.json` contains local model provider config. The `.opencode/` directory is gitignored — do not commit it.

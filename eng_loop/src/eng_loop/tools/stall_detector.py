@@ -4,12 +4,69 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-
 # Tools that constitute "productive" work (modify state or execute commands)
 DEFAULT_PRODUCTIVE_TOOLS = {"write", "edit", "bash"}
 
 # Args keys to ignore when computing exact-match hash (pagination, limits, etc.)
 IGNORED_ARG_KEYS = {"limit", "offset", "max_lines", "start_line", "end_line"}
+
+# Safe inspection commands — repeats are annoying but not dangerous
+SAFE_INSPECTION_COMMANDS = {
+    "ls",
+    "ls -la",
+    "ls -l",
+    "ls -a",
+    "dir",
+    "dir /s",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "tree",
+    "pwd",
+    "whoami",
+    "find",
+    "grep",
+    "git status",
+    "git diff",
+    "git log",
+    "echo",
+    "test",
+    "stat",
+    "file",
+    "which",
+    "type",
+}
+
+# Read-only tools that are safe to repeat (inspection/exploration)
+SAFE_READ_TOOLS = {"read", "glob", "grep"}
+
+
+def _is_safe_inspection(tool_name: str, tool_args: dict) -> bool:
+    """Determine if a tool call is a safe read-only inspection.
+
+    Returns True for read/glob/grep tools, and for bash commands that
+    are purely informational (ls, cat, grep, find, git status, etc.).
+    """
+    if tool_name in SAFE_READ_TOOLS:
+        return True
+
+    if tool_name == "bash":
+        command = ""
+        for key in ("command", "__arg1", "cmd"):
+            if key in tool_args:
+                command = str(tool_args[key]).strip()
+                break
+        if command:
+            first_token = command.split()[0].lower() if command.split() else ""
+            if first_token in SAFE_INSPECTION_COMMANDS:
+                return True
+            norm = command.strip().lower()
+            for safe_cmd in SAFE_INSPECTION_COMMANDS:
+                if norm.startswith(safe_cmd.lower()):
+                    return True
+
+    return False
 
 
 @dataclass
@@ -18,6 +75,7 @@ class StallReport:
     tool_name: str
     count: int
     message: str
+    severity: str = "hard"  # "soft" — can be handled with steering prompt instead of abort
 
 
 @dataclass
@@ -70,14 +128,14 @@ class StallDetector:
 
         # Keep window bounded
         if len(self._calls) > self.window_size * 2:
-            self._calls = self._calls[-self.window_size:]
+            self._calls = self._calls[-self.window_size :]
 
     def check(self) -> StallReport | None:
         """Check current window for stall patterns. Returns StallReport if stalled, None if OK."""
         if not self.enabled or len(self._calls) < self.exact_threshold:
             return None
 
-        window = self._calls[-self.window_size:]
+        window = self._calls[-self.window_size :]
 
         # Check 1: Exact repeat (same tool + same normalized args)
         exact = self._detect_exact_repeat(window)
@@ -119,14 +177,13 @@ class StallDetector:
         if consecutive >= self.exact_threshold:
             last = window[-1]
             sample_args = self._summarize_args(last.args_raw)
+            severity = "soft" if _is_safe_inspection(last.name, last.args_raw) else "hard"
             return StallReport(
                 stall_type="exact_repeat",
                 tool_name=last.name,
                 count=consecutive,
-                message=(
-                    f"agent_stalled: exact repeat of '{last.name}' {consecutive} times"
-                    f" (args: {sample_args})"
-                ),
+                message=(f"agent_stalled: exact repeat of '{last.name}' {consecutive} times (args: {sample_args})"),
+                severity=severity,
             )
         return None
 
@@ -145,14 +202,14 @@ class StallDetector:
                 break
 
         if consecutive >= self.same_tool_threshold:
+            last = window[-1]
+            severity = "soft" if _is_safe_inspection(last_name, last.args_raw) else "hard"
             return StallReport(
                 stall_type="same_tool_repeat",
                 tool_name=last_name,
                 count=consecutive,
-                message=(
-                    f"agent_stalled: '{last_name}' called {consecutive} times consecutively"
-                    f" without progress"
-                ),
+                message=(f"agent_stalled: '{last_name}' called {consecutive} times consecutively without progress"),
+                severity=severity,
             )
         return None
 
@@ -161,7 +218,7 @@ class StallDetector:
         if self._non_productive_streak < self.no_progress_threshold:
             return None
 
-        tools_seen = sorted(set(c.name for c in self._calls[-self.no_progress_threshold:]))
+        tools_seen = sorted({c.name for c in self._calls[-self.no_progress_threshold :]})
         return StallReport(
             stall_type="no_progress",
             tool_name="multiple",

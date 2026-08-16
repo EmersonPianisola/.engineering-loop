@@ -47,7 +47,13 @@ class TestUIManagerRendering:
     def test_render_result_blocked(self):
         m = UIManager()
         m.console = console
-        m.render_result("blocked", "max attempts", 10, [], {"init": {"done": True, "attempts": 1}, "impl.code": {"done": False, "attempts": 3}})
+        m.render_result(
+            "blocked",
+            "max attempts",
+            10,
+            [],
+            {"init": {"done": True, "attempts": 1}, "impl.code": {"done": False, "attempts": 3}},
+        )
 
     def test_render_evidence_gate_pass(self):
         m = UIManager()
@@ -98,6 +104,7 @@ class TestTraceNodeGap:
         @trace_node("t")
         def h(s):
             return {"r": "ok"}
+
         with patch("eng_loop.tools.progress.log_stage_enter"), patch("eng_loop.tools.progress.log_stage_complete"):
             assert h({"iteration": 1}) == {"r": "ok"}
 
@@ -105,6 +112,7 @@ class TestTraceNodeGap:
         @trace_node("t")
         def h(s):
             raise ValueError("err")
+
         with patch("eng_loop.tools.progress.log_stage_enter"), patch("eng_loop.tools.progress.log_stage_fail") as mf:
             try:
                 h({})

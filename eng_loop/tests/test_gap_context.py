@@ -47,13 +47,16 @@ class TestContextSlice:
 
     def test_rules_exist_for_all_stages(self):
         from eng_loop.state import STAGE_ORDER
+
         for stage_id in STAGE_ORDER:
             assert stage_id in CONTEXT_SLICE_RULES, f"Missing rules for {stage_id}"
 
 
 class TestContextConsolidator:
     def test_handoff_summary(self):
-        r = build_handoff_summary("impl.code", {"implementation_summary": "Auth", "files_created": ["a.py"]}, ["Use OAuth2"])
+        r = build_handoff_summary(
+            "impl.code", {"implementation_summary": "Auth", "files_created": ["a.py"]}, ["Use OAuth2"]
+        )
         assert isinstance(r, str)
         assert len(r) > 0
 

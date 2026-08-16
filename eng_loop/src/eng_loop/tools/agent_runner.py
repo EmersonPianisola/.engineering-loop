@@ -6,20 +6,26 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Type
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages.ai import AIMessageChunk
 from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
-    _get_active_spinner, log_model_invoke, log_model_done, log_stage_complete, log_stage_done, log_stage_fail,
-    log_stall_warning,
+    _get_active_spinner,
+    log_model_done,
+    log_model_invoke,
+    log_stage_complete,
+    log_stage_fail,
+    ui,
 )
-from eng_loop.tools.stall_detector import create_stall_detector, StallDetector
+from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
 
 if TYPE_CHECKING:
     ProgressCallback = Callable[[str, str], None]
@@ -27,6 +33,7 @@ if TYPE_CHECKING:
 
 class AgentResult:
     """Result from an agent execution."""
+
     def __init__(
         self,
         data: dict[str, Any],
@@ -44,12 +51,116 @@ class AgentResult:
         self.error = error
 
 
+# ============================================================
+# COMMAND HISTORY BUFFER — prevents redundant inspection loops
+# ============================================================
+# Tracks all inspection/read commands per stage. When the agent
+# attempts to re-execute a command whose output is already in
+# context, intercepts and injects a steering ToolMessage instead
+# of running the command again.
+# ============================================================
+
+STEERING_REPEAT_THRESHOLD = 2  # Intercept on 2nd repeat (3rd execution total)
+READONLY_READ_THRESHOLD = 5  # Higher tolerance for read-only stages (init, design, arch)
+
+
+class CommandHistoryBuffer:
+    """Tracks inspection commands per stage to prevent redundant re-execution.
+
+    Normalizes commands/args, tracks repeat count, and generates
+    steering messages when redundancy is detected.
+
+    For read-only stages (init, design, arch), uses a higher threshold
+    for read tools — the agent's primary job IS to read files.
+    """
+
+    def __init__(self, repeat_threshold: int = STEERING_REPEAT_THRESHOLD, has_productive_tools: bool = True):
+        self._history: dict[str, int] = {}
+        self._repeat_threshold = repeat_threshold
+        self._has_productive_tools = has_productive_tools
+
+    @staticmethod
+    def normalize(tool_name: str, tool_args: dict) -> str:
+        """Create a normalized key for a tool call — combines all relevant args.
+
+        grep "query-1" src/ ≠ grep "query-2" src/ (different patterns)
+        grep "foo" src/   ≠ grep "foo" lib/   (different paths)
+        """
+        if tool_name == "bash":
+            command = ""
+            for key in ("command", "__arg1", "cmd"):
+                if key in tool_args:
+                    command = str(tool_args[key]).strip().lower()
+                    break
+            return f"bash:{command}"
+        elif tool_name == "grep":
+            parts = []
+            for key in ("pattern", "path", "filePath", "include"):
+                if key in tool_args:
+                    parts.append(str(tool_args[key]).strip().lower())
+            return f"grep:{'|'.join(parts)}"
+        elif tool_name in ("read", "glob"):
+            parts = []
+            for key in ("filePath", "path", "pattern", "file_path"):
+                if key in tool_args:
+                    parts.append(str(tool_args[key]).strip().lower())
+            return f"{tool_name}:{'|'.join(parts)}"
+        return f"{tool_name}:{json.dumps(tool_args, sort_keys=True, default=str).lower()}"
+
+    def record(self, tool_name: str, tool_args: dict) -> int:
+        """Record a tool call. Returns current repeat count (0 = first time)."""
+        key = self.normalize(tool_name, tool_args)
+        count = self._history.get(key, 0)
+        self._history[key] = count + 1
+        return count
+
+    def get_repeat_count(self, tool_name: str, tool_args: dict) -> int:
+        """Get current execution count without recording."""
+        key = self.normalize(tool_name, tool_args)
+        return self._history.get(key, 0)
+
+    def should_intercept(self, tool_name: str, tool_args: dict) -> bool:
+        """Check if this call should be intercepted (already seen enough times)."""
+        if not _is_safe_inspection(tool_name, tool_args):
+            return False
+        count = self.get_repeat_count(tool_name, tool_args)
+        # Read-only stages (init, design, arch): higher threshold for read tools.
+        # The agent's primary job IS to read files — don't block exploration.
+        effective_threshold = self._repeat_threshold
+        if not self._has_productive_tools and tool_name in SAFE_READ_TOOLS:
+            effective_threshold = READONLY_READ_THRESHOLD
+        return count >= effective_threshold
+
+    def steering_message(self, tool_name: str, tool_args: dict) -> str:
+        """Generate a steering message for a redundant inspection."""
+        count = self.get_repeat_count(tool_name, tool_args)
+        key = self.normalize(tool_name, tool_args)
+        target = key.split(":", 1)[1] if ":" in key else key
+        return (
+            f"[System Notice] You have already executed this inspection "
+            f"({tool_name}: {target}) {count} times in this task. "
+            f"The output is available in your context above — do not run it again. "
+            f"Use the information you've gathered and proceed to the next step "
+            f"(write code, edit files, or produce your output)."
+        )
+
+    def reset(self) -> None:
+        """Reset buffer (called after steering injection to allow fresh exploration)."""
+        self._history.clear()
+
+    def get_stats(self) -> dict:
+        return {
+            "total_unique": len(self._history),
+            "repeats": sum(1 for c in self._history.values() if c > 1),
+        }
+
+
 def run_agent(
     model: ChatOpenAI,
     tools: list[Tool],
     prompt: str,
     stage_id: str,
-    output_schema: Type[BaseModel] | None = None,
+    output_schema: type[BaseModel] | None = None,
     max_iterations: int = 25,
     system_message: str = "",
     *,
@@ -94,11 +205,19 @@ def run_agent(
             effective_cb = spinner.update
 
     log_model_invoke(stage_id)
+    # Store prompt for Node Inspector X-Ray
+    if ui.is_hud_active() and ui._normalizer:
+        ui._normalizer.store_input_prompt(stage_id, prompt[:8000])
     t0 = time.monotonic()
     import logging as _logging
+
     _dbg = _logging.getLogger(__name__)
-    _dbg.debug("[DEBUG] agent_runner: stage=%s, backend=langchain, max_iterations=%d, tools=%s",
-               stage_id, max_iterations, [t.name for t in tools])
+    _dbg.debug(
+        "[DEBUG] agent_runner: stage=%s, backend=langchain, max_iterations=%d, tools=%s",
+        stage_id,
+        max_iterations,
+        [t.name for t in tools],
+    )
 
     # Build conversation
     messages: list[Any] = []
@@ -122,45 +241,110 @@ def run_agent(
     tool_names = {t.name for t in tools}
     has_productive = bool(tool_names & {"write", "edit", "bash"})
     if has_productive:
-        # Override no_progress_threshold — 8 is too aggressive.
-        # Agent legitimately reads many files before writing.
-        # Opencode has its own iteration limit as safety net.
+        # Override thresholds — agent legitimately reads many files before writing.
+        # Documentation tasks (summary, report) can require 15+ reads to gather info.
         stall_cfg = dict(agent_cfg)
         stall_cfg["stall_detection"] = dict(agent_cfg.get("stall_detection", {}))
         stall_cfg["stall_detection"]["no_progress_threshold"] = max(
             stall_cfg["stall_detection"].get("no_progress_threshold", 8),
-            30  # Allow up to 30 reads before flagging no-progress
+            30,  # Allow up to 30 reads before flagging no-progress
+        )
+        # same_tool_threshold: 15 — reading 10-15 files consecutively is normal
+        # for documentation/exploration tasks before writing output.
+        stall_cfg["stall_detection"]["same_tool_threshold"] = max(
+            stall_cfg["stall_detection"].get("same_tool_threshold", 10),
+            15,
+        )
+        # window_size: 20 — must be >= same_tool_threshold for it to trigger
+        stall_cfg["stall_detection"]["window_size"] = max(
+            stall_cfg["stall_detection"].get("window_size", 10),
+            20,
         )
     else:
-        # Read-only stages (init, design, arch): exploration naturally re-reads files.
-        # Disable stall detection entirely — these stages can't get stuck in the same
-        # way as write stages. The idle timeout and max_iterations are sufficient safety.
-        stall_cfg = {
-            "stall_detection": {
-                "enabled": False,
-            }
-        }
+        # Read-only stages (init, design, arch): exploration naturally reads many files.
+        # But a read-only agent CAN get stuck — it may read forever without producing
+        # a final answer. Use elevated thresholds instead of disabling entirely.
+        stall_cfg = dict(agent_cfg)
+        stall_cfg["stall_detection"] = dict(agent_cfg.get("stall_detection", {}))
+        stall_cfg["stall_detection"]["enabled"] = True
+        # Higher thresholds: read-only stages legitimately explore 10-20 files.
+        stall_cfg["stall_detection"]["no_progress_threshold"] = max(
+            stall_cfg["stall_detection"].get("no_progress_threshold", 8),
+            20,
+        )
+        stall_cfg["stall_detection"]["exact_repeat_threshold"] = max(
+            stall_cfg["stall_detection"].get("exact_repeat_threshold", 3),
+            5,
+        )
+        stall_cfg["stall_detection"]["same_tool_threshold"] = max(
+            stall_cfg["stall_detection"].get("same_tool_threshold", 10),
+            15,
+        )
+        stall_cfg["stall_detection"]["window_size"] = max(
+            stall_cfg["stall_detection"].get("window_size", 10),
+            20,
+        )
     stall_detector: StallDetector = create_stall_detector(stall_cfg)
+
+    # Command history buffer — tracks inspections, injects steering on redundant repeats
+    cmd_history = CommandHistoryBuffer(has_productive_tools=has_productive)
+
+    # Steering injection counter — escalate: soft → strong → abort
+    _steering_injection_count = 0
+    _STEERING_MAX_INJECTIONS = 3  # After 3 steering attempts, abort
+
+    # Tool result cache — eliminates redundant read/glob/grep calls within a stage
+    tool_cache = ToolResultCache()
+
+    # Read-loop breaker — injects a reminder after consecutive reads
+    _read_streak = 0
+    _read_reminder_threshold = 3
+    _read_reminder_cooldown = 0  # prevent spamming: only remind once per N iterations
+    _has_graphify_tools = bool({t.name for t in tools} & {"graphify_query", "graphify_explain", "graphify_path"})
+
+    # Read-only stage safety — force final answer after too many iterations of just reading
+    _read_only_answer_threshold = 15  # After 15 iterations, force the agent to answer
+    _read_only_answer_injected = False
 
     for iteration in range(1, max_iterations + 1):
         iter_start = time.monotonic()
-        _dbg.debug("[DEBUG] agent_runner: stage=%s iteration=%d/%d, messages=%d",
-                    stage_id, iteration, max_iterations, len(messages))
+        _dbg.debug(
+            "[DEBUG] agent_runner: stage=%s iteration=%d/%d, messages=%d",
+            stage_id,
+            iteration,
+            max_iterations,
+            len(messages),
+        )
 
         # LAST ITERATION: Force the agent to stop calling tools and provide an answer
         if iteration == max_iterations:
             _dbg.warning("[DEBUG] agent_runner: stage=%s LAST ITERATION — forcing final answer", stage_id)
-            messages.append(HumanMessage(
-                content=(
-                    "CRITICAL: You have exhausted your remaining tool calls. "
-                    "STOP calling tools immediately. "
-                    "Provide your final answer NOW as a JSON object. "
-                    "Do NOT call any more tools. Your response must be valid JSON."
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "CRITICAL: You have exhausted your remaining tool calls. "
+                        "STOP calling tools immediately. "
+                        "Provide your final answer NOW as a JSON object. "
+                        "Do NOT call any more tools. Your response must be valid JSON."
+                    )
                 )
-            ))
+            )
 
         try:
-            response = model_with_tools.invoke(messages)
+            # Stream tokens for HUD visibility, then aggregate into final response
+            merged_chunk = None
+            for chunk in model_with_tools.stream(messages):
+                # Accumulate chunks using + operator
+                if merged_chunk is None:
+                    merged_chunk = chunk
+                else:
+                    merged_chunk = merged_chunk + chunk
+                # Push tokens to HUD in real-time
+                if chunk.content and ui.is_hud_active() and ui._normalizer:
+                    ui._normalizer.token_streamed(stage_id, chunk.content)
+            # Convert merged chunk to final response
+            merged = merged_chunk if merged_chunk else AIMessageChunk(content="")
+            response = AIMessage(content=merged.content, tool_calls=merged.tool_calls or [])
         except Exception as e:
             elapsed = time.monotonic() - t0
             log_model_done(stage_id, elapsed)
@@ -172,12 +356,20 @@ def run_agent(
                 error=f"LLM error: {e}",
             )
 
+        # Extract token usage for HUD telemetry
+        _report_token_usage(stage_id, response)
+
         iter_elapsed = time.monotonic() - iter_start
         if isinstance(response, AIMessage):
             if response.tool_calls:
-                _dbg.debug("[DEBUG] agent_runner: stage=%s iteration=%d, tool_calls=%d, names=%s, iter_time=%.1fs",
-                            stage_id, iteration, len(response.tool_calls),
-                            [tc["name"] for tc in response.tool_calls], iter_elapsed)
+                _dbg.debug(
+                    "[DEBUG] agent_runner: stage=%s iteration=%d, tool_calls=%d, names=%s, iter_time=%.1fs",
+                    stage_id,
+                    iteration,
+                    len(response.tool_calls),
+                    [tc["name"] for tc in response.tool_calls],
+                    iter_elapsed,
+                )
                 # Execute each tool call
                 for tc in response.tool_calls:
                     tool_name = tc["name"]
@@ -187,28 +379,78 @@ def run_agent(
                     allowed_tools = _get_allowed_tools(stage_id, tools)
                     if tool_name not in allowed_tools:
                         messages.append(response)
-                        messages.append(ToolMessage(
-                            content=(
-                                f"BLOCKED: Tool '{tool_name}' is not permitted in stage '{stage_id}'. "
-                                f"Allowed tools: {allowed_tools}. "
-                                f"Report your current status and failure reason using an allowed tool."
-                            ),
-                            tool_call_id=tc["id"],
-                        ))
+                        messages.append(
+                            ToolMessage(
+                                content=(
+                                    f"BLOCKED: Tool '{tool_name}' is not permitted in stage '{stage_id}'. "
+                                    f"Allowed tools: {allowed_tools}. "
+                                    f"Report your current status and failure reason using an allowed tool."
+                                ),
+                                tool_call_id=tc["id"],
+                            )
+                        )
                         tool_calls_total += 1
                         continue
 
-                    tool_result = _execute_tool(tools, tool_name, tool_args)
+                    # Command history buffer — intercept redundant inspection repeats
+                    if cmd_history.should_intercept(tool_name, tool_args):
+                        _dbg.debug(
+                            "[DEBUG] agent_runner: stage=%s INTERCEPTING redundant %s (repeat #%d)",
+                            stage_id,
+                            tool_name,
+                            cmd_history.get_repeat_count(tool_name, tool_args),
+                        )
+                        _steering_injection_count += 1
+                        if _steering_injection_count >= _STEERING_MAX_INJECTIONS:
+                            # Escalate to abort after max steering attempts
+                            elapsed = time.monotonic() - t0
+                            log_model_done(stage_id, elapsed)
+                            log_stage_fail(
+                                stage_id,
+                                f"agent_stalled: redundant inspection loop detected "
+                                f"({_steering_injection_count} steering attempts exhausted)",
+                            )
+                            return AgentResult(
+                                data={},
+                                conversation=list(messages),
+                                tool_calls_made=tool_calls_total,
+                                iterations=iteration,
+                                elapsed=elapsed,
+                                error=(
+                                    f"agent_stalled: redundant inspection loop "
+                                    f"({_steering_injection_count} steering attempts exhausted)"
+                                ),
+                            )
+                        # Inject steering as ToolMessage (agent sees it as tool result)
+                        messages.append(response)
+                        messages.append(
+                            ToolMessage(
+                                content=cmd_history.steering_message(tool_name, tool_args),
+                                tool_call_id=tc["id"],
+                            )
+                        )
+                        tool_calls_total += 1
+                        cmd_history.reset()
+                        stall_detector.reset()
+                        _read_streak = 0
+                        continue
+
+                    # Record in command history (first time or allowed repeat)
+                    cmd_history.record(tool_name, tool_args)
+
+                    tool_result = _execute_tool_cached(tools, tool_name, tool_args, tool_cache)
 
                     # Phase 5: Summarize large error outputs to protect context
                     if _is_error_output(tool_result) and len(tool_result) > 2000:
                         tool_result = _summarize_error(tool_result)
 
                     messages.append(response)
-                    messages.append(ToolMessage(
-                        content=tool_result,
-                        tool_call_id=tc["id"],
-                    ))
+                    messages.append(
+                        ToolMessage(
+                            content=tool_result,
+                            tool_call_id=tc["id"],
+                        )
+                    )
                     tool_calls_total += 1
 
                     # Phase 3: Spinner callback — update in-place, no new lines
@@ -223,45 +465,139 @@ def run_agent(
                     # Record for stall detection
                     stall_detector.record(tool_name, tool_args)
 
-                # Stall detection — abort early if agent is spinning
+                    # Track consecutive reads — break blind read loops
+                    if tool_name in ("read", "glob", "grep"):
+                        _read_streak += 1
+                    else:
+                        _read_streak = 0
+
+                # Stall detection — soft stalls get steering, hard stalls abort
                 stall_report = stall_detector.check()
                 if stall_report:
-                    elapsed = time.monotonic() - t0
-                    log_model_done(stage_id, elapsed)
-                    log_stage_fail(stage_id, stall_report.message)
-                    return AgentResult(
-                        data={},
-                        conversation=list(messages),
-                        tool_calls_made=tool_calls_total,
-                        iterations=iteration,
-                        elapsed=elapsed,
-                        error=stall_report.message,
+                    if stall_report.severity == "soft":
+                        _dbg.debug(
+                            "[DEBUG] agent_runner: stage=%s SOFT stall — injecting steering: %s",
+                            stage_id,
+                            stall_report.message,
+                        )
+                        _steering_injection_count += 1
+                        if _steering_injection_count >= _STEERING_MAX_INJECTIONS:
+                            elapsed = time.monotonic() - t0
+                            log_model_done(stage_id, elapsed)
+                            log_stage_fail(stage_id, stall_report.message)
+                            return AgentResult(
+                                data={},
+                                conversation=list(messages),
+                                tool_calls_made=tool_calls_total,
+                                iterations=iteration,
+                                elapsed=elapsed,
+                                error=stall_report.message,
+                            )
+                        messages.append(
+                            HumanMessage(
+                                content=(
+                                    f"[System Notice] {stall_report.message}. "
+                                    f"You have gathered enough context from {stall_report.tool_name} calls. "
+                                    f"Stop repeating the same inspections and proceed to write/edit code or produce output."
+                                )
+                            )
+                        )
+                        stall_detector.reset()
+                        cmd_history.reset()
+                        _read_streak = 0
+                    else:
+                        elapsed = time.monotonic() - t0
+                        log_model_done(stage_id, elapsed)
+                        log_stage_fail(stage_id, stall_report.message)
+                        return AgentResult(
+                            data={},
+                            conversation=list(messages),
+                            tool_calls_made=tool_calls_total,
+                            iterations=iteration,
+                            elapsed=elapsed,
+                            error=stall_report.message,
+                        )
+
+                # Read-loop breaker — inject reminder after consecutive reads
+                if _read_streak >= _read_reminder_threshold and _read_reminder_cooldown <= 0:
+                    _dbg.debug(
+                        "[DEBUG] agent_runner: stage=%s read-loop breaker triggered (streak=%d)", stage_id, _read_streak
                     )
+                    if _has_graphify_tools:
+                        reminder_text = (
+                            f"You have made {_read_streak} consecutive read/search calls "
+                            "without writing anything. "
+                            "You have graphify tools available. Use `graphify_query` to get architectural "
+                            "context for your task, then use `graphify_explain` on specific entities "
+                            "before reading more files. Focus on reading only files directly relevant "
+                            "to your current task."
+                        )
+                    else:
+                        reminder_text = (
+                            f"You have made {_read_streak} consecutive read/search calls "
+                            "without making progress. "
+                            "You have gathered enough context — stop reading the same files repeatedly. "
+                            "Synthesize what you've learned and produce your output."
+                        )
+                    messages.append(HumanMessage(content=reminder_text))
+                    # Reset stall detector to break exact-repeat streak
+                    stall_detector.reset()
+                    _read_streak = 0
+                    _read_reminder_cooldown = 3  # Don't remind again for 3 iterations
+                if _read_reminder_cooldown > 0:
+                    _read_reminder_cooldown -= 1
+
+                # Read-only stage safety — force final answer after too many iterations
+                if not has_productive and not _read_only_answer_injected and iteration >= _read_only_answer_threshold:
+                    _dbg.warning(
+                        "[DEBUG] agent_runner: stage=%s READ-ONLY SAFETY — forcing final answer after %d iterations of tool calls",
+                        stage_id,
+                        iteration,
+                    )
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                f"CRITICAL: You have used {iteration} iterations calling tools. "
+                                f"You have gathered enough information. "
+                                f"STOP calling tools immediately. "
+                                f"Provide your final answer NOW as a JSON object. "
+                                f"Do NOT call any more tools."
+                            )
+                        )
+                    )
+                    _read_only_answer_injected = True
 
                 # Compact messages if conversation is getting too long
                 if len(messages) > 80:
                     messages = _compact_messages(messages)
             else:
                 # No more tool calls — agent has its final answer
-                _dbg.debug("[DEBUG] agent_runner: stage=%s FINAL ANSWER at iteration=%d, content length=%d, preview=%r",
-                            stage_id, iteration, len(response.content), response.content[:200])
+                _dbg.debug(
+                    "[DEBUG] agent_runner: stage=%s FINAL ANSWER at iteration=%d, content length=%d, preview=%r",
+                    stage_id,
+                    iteration,
+                    len(response.content),
+                    response.content[:200],
+                )
                 elapsed = time.monotonic() - t0
                 log_model_done(stage_id, elapsed)
 
                 # Extract structured output from the final answer
                 data = _extract_structured_output(
-                    model, response.content, stage_id,
-                    output_schema, messages,
+                    model,
+                    response.content,
+                    stage_id,
+                    output_schema,
+                    messages,
                 )
                 stall_stats = stall_detector.get_stats()
-                tools_summary = ", ".join(
-                    f"{k}={v}" for k, v in stall_stats.get("tools_used", {}).items()
-                )
+                cache_stats = tool_cache.get_stats()
+                tools_summary = ", ".join(f"{k}={v}" for k, v in stall_stats.get("tools_used", {}).items())
                 log_stage_complete(
                     stage_id,
                     duration=elapsed,
                     tool_calls=tool_calls_total,
-                    summary=f"{iteration} iterations, {tools_summary}",
+                    summary=f"{iteration} iterations, {tools_summary}, cache: {cache_stats['hits']}h/{cache_stats['misses']}m",
                     iterations=iteration,
                 )
 
@@ -286,8 +622,13 @@ def run_agent(
 
     # Exceeded max iterations
     elapsed = time.monotonic() - t0
-    _dbg.error("[DEBUG] agent_runner: stage=%s EXHAUSTED iterations=%d, total_tool_calls=%d, total_time=%.1fs",
-                stage_id, max_iterations, tool_calls_total, elapsed)
+    _dbg.error(
+        "[DEBUG] agent_runner: stage=%s EXHAUSTED iterations=%d, total_tool_calls=%d, total_time=%.1fs",
+        stage_id,
+        max_iterations,
+        tool_calls_total,
+        elapsed,
+    )
     _dbg.error("[DEBUG] agent_runner: stage=%s last 3 messages:", stage_id)
     for _m in messages[-3:]:
         _content = getattr(_m, "content", str(_m))
@@ -311,7 +652,7 @@ def run_agent(
 def run_agent_via_opencode(
     prompt: str,
     stage_id: str,
-    output_schema: Type[BaseModel] | None = None,
+    output_schema: type[BaseModel] | None = None,
     project_root: str = ".",
     model_name: str = "",
     *,
@@ -334,8 +675,12 @@ def run_agent_via_opencode(
             effective_cb = spinner.update
 
     log_model_invoke(stage_id)
+    # Store prompt for Node Inspector X-Ray
+    if ui.is_hud_active() and ui._normalizer:
+        ui._normalizer.store_input_prompt(stage_id, prompt[:8000])
     t0 = time.monotonic()
     import logging as _logging
+
     _dbg = _logging.getLogger(__name__)
     _dbg.debug("[DEBUG] agent_runner: stage=%s, backend=opencode, model=%s", stage_id, model_name)
 
@@ -429,9 +774,23 @@ def run_agent_via_opencode(
             f"{json_template}"
         )
 
+        # Graphify bash wrapper — enables graphify queries via bash in opencode mode
+        graphify_bash_hint = ""
+        graphify_state = (config or {}).get("graphify", {})
+        if graphify_state.get("built", False):
+            graphify_bash_hint = (
+                "\n\n## GRAPHIFY VIA BASH\n"
+                "A knowledge graph is available. Use bash to query it:\n"
+                '- `graphify query "your question"` — get architecture context\n'
+                "- `graphify explain EntityName` — understand an entity's structure\n"
+                "- `graphify path Source Dest` — trace connections between entities\n"
+                "Use these BEFORE reading many files to understand the codebase structure."
+            )
+
         # Extract work item from prompt if present (between ## WORK ITEM markers)
         import re as _re
-        wi_match = _re.search(r'## WORK ITEM\s*\n(.*?)(?:\n##|\Z)', prompt, _re.DOTALL)
+
+        wi_match = _re.search(r"## WORK ITEM\s*\n(.*?)(?:\n##|\Z)", prompt, _re.DOTALL)
         work_item_text = wi_match.group(1).strip() if wi_match else ""
 
         # Compact prompt: keep WORK ITEM, instructions, and key context.
@@ -440,16 +799,18 @@ def run_agent_via_opencode(
         compact_prompt = prompt
         if work_item_text:
             # Remove SKILL section (guidance, not task-critical)
-            compact_prompt = _re.sub(r'## SKILL\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            compact_prompt = _re.sub(r"## SKILL\s*\n.*?(?=\n##)", "", compact_prompt, flags=_re.DOTALL)
             # Keep PROCEDURE — it contains the actual task instructions
             # Remove ARCHITECTURE CONTEXT (agent reads files directly)
-            compact_prompt = _re.sub(r'## ARCHITECTURE CONTEXT\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            compact_prompt = _re.sub(r"## ARCHITECTURE CONTEXT\s*\n.*?(?=\n##)", "", compact_prompt, flags=_re.DOTALL)
             # Remove CONFIRMED LESSONS (agent can read lessons file if needed)
-            compact_prompt = _re.sub(r'## CONFIRMED LESSONS\s*\n.*?(?=\n##)', '', compact_prompt, flags=_re.DOTALL)
+            compact_prompt = _re.sub(r"## CONFIRMED LESSONS\s*\n.*?(?=\n##)", "", compact_prompt, flags=_re.DOTALL)
             # Collapse multiple blank lines
-            compact_prompt = _re.sub(r'\n{3,}', '\n\n', compact_prompt).strip()
+            compact_prompt = _re.sub(r"\n{3,}", "\n\n", compact_prompt).strip()
 
-        output_prompt = f"{output_instruction}\n\n---\n\n{compact_prompt}\n\n---\n\n{output_instruction}"
+        output_prompt = (
+            f"{output_instruction}\n\n{graphify_bash_hint}\n\n---\n\n{compact_prompt}\n\n---\n\n{output_instruction}"
+        )
 
         # Write prompt to temp file to avoid Windows command-line length limits (WinError 206)
         prompt_fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="eng-prompt-")
@@ -465,10 +826,13 @@ def run_agent_via_opencode(
         )
 
         cmd = [
-            "opencode", "run",
-            "--dir", str(project_root),
+            "opencode",
+            "run",
+            "--dir",
+            str(project_root),
             "--auto",
-            "--format", "json",
+            "--format",
+            "json",
             cli_message,
         ]
 
@@ -485,13 +849,18 @@ def run_agent_via_opencode(
 
             last_activity = time.monotonic()
             last_progress = time.monotonic()
-            last_tool_log = time.monotonic()
+            time.monotonic()
             timed_out = [False]
             tool_count = [0]
             stall_error = [None]  # captured stall report for timeout handler
             text_accumulator = []  # collect text events as fallback for missing output file
             no_write_count = [0]  # tool calls since last write/edit/bash (enforce output budget)
-            NO_WRITE_KILL = 25  # kill if 25+ tool calls without any write/edit/bash
+            NO_WRITE_KILL = 45  # kill if 45+ tool calls without any write/edit/bash
+            read_streak = [0]  # consecutive read/glob/grep calls (catch blind read loops early)
+            READ_LOOP_KILL = 15  # kill if 15+ consecutive reads — agent is lost
+            # Soft stall tracking — log warnings instead of killing for safe inspections
+            _soft_stall_warnings = [0]
+            _SOFT_STALL_MAX = 4  # After 4 soft stall warnings, escalate to kill
 
             # Hard fallback watchdog — only fires if everything else fails
             def _hard_watchdog():
@@ -544,11 +913,31 @@ def run_agent_via_opencode(
                         if tool_name in ("write", "edit", "bash"):
                             last_activity = time.monotonic()
                             no_write_count[0] = 0  # Reset: agent is producing output
+                            read_streak[0] = 0  # Reset read streak on productive work
                         else:
                             no_write_count[0] += 1
                             if no_write_count[0] >= NO_WRITE_KILL:
-                                _print_warning(stage_id, f"no write/edit/bash in {no_write_count[0]} tool calls, killing")
-                                stall_error[0] = f"agent_stalled: {no_write_count[0]} tool calls without write/edit/bash"
+                                _print_warning(
+                                    stage_id, f"no write/edit/bash in {no_write_count[0]} tool calls, killing"
+                                )
+                                stall_error[0] = (
+                                    f"agent_stalled: {no_write_count[0]} tool calls without write/edit/bash"
+                                )
+                                timed_out[0] = True
+                                proc.kill()
+                                break
+                        # Track consecutive reads — catch blind read loops early
+                        if tool_name in ("read", "glob", "grep"):
+                            read_streak[0] += 1
+                            if read_streak[0] >= READ_LOOP_KILL:
+                                _print_warning(
+                                    stage_id, f"read loop detected: {read_streak[0]} consecutive reads, killing"
+                                )
+                                stall_error[0] = (
+                                    f"agent_stalled: {read_streak[0]} consecutive read/glob/grep calls without progress. "
+                                    f"Agent appeared to be blindly exploring files. "
+                                    f"Retry will include pre-computed graph context."
+                                )
                                 timed_out[0] = True
                                 proc.kill()
                                 break
@@ -561,6 +950,22 @@ def run_agent_via_opencode(
                             if no_write_count[0] >= NO_WRITE_KILL:
                                 _print_warning(stage_id, f"no write in {no_write_count[0]} tool calls, killing")
                                 stall_error[0] = f"agent_stalled: {no_write_count[0]} tool calls without write"
+                                timed_out[0] = True
+                                proc.kill()
+                                break
+                        else:
+                            read_streak[0] = 0  # Reset on productive work
+                        # Track consecutive reads — catch blind read loops early
+                        if tool_name in ("read", "glob", "grep"):
+                            read_streak[0] += 1
+                            if read_streak[0] >= READ_LOOP_KILL:
+                                _print_warning(
+                                    stage_id, f"read loop detected: {read_streak[0]} consecutive reads, killing"
+                                )
+                                stall_error[0] = (
+                                    f"agent_stalled: {read_streak[0]} consecutive read calls without progress. "
+                                    f"Agent appeared to be blindly exploring files."
+                                )
                                 timed_out[0] = True
                                 proc.kill()
                                 break
@@ -582,27 +987,56 @@ def run_agent_via_opencode(
                             _print_tool(stage_id, tool_name, "", status)
                     tool_count[0] += 1
                     if tool_count[0] % 5 == 0:
-                        _dbg.debug("[DEBUG] agent_runner: stage=%s tool #%d, total_time=%.1fs, idle=%.1fs",
-                                    stage_id, tool_count[0], time.monotonic() - t0,
-                                    time.monotonic() - last_activity)
+                        _dbg.debug(
+                            "[DEBUG] agent_runner: stage=%s tool #%d, total_time=%.1fs, idle=%.1fs",
+                            stage_id,
+                            tool_count[0],
+                            time.monotonic() - t0,
+                            time.monotonic() - last_activity,
+                        )
+                    # Push tool event to HUD for casting bar visibility
+                    if ui.is_hud_active() and ui._normalizer:
+                        ui._normalizer.tool_started(stage_id, tool_name, inp)
 
                     # Record for stall detection — catch infinite read loops early
                     stall_detector.record(tool_name, inp)
                     stall_report = stall_detector.check()
                     if stall_report:
-                        _print_warning(stage_id, stall_report.message)
-                        stall_error[0] = stall_report.message
-                        timed_out[0] = True
-                        proc.kill()
-                        break
+                        if stall_report.severity == "soft":
+                            _soft_stall_warnings[0] += 1
+                            _print_warning(stage_id, f"soft stall #{_soft_stall_warnings[0]}: {stall_report.message}")
+                            if _soft_stall_warnings[0] >= _SOFT_STALL_MAX:
+                                _print_warning(
+                                    stage_id, f"soft stall limit reached ({_SOFT_STALL_MAX}), escalating to kill"
+                                )
+                                stall_error[0] = (
+                                    f"agent_stalled: {stall_report.message} "
+                                    f"(after {_SOFT_STALL_MAX} soft stall warnings)"
+                                )
+                                timed_out[0] = True
+                                proc.kill()
+                                break
+                        else:
+                            _print_warning(stage_id, stall_report.message)
+                            stall_error[0] = stall_report.message
+                            timed_out[0] = True
+                            proc.kill()
+                            break
 
                 elif event_type == "text":
                     # Accumulate text for fallback when output file is missing
                     text_content = part.get("content", part.get("text", ""))
                     if text_content:
                         text_accumulator.append(text_content)
-                        _dbg.debug("[DEBUG] agent_runner: stage=%s text event, length=%d, preview=%r",
-                                    stage_id, len(text_content), text_content[:150])
+                        _dbg.debug(
+                            "[DEBUG] agent_runner: stage=%s text event, length=%d, preview=%r",
+                            stage_id,
+                            len(text_content),
+                            text_content[:150],
+                        )
+                        # Stream to HUD for real-time visibility
+                        if ui.is_hud_active() and ui._normalizer:
+                            ui._normalizer.token_streamed(stage_id, text_content)
 
                 elif event_type == "step_finish":
                     reason = part.get("reason", "")
@@ -654,8 +1088,15 @@ def run_agent_via_opencode(
                 )
 
             # Read structured output from file
-            _dbg.debug("[DEBUG] agent_runner: stage=%s opencode finished, rc=%d, output_file=%s, exists=%s, text_events=%d, tool_count=%d",
-                        stage_id, proc.returncode, output_file, Path(output_file).exists(), len(text_accumulator), tool_count[0])
+            _dbg.debug(
+                "[DEBUG] agent_runner: stage=%s opencode finished, rc=%d, output_file=%s, exists=%s, text_events=%d, tool_count=%d",
+                stage_id,
+                proc.returncode,
+                output_file,
+                Path(output_file).exists(),
+                len(text_accumulator),
+                tool_count[0],
+            )
             try:
                 if Path(output_file).exists():
                     raw = Path(output_file).read_text(encoding="utf-8")
@@ -666,8 +1107,13 @@ def run_agent_via_opencode(
                     # Agent exhausted iterations before writing output file.
                     # Return error so calling node can retry.
                     fallback_text = "\n".join(text_accumulator)
-                    _dbg.error("[DEBUG] agent_runner: stage=%s OUTPUT FILE MISSING! text_events=%d, accumulated_length=%d, last_text=%r",
-                                stage_id, len(text_accumulator), len(fallback_text), fallback_text[:300])
+                    _dbg.error(
+                        "[DEBUG] agent_runner: stage=%s OUTPUT FILE MISSING! text_events=%d, accumulated_length=%d, last_text=%r",
+                        stage_id,
+                        len(text_accumulator),
+                        len(fallback_text),
+                        fallback_text[:300],
+                    )
                     log_stage_fail(stage_id, "agent exhausted iterations before writing output")
                     return AgentResult(
                         data={},
@@ -727,7 +1173,7 @@ def run_agent_via_opencode(
             pass
 
 
-def _extract_from_opencode_output(stdout, output_schema: Type[BaseModel] | None) -> dict[str, Any]:
+def _extract_from_opencode_output(stdout, output_schema: type[BaseModel] | None) -> dict[str, Any]:
     """Fallback: extract structured JSON from opencode output."""
     return {"complete": True}
 
@@ -735,6 +1181,7 @@ def _extract_from_opencode_output(stdout, output_schema: Type[BaseModel] | None)
 def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
     """Print a tool call event, mimicking opencode TUI style."""
     import sys as _sys
+
     icon = {"read": "R", "write": "W", "edit": "E", "bash": "$", "glob": "G", "grep": "S"}.get(tool, "?")
     path_str = f" {path}" if path else ""
     _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[36m{icon}\033[0m {tool}{path_str}\n")
@@ -744,6 +1191,7 @@ def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
 def _print_text(stage_id: str, text: str) -> None:
     """Print LLM text output, truncated."""
     import sys as _sys
+
     # Only print if it's substantive (not just "OK" or similar)
     if len(text) < 10:
         return
@@ -756,6 +1204,7 @@ def _print_text(stage_id: str, text: str) -> None:
 def _print_error(stage_id: str, error: str) -> None:
     """Print an error event."""
     import sys as _sys
+
     _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[31merror: {error}\033[0m\n")
     _sys.stdout.flush()
 
@@ -763,6 +1212,7 @@ def _print_error(stage_id: str, error: str) -> None:
 def _print_progress(stage_id: str, elapsed: float) -> None:
     """Print a progress heartbeat."""
     import sys as _sys
+
     _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s\033[0m\n")
     _sys.stdout.flush()
 
@@ -770,11 +1220,12 @@ def _print_progress(stage_id: str, elapsed: float) -> None:
 def _print_warning(stage_id: str, message: str) -> None:
     """Print a warning message."""
     import sys as _sys
+
     _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[33mwarn: {message}\033[0m\n")
     _sys.stdout.flush()
 
 
-def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: Type[BaseModel] | None = None) -> str:
+def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: type[BaseModel] | None = None) -> str:
     """Wrap the stage prompt with agent instructions.
 
     Includes a concrete JSON template when a schema is provided, so the agent
@@ -836,13 +1287,10 @@ def _execute_tool(tools: list[Tool], name: str, args: dict[str, Any]) -> str:
         return f"Error: tool '{name}' not found. Available: {list(tool_map.keys())}"
 
     try:
-        if len(args) == 1:
-            # Single argument — pass the value directly
-            value = list(args.values())[0]
-            result = tool.func(value)
-        else:
-            # Multiple arguments — call with kwargs
-            result = tool.func(**args)
+        # Always dispatch via kwargs — preserves parameter names from LLM tool calls.
+        # Never use positional dispatch (broken: discards arg key names, relies on
+        # coincidence that positional order matches the tool function's signature).
+        result = tool.func(**args)
         # Truncate long outputs
         if isinstance(result, str) and len(result) > 10000:
             return result[:10000] + "\n... [output truncated, 10000 char limit]"
@@ -851,11 +1299,132 @@ def _execute_tool(tools: list[Tool], name: str, args: dict[str, Any]) -> str:
         return f"Error executing {name}: {e}"
 
 
+# ============================================================
+# TOOL RESULT CACHE — eliminates redundant read/glob/grep calls
+# ============================================================
+# Caches results of idempotent tools (read, glob, grep) within a single agent run.
+# Invalidated when write/edit/bash tools modify files.
+# ============================================================
+
+# Tools whose results are safe to cache (idempotent reads)
+CACHABLE_TOOLS = {"read", "glob", "grep"}
+# Tools that invalidate the cache (mutating operations)
+INVALIDATING_TOOLS = {"write", "edit", "bash"}
+
+
+class ToolResultCache:
+    """In-memory cache for tool results within a single agent execution.
+
+    Prevents the LLM from wasting tool-calls re-reading the same files
+    or re-running the same glob/grep patterns within a stage.
+    """
+
+    def __init__(self):
+        self._cache: dict[str, str] = {}
+        self._hits = 0
+        self._misses = 0
+        self._invalidations = 0
+
+    def get(self, tool_name: str, args: dict[str, Any]) -> str | None:
+        """Return cached result if available, else None."""
+        if tool_name not in CACHABLE_TOOLS:
+            return None
+        key = self._make_key(tool_name, args)
+        result = self._cache.get(key)
+        if result is not None:
+            self._hits += 1
+        return result
+
+    def set(self, tool_name: str, args: dict[str, Any], result: str) -> None:
+        """Cache a tool result."""
+        if tool_name not in CACHABLE_TOOLS:
+            return
+        key = self._make_key(tool_name, args)
+        # Cap individual entries at 8000 chars to prevent memory bloat
+        cached_result = result[:8000] if len(result) > 8000 else result
+        self._cache[key] = cached_result
+        self._misses += 1
+
+    def invalidate_on_mutation(self, tool_name: str, args: dict[str, Any]) -> None:
+        """Invalidate cache entries affected by a mutating tool."""
+        if tool_name not in INVALIDATING_TOOLS:
+            return
+
+        modified_path = self._extract_path(args)
+
+        if modified_path:
+            # Targeted invalidation: remove read/glob/grep entries for affected paths
+            to_remove = []
+            for key in self._cache:
+                if self._key_affected_by(key, modified_path):
+                    to_remove.append(key)
+            for key in to_remove:
+                del self._cache[key]
+            self._invalidations += len(to_remove)
+        elif tool_name == "bash":
+            # Bash can modify anything — full invalidation
+            self._cache.clear()
+            self._invalidations += 1
+
+    def get_stats(self) -> dict[str, int]:
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "invalidations": self._invalidations,
+            "entries": len(self._cache),
+        }
+
+    def _make_key(self, tool_name: str, args: dict[str, Any]) -> str:
+        return f"{tool_name}:{json.dumps(args, sort_keys=True, default=str)}"
+
+    def _extract_path(self, args: dict[str, Any]) -> str | None:
+        """Extract the file path from tool args."""
+        for key in ("file_path", "path", "old_string"):
+            if key in args:
+                return args[key]
+        # For single-arg tools, the path is the value
+        if len(args) == 1:
+            val = next(iter(args.values()))
+            if isinstance(val, str) and (".ts" in val or ".js" in val or ".py" in val or "/" in val or "\\" in val):
+                return val
+        return None
+
+    def _key_affected_by(self, key: str, modified_path: str) -> bool:
+        """Check if a cached key might be affected by a file modification."""
+        # If the modified path appears in the cached key, invalidate it
+        return modified_path in key
+
+
+def _execute_tool_cached(
+    tools: list[Tool],
+    name: str,
+    args: dict[str, Any],
+    cache: ToolResultCache,
+) -> str:
+    """Execute a tool with caching. Returns cached result for idempotent tools."""
+    # Try cache first for read-only tools
+    cached = cache.get(name, args)
+    if cached is not None:
+        return cached
+
+    # Execute the tool
+    result = _execute_tool(tools, name, args)
+
+    # Cache the result for idempotent tools
+    if name in CACHABLE_TOOLS:
+        cache.set(name, args, result)
+    elif name in INVALIDATING_TOOLS:
+        # Invalidate affected cache entries
+        cache.invalidate_on_mutation(name, args)
+
+    return result
+
+
 def _extract_structured_output(
     model: ChatOpenAI,
     answer_content: str,
     stage_id: str,
-    output_schema: Type[BaseModel] | None,
+    output_schema: type[BaseModel] | None,
     conversation: list[Any],
 ) -> dict[str, Any]:
     """Extract structured output from the agent's final answer.
@@ -866,9 +1435,14 @@ def _extract_structured_output(
     3. Fall back to best-effort JSON extraction
     """
     import logging as _logging
+
     _dbg = _logging.getLogger(__name__)
-    _dbg.debug("[DEBUG] _extract_structured_output: stage=%s, content length=%d, schema=%s",
-                stage_id, len(answer_content), output_schema.__name__ if output_schema else None)
+    _dbg.debug(
+        "[DEBUG] _extract_structured_output: stage=%s, content length=%d, schema=%s",
+        stage_id,
+        len(answer_content),
+        output_schema.__name__ if output_schema else None,
+    )
 
     # Strategy 1: Direct JSON parse of answer
     try:
@@ -882,12 +1456,16 @@ def _extract_structured_output(
 
     # Strategy 2: Structured output from conversation
     if output_schema:
-        _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 (structured_output), schema=%s", output_schema.__name__)
+        _dbg.debug(
+            "[DEBUG] _extract_structured_output: strategy 2 (structured_output), schema=%s", output_schema.__name__
+        )
         try:
             structured_model = model.with_structured_output(output_schema)
             # Add a system prompt to guide the final extraction
             extraction_messages = [
-                SystemMessage(content="Extract the stage result as a JSON object from the conversation above. Return only the JSON, nothing else."),
+                SystemMessage(
+                    content="Extract the stage result as a JSON object from the conversation above. Return only the JSON, nothing else."
+                ),
             ] + conversation
             response = structured_model.invoke(extraction_messages)
             if hasattr(response, "model_dump"):
@@ -897,7 +1475,6 @@ def _extract_structured_output(
             return dict(response)
         except Exception as e:
             _dbg.debug("[DEBUG] _extract_structured_output: strategy 2 failed: %s", e)
-            pass
 
     # Strategy 3: Best effort from answer text
     _dbg.debug("[DEBUG] _extract_structured_output: strategy 3 (best-effort fallback)")
@@ -906,7 +1483,7 @@ def _extract_structured_output(
 
 def _extract_from_text(
     text: str,
-    output_schema: Type[BaseModel] | None,
+    output_schema: type[BaseModel] | None,
 ) -> dict[str, Any]:
     """Last-resort JSON extraction from text."""
     try:
@@ -932,7 +1509,7 @@ def _last_ai_message(messages: list[Any]) -> AIMessage | None:
 
 def _extract_best_effort_from_messages(
     messages: list[Any],
-    output_schema: Type[BaseModel] | None,
+    output_schema: type[BaseModel] | None,
     stage_id: str,
 ) -> dict[str, Any]:
     """When agent exhausts iterations, find the best AI message to extract from.
@@ -943,6 +1520,7 @@ def _extract_best_effort_from_messages(
     3. Return raw_output fallback
     """
     import logging as _logging
+
     _dbg = _logging.getLogger(__name__)
 
     ai_msgs = [m for m in messages if isinstance(m, AIMessage)]
@@ -965,8 +1543,11 @@ def _extract_best_effort_from_messages(
     for msg in reversed(ai_msgs):
         content = msg.content if isinstance(msg.content, str) else ""
         if len(content) > 50:
-            _dbg.debug("[DEBUG] _extract_best_effort: trying AI message with tool_calls, length=%d, preview=%r",
-                        len(content), content[:120])
+            _dbg.debug(
+                "[DEBUG] _extract_best_effort: trying AI message with tool_calls, length=%d, preview=%r",
+                len(content),
+                content[:120],
+            )
             try:
                 data = extract_json(content)
                 if data and isinstance(data, dict):
@@ -1003,14 +1584,11 @@ def _compact_messages(messages: list[Any]) -> list[Any]:
         kept.append(first_human)
 
     # Add a summary of what was done
-    tool_calls = sum(
-        1 for m in messages
-        if isinstance(m, ToolMessage)
-    )
+    tool_calls = sum(1 for m in messages if isinstance(m, ToolMessage))
 
     summary = HumanMessage(
         content=f"[Conversation summary: {tool_calls} tool calls were made. "
-                f"Earlier tool interactions have been compacted for context window management.]"
+        f"Earlier tool interactions have been compacted for context window management.]"
     )
     kept.append(summary)
 
@@ -1030,10 +1608,21 @@ def _is_error_output(text: str) -> bool:
     if len(text) < 100:
         return False
     error_indicators = [
-        "Traceback", "Error:", "Exception", "FAILED", "failed",
-        "STATUS_ACCESS_VIOLATION", "ERR_", "ECONNREFUSED",
-        "SyntaxError", "TypeError", "ReferenceError",
-        "Exit code", "exit 1", "npm ERR", "E2E test",
+        "Traceback",
+        "Error:",
+        "Exception",
+        "FAILED",
+        "failed",
+        "STATUS_ACCESS_VIOLATION",
+        "ERR_",
+        "ECONNREFUSED",
+        "SyntaxError",
+        "TypeError",
+        "ReferenceError",
+        "Exit code",
+        "exit 1",
+        "npm ERR",
+        "E2E test",
     ]
     return any(kw in text for kw in error_indicators)
 
@@ -1064,16 +1653,16 @@ def _summarize_error(text: str, max_lines: int = 10) -> str:
     # Strategy 2: Test summary (Playwright, pytest, jest, npm test)
     test_match = re.search(
         r"(\d+)\s*(failed|passed|skipped|pending)",
-        text, re.IGNORECASE,
+        text,
+        re.IGNORECASE,
     )
     if test_match:
         # Extract all test summary lines
         summary_lines = [
-            l.strip() for l in lines
-            if re.search(r"\d+\s*(failed|passed|skipped|pending|error)", l, re.IGNORECASE)
+            l.strip() for l in lines if re.search(r"\d+\s*(failed|passed|skipped|pending|error)", l, re.IGNORECASE)
         ]
         if summary_lines:
-            return f"[ERROR_SUMMARY — test output truncated]\n" + "\n".join(summary_lines[:5])
+            return "[ERROR_SUMMARY — test output truncated]\n" + "\n".join(summary_lines[:5])
 
     # Strategy 3: Python traceback — extract last meaningful frame
     traceback_lines = []
@@ -1090,17 +1679,42 @@ def _summarize_error(text: str, max_lines: int = 10) -> str:
 
     if traceback_lines:
         # Get last 5 lines of traceback
-        return (
-            f"[ERROR_SUMMARY — traceback truncated from {len(traceback_lines)} lines]\n"
-            + "\n".join(traceback_lines[-max_lines:])
+        return f"[ERROR_SUMMARY — traceback truncated from {len(traceback_lines)} lines]\n" + "\n".join(
+            traceback_lines[-max_lines:]
         )
 
     # Strategy 4: Generic — last N non-empty lines
     non_empty = [l for l in lines if l.strip()]
-    return (
-        f"[ERROR_SUMMARY — output truncated from {len(lines)} lines]\n"
-        + "\n".join(non_empty[-max_lines:])
-    )
+    return f"[ERROR_SUMMARY — output truncated from {len(lines)} lines]\n" + "\n".join(non_empty[-max_lines:])
 
 
-__all__ = ["run_agent", "AgentResult"]
+def _report_token_usage(stage_id: str, response: Any) -> None:
+    """Extract token usage from LLM response and report to HUD normalizer."""
+    if not ui.is_hud_active():
+        return
+
+    normalizer = ui._normalizer
+    if not normalizer and ui._hud:
+        normalizer = getattr(ui._hud, "normalizer", None)
+    if not normalizer:
+        return
+
+    try:
+        metadata = getattr(response, "response_metadata", None) or {}
+        usage = metadata.get("usage", {})
+        if not usage:
+            usage = metadata.get("token_usage", {})
+        if not usage:
+            llm_output = metadata.get("llm_output", {})
+            usage = llm_output.get("token_usage", {})
+        if usage:
+            inp = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+            out = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            cached_details = usage.get("prompt_tokens_details", {})
+            cached = cached_details.get("cached_tokens", 0)
+            normalizer.tokens_consumed(stage_id, inp, out, cached)
+    except Exception:
+        pass
+
+
+__all__ = ["AgentResult", "run_agent"]

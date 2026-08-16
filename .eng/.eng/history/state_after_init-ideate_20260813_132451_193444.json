@@ -1,0 +1,261 @@
+{
+  "iteration": 1,
+  "status": "running",
+  "blocking_condition": "",
+  "complexity": "small",
+  "work_type": "documentation",
+  "work_item": "Explore the entire .engineering-loop project structure (~150+ files across 15+ directories) and produce a comprehensive summary documenting all files, their purposes, and dependencies. Write the summary to artifacts/project-summary.md in the project root.",
+  "ideation": null,
+  "ui_project": false,
+  "stages": {
+    "init": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.ideate": {
+      "done": false,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.bdd": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.refine": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.user-research": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.personas": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.info-arch": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.interaction": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.design-system": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.visual-design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.requirements": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.solution": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.review": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.code": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.update": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "verify": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "e2e.execute": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.security": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.api-contract": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.performance": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "deploy.prepare": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "smoke.test": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.decisions": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.project": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "post": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    }
+  },
+  "decisions": [],
+  "stage_artifacts": {},
+  "lessons": [],
+  "errors": [],
+  "handoffs": {
+    "init": "Stage: init"
+  },
+  "context_tiers": {},
+  "tags": [],
+  "active_nodes": [
+    "init",
+    "init.ideate",
+    "init.refine",
+    "impl.design",
+    "impl.code",
+    "doc.update",
+    "verify",
+    "deploy.prepare",
+    "post"
+  ],
+  "graph_topology": {
+    "active_nodes": [
+      "init",
+      "init.ideate",
+      "init.refine",
+      "impl.design",
+      "impl.code",
+      "doc.update",
+      "verify",
+      "deploy.prepare",
+      "post"
+    ],
+    "edges": [
+      {
+        "from": "__start__",
+        "to": "init",
+        "type": "fixed"
+      },
+      {
+        "from": "impl-design",
+        "to": "impl-code",
+        "type": "fixed"
+      },
+      {
+        "from": "impl-code",
+        "to": "doc-update",
+        "type": "fixed"
+      },
+      {
+        "from": "doc-update",
+        "to": "verify",
+        "type": "fixed"
+      },
+      {
+        "from": "post",
+        "to": "__end__",
+        "type": "fixed"
+      }
+    ],
+    "parallel_groups": {},
+    "complexity": "unset",
+    "ui_project": false,
+    "total_available": 26,
+    "nodes_included": 9
+  },
+  "parallel_groups": {},
+  "timing": {}
+}

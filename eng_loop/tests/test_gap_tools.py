@@ -7,7 +7,7 @@ from pathlib import Path
 
 from eng_loop.tools.file_ops import append_file, file_exists, list_dir, load_json, read_file, save_json, write_file
 from eng_loop.tools.json_parse import extract_json
-from eng_loop.tools.stall_detector import StallDetector, create_stall_detector
+from eng_loop.tools.stall_detector import StallDetector, _is_safe_inspection, create_stall_detector
 from eng_loop.tools.timing import TimingTracker, format_time
 
 
@@ -73,7 +73,16 @@ class TestStallDetector:
         assert s["tools_used"]["read"] == 1
 
     def test_from_config(self):
-        d = create_stall_detector({"stall_detection": {"window_size": 15, "exact_repeat_threshold": 4, "same_tool_threshold": 12, "no_progress_threshold": 10}})
+        d = create_stall_detector(
+            {
+                "stall_detection": {
+                    "window_size": 15,
+                    "exact_repeat_threshold": 4,
+                    "same_tool_threshold": 12,
+                    "no_progress_threshold": 10,
+                }
+            }
+        )
         assert d.window_size == 15
         assert d.exact_threshold == 4
 
@@ -88,6 +97,96 @@ class TestStallDetector:
         r = d.check()
         assert r is not None
         assert r.stall_type == "exact_repeat"
+
+    def test_severity_soft_for_read_tool(self):
+        d = StallDetector(exact_threshold=3)
+        for _ in range(4):
+            d.record("read", {"filePath": "/f.txt"})
+        r = d.check()
+        assert r is not None
+        assert r.severity == "soft"
+
+    def test_severity_soft_for_glob_tool(self):
+        d = StallDetector(exact_threshold=3)
+        for _ in range(4):
+            d.record("glob", {"pattern": "**/*.py"})
+        r = d.check()
+        assert r is not None
+        assert r.severity == "soft"
+
+    def test_severity_soft_for_grep_tool(self):
+        d = StallDetector(exact_threshold=3)
+        for _ in range(4):
+            d.record("grep", {"pattern": "foo", "path": "src"})
+        r = d.check()
+        assert r is not None
+        assert r.severity == "soft"
+
+    def test_severity_soft_for_safe_bash(self):
+        d = StallDetector(exact_threshold=3)
+        for _ in range(4):
+            d.record("bash", {"command": "ls -la"})
+        r = d.check()
+        assert r is not None
+        assert r.severity == "soft"
+
+    def test_severity_hard_for_write(self):
+        d = StallDetector(exact_threshold=3)
+        for _ in range(4):
+            d.record("write", {"filePath": "/f.txt", "content": "x"})
+        r = d.check()
+        assert r is not None
+        assert r.severity == "hard"
+
+    def test_same_tool_severity_soft(self):
+        d = StallDetector(same_tool_threshold=5)
+        for i in range(6):
+            d.record("read", {"filePath": f"/f{i}.txt"})
+        r = d.check()
+        assert r is not None
+        assert r.stall_type == "same_tool_repeat"
+        assert r.severity == "soft"
+
+
+class TestSafeInspection:
+    def test_read_is_safe(self):
+        assert _is_safe_inspection("read", {"filePath": "/f.txt"})
+
+    def test_glob_is_safe(self):
+        assert _is_safe_inspection("glob", {"pattern": "**/*.py"})
+
+    def test_grep_is_safe(self):
+        assert _is_safe_inspection("grep", {"pattern": "foo"})
+
+    def test_bash_ls_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "ls -la"})
+
+    def test_bash_cat_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "cat file.txt"})
+
+    def test_bash_git_status_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "git status"})
+
+    def test_bash_find_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "find . -name *.py"})
+
+    def test_bash_pwd_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "pwd"})
+
+    def test_bash_grep_is_safe(self):
+        assert _is_safe_inspection("bash", {"command": "grep foo src/"})
+
+    def test_bash_rm_is_not_safe(self):
+        assert not _is_safe_inspection("bash", {"command": "rm -rf /"})
+
+    def test_bash_mkfs_is_not_safe(self):
+        assert not _is_safe_inspection("bash", {"command": "mkfs.ext4 /dev/sda"})
+
+    def test_write_is_not_safe(self):
+        assert not _is_safe_inspection("write", {"filePath": "/f.txt"})
+
+    def test_edit_is_not_safe(self):
+        assert not _is_safe_inspection("edit", {"filePath": "/f.txt"})
 
 
 class TestTiming:
@@ -165,7 +264,7 @@ class TestJsonParse:
         assert extract_json('before\n{"k": "v"}\nafter') == {"k": "v"}
 
     def test_array_wrapped(self):
-        assert extract_json('[1,2,3]') == {"items": [1, 2, 3]}
+        assert extract_json("[1,2,3]") == {"items": [1, 2, 3]}
 
     def test_empty_raises(self):
         try:

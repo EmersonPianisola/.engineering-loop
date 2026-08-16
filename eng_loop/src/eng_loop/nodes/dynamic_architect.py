@@ -7,30 +7,204 @@ from typing import Any
 from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
-from eng_loop.schemas import DynamicBlueprint, DynamicBlueprintProposal, DynamicRuntime
+from eng_loop.schemas import (
+    DynamicBlueprint,
+    DynamicBlueprintProposal,
+    DynamicRuntime,
+    GraphTopologyProposal,
+)
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.agent_tools import get_tools_for_stage
 from eng_loop.tools.node_helpers import build_node_prompt
-from eng_loop.tools.policy_resolver import authorize_blueprint
+from eng_loop.tools.policy_resolver import (
+    TopologyValidationError,
+    authorize_blueprint,
+    authorize_topology,
+)
 from eng_loop.tools.progress import log_stage_done, log_stage_fail
 
 logger = logging.getLogger(__name__)
 
 
-def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
-    """Intercept node: evaluates work item and emits a dynamic blueprint proposal.
+# ───────────────────────────────────────────────────────────────────
+# PRE-BUILD: Topology Architect
+# Produces a GraphTopologyProposal for the graph builder.
+# This runs BEFORE graph compilation, invoked by cli.py.
+# ───────────────────────────────────────────────────────────────────
 
-    The LLM proposes a DynamicBlueprintProposal. The framework authorizes it
-    via policy rules to produce the official DynamicBlueprint. If the blueprint
-    requires augmentation, routes to meta-executor; otherwise passes through.
+def propose_topology(
+    work_item: str,
+    codebase_facts: dict[str, Any],
+    config: dict[str, Any],
+    state: dict[str, Any],
+    paths: dict[str, Any] | None = None,
+) -> GraphTopologyProposal | None:
+    """Ask the LLM to propose an optimal graph topology for the work item.
+
+    Returns a GraphTopologyProposal on success, None on any failure.
+    The caller (cli.py) is responsible for catching None and falling back
+    to the deterministic graph builder.
+    """
+    paths = paths or {}
+    node_catalog = _build_node_catalog_context()
+    allowed_conditions_text = _build_allowed_conditions_context()
+
+    instructions = (
+        f"You are a Graph Topology Architect. Your job is to design the optimal\n"
+        f"execution graph for the given work item.\n\n"
+        f"## WORK ITEM\n"
+        f"{work_item}\n\n"
+        f"## CODEBASE FACTS\n"
+        f"{json.dumps(codebase_facts, default=str)}\n\n"
+        f"## AVAILABLE NODE CATALOG\n"
+        f"{node_catalog}\n\n"
+        f"## ALLOWED EDGE CONDITIONS\n"
+        f"{allowed_conditions_text}\n\n"
+        f"## RULES\n"
+        f"1. Include 'init' (entry) and 'post' (exit) — they are MANDATORY.\n"
+        f"2. All stages in required_stages must exist in the catalog above.\n"
+        f"3. All edges must connect stages in required_stages (or __start__/__end__).\n"
+        f"4. The graph must be acyclic and all nodes must be reachable from 'init'.\n"
+        f"5. 'post' must be reachable from 'init'.\n"
+        f"6. No duplicate edges. No self-loops unless edge_type='loopback'.\n"
+        f"7. Use edge_type='fixed' for unconditional transitions.\n"
+        f"8. Use edge_type='conditional' with an allowed condition for branching.\n"
+        f"9. Use edge_type='loopback' for failure retry paths.\n"
+        f"10. Use edge_type='terminal' for blocked/abort paths to __end__.\n"
+        f"11. Minimize stages — only include what the task genuinely needs.\n"
+        f"12. DO NOT include design/arch/verify/QA/deploy stages for documentation tasks.\n"
+        f"13. DO NOT include impl.design/impl.code/verify/deploy for operational tasks.\n"
+        f"14. For bugfix tasks, skip design stages but keep impl + verify.\n\n"
+        f"## OUTPUT FORMAT\n"
+        f"Return a JSON object matching this schema:\n"
+        f"{{\n"
+        f'  "plan_id": "unique-id",\n'
+        f'  "work_type": "feature|bugfix|documentation|operational",\n'
+        f'  "complexity": "small|medium|large|complex",\n'
+        f'  "required_stages": ["stage.id", ...],\n'
+        f'  "edges": [\n'
+        f'    {{"from_stage": "A", "to_stage": "B", "edge_type": "fixed", "condition": "always", "description": "..."}},\n'
+        f"    ...\n"
+        f"  ],\n"
+        f'  "phase_groups": [\n'
+        f'    {{"name": "INIT", "stages": ["init", "init.ideate", ...]}},\n'
+        f"    ...\n"
+        f"  ],\n"
+        f'  "execution_policies": [],\n'
+        f'  "rationale": "Why this topology is optimal for the task"\n'
+        f"}}\n"
+    )
+
+    prompt = build_node_prompt(
+        "dynamic.architect",
+        state,
+        paths,
+        config,
+        role_description="Graph Topology Architect",
+        instructions=instructions,
+    )
+
+    model = create_model_from_config(config, "dynamic.architect")
+    tools = get_tools_for_stage("dynamic.architect", paths, config, state)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    try:
+        agent_result: AgentResult = run_agent(
+            model=model,
+            tools=tools,
+            prompt=prompt,
+            stage_id="dynamic.architect.topology",
+            output_schema=GraphTopologyProposal,
+            max_iterations=max_agent_iterations,
+            config=config,
+        )
+    except Exception as e:
+        logger.warning("architect propose_topology: LLM error: %s", e)
+        return None
+
+    if agent_result.error:
+        logger.warning("architect propose_topology: agent error: %s", agent_result.error)
+        return None
+
+    proposal_data = agent_result.data
+    try:
+        proposal = GraphTopologyProposal(**proposal_data)
+    except Exception as e:
+        logger.warning("architect propose_topology: schema validation failed: %s", e)
+        return None
+
+    # Authorize through policy firewall
+    try:
+        authorized = authorize_topology(proposal, state)
+        logger.info(
+            "architect: authorized topology %s with %d stages (%s)",
+            authorized.plan_id,
+            len(authorized.authorized_stages),
+            authorized.policy_notes or "clean",
+        )
+        log_stage_done(
+            "dynamic.architect.topology",
+            f"topology {authorized.plan_id}: {len(authorized.authorized_stages)} stages",
+        )
+        return proposal
+    except TopologyValidationError as e:
+        logger.warning("architect propose_topology: policy rejected: [%s] %s", e.layer, e.message)
+        return None
+
+
+def _build_node_catalog_context() -> str:
+    """Build the node catalog text for the architect's prompt."""
+    from eng_loop.state import build_node_catalog_text
+
+    return build_node_catalog_text()
+
+
+def _build_allowed_conditions_context() -> str:
+    """Build the allowed conditions text for the architect's prompt."""
+    condition_descriptions = {
+        "always": "Unconditional transition",
+        "stage_done": "Stage completed successfully",
+        "stage_failed": "Stage failed verification",
+        "stage_blocked": "Pipeline blocked",
+        "complexity_at_least_medium": "Complexity is medium, large, or complex",
+        "complexity_at_least_large": "Complexity is large or complex",
+        "complexity_is_complex": "Complexity is exactly complex",
+        "complexity_is_small": "Complexity is small",
+        "is_ui_project": "Project has UI components",
+        "not_ui_project": "Project has no UI components",
+    }
+    lines = ["| Condition | Description |"]
+    lines.append("|---|---|")
+    for cond, desc in condition_descriptions.items():
+        lines.append(f"| `{cond}` | {desc} |")
+    return "\n".join(lines)
+
+
+# ───────────────────────────────────────────────────────────────────
+# RUNTIME: Dynamic Architect Node (in-graph)
+# Handles micro-augmentation decisions during execution.
+# Cannot alter the structural topology — only proposes runtime steps.
+# ───────────────────────────────────────────────────────────────────
+
+def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
+    """Runtime intercept node: evaluates if micro-augmentation is needed.
+
+    This runs INSIDE the compiled graph, after init-setup.
+    It can only propose DynamicBlueprint steps (pre-pipeline augmentation),
+    NOT alter the structural topology (that's done by propose_topology pre-build).
     """
     config = state.get("config", {})
     paths = state.get("paths", {})
     work_item = state.get("work_item", "")
     codebase_facts = state.get("codebase_facts", {})
 
+    # If we have a pre-build topology proposal, check if it was authorized
+    topology_proposal = state.get("topology_proposal")
+    if topology_proposal:
+        logger.info("dynamic_architect: topology already proposed pre-build, checking augmentation")
+
     if state.get("dynamic_plan"):
-        logger.info("dynamic_architect: plan already exists, skipping")
+        logger.info("dynamic_architect: dynamic plan already exists, skipping")
         plan = state["dynamic_plan"]
         if plan.get("trigger") == "augment" and plan.get("steps"):
             return Command(goto="meta-executor")
@@ -42,7 +216,7 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
         f"Codebase facts: {json.dumps(codebase_facts, default=str)}\n\n"
         "If the work item requires sub-tasks beyond the standard pipeline stages,\n"
         "propose dynamic steps with specific roles, tool capabilities, and validation rules.\n"
-        "Each step must have a unique step_id matching ^[a-z0-9][a-z0-9-]{{2,63}}$.\n"
+        "Each step must have a unique step_id matching ^[a-z0-9][a-z0-9-]{{2,63}}$\n"
         "Max 5 steps allowed. Use trigger='augment' only if dynamic steps are truly needed.\n\n"
         "Return a JSON object with fields: plan_id, trigger, proposed_complexity, steps, rationale."
     )

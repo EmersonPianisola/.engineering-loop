@@ -4,16 +4,19 @@ import argparse
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
-from eng_loop.config import load_config, resolve_paths, ensure_directories
-from eng_loop.state import make_initial_state, load_state_template, STAGE_ORDER, restore_snapshot
-from eng_loop.graph import compile_graph
-from eng_loop.tools.file_ops import save_json as save_json_file
-from eng_loop.tools.progress import log_iteration, ui, tracker
 from rich.panel import Panel
-from eng_loop.model import create_model_from_config, DEFAULT_BASE_URL, DEFAULT_MODEL
+
+from eng_loop.config import ensure_directories, load_config, resolve_paths
+from eng_loop.graph import compile_graph
+from eng_loop.graph_builder import GraphTopology
+from eng_loop.model import DEFAULT_BASE_URL, DEFAULT_MODEL, create_model_from_config
+from eng_loop.state import STAGE_ORDER, load_state_template, make_initial_state
+from eng_loop.tools.file_ops import save_json as save_json_file
+from eng_loop.tools.progress import log_iteration, tracker, ui
 
 
 def main():
@@ -30,17 +33,38 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Validate config and exit")
     parser.add_argument("--check-model", action="store_true", help="Check model connectivity and exit")
     parser.add_argument("--dynamic-graph", action="store_true", help="Use dynamic graph construction (v11)")
-    parser.add_argument("--parallel-qa", action="store_true", help="Run QA stages in parallel (requires --dynamic-graph)")
-    parser.add_argument("--build-topology", action="store_true", help="Build dynamic graph topology and output as markdown (for LLM orchestrator)")
-    parser.add_argument("--opencode-agent", action="store_true", help="Use opencode CLI as agent backend (Python controls graph, opencode executes with native tools)")
-    parser.add_argument("--check-compliance", action="store_true", help="Validate stage transition against topology (for LLM orchestrator)")
-    parser.add_argument("--requested-stage", type=str, default="", help="Stage ID to validate (required with --check-compliance)")
+    parser.add_argument(
+        "--parallel-qa", action="store_true", help="Run QA stages in parallel (requires --dynamic-graph)"
+    )
+    parser.add_argument(
+        "--build-topology",
+        action="store_true",
+        help="Build dynamic graph topology and output as markdown (for LLM orchestrator)",
+    )
+    parser.add_argument(
+        "--opencode-agent",
+        action="store_true",
+        help="Use opencode CLI as agent backend (Python controls graph, opencode executes with native tools)",
+    )
+    parser.add_argument(
+        "--check-compliance",
+        action="store_true",
+        help="Validate stage transition against topology (for LLM orchestrator)",
+    )
+    parser.add_argument(
+        "--requested-stage", type=str, default="", help="Stage ID to validate (required with --check-compliance)"
+    )
 
     # ── Interactive / breakpoint flags ───────────────────────────
-    parser.add_argument("--pause-at", type=str, nargs="+", default=[],
-                        help="Stage IDs to pause execution before (e.g. impl.code verify)")
-    parser.add_argument("--interactive", action="store_true",
-                        help="Enable full-screen TUI dashboard (experimental)")
+    parser.add_argument(
+        "--pause-at",
+        type=str,
+        nargs="+",
+        default=[],
+        help="Stage IDs to pause execution before (e.g. impl.code verify)",
+    )
+    parser.add_argument("--interactive", action="store_true", help="Enable full-screen TUI dashboard (experimental)")
+    parser.add_argument("--tui", action="store_true", help="Enable interactive Textual TUI (MAGE HUD v2.0)")
 
     # ── Surgical subcommands ─────────────────────────────────────
     subparsers = parser.add_subparsers(dest="command", help="Surgical commands")
@@ -115,9 +139,7 @@ def main():
 
     # ── Apply CLI overrides ──────────────────────────────────────
     if hasattr(args, "opencode_agent"):
-        if args.opencode_agent:
-            os.environ["ENG_AGENT_BACKEND"] = "opencode"
-        elif config.get("agent", {}).get("backend", "langchain") == "opencode":
+        if args.opencode_agent or config.get("agent", {}).get("backend", "langchain") == "opencode":
             os.environ["ENG_AGENT_BACKEND"] = "opencode"
 
     if args.model_base_url:
@@ -144,13 +166,15 @@ def main():
     # ── Validate model connectivity ──────────────────────────────
     if not _check_model(config, quiet=True):
         ui.console.print()
-        ui.console.print(Panel(
-            f"[yellow]Model connectivity check failed.[/yellow]\n"
-            f"Check that [bold]{config.get('model', {}).get('base_url', DEFAULT_BASE_URL)}[/bold] is running.\n"
-            f"Use [dim]--check-model[/dim] for details.",
-            title="[bold yellow]Warning[/bold yellow]",
-            border_style="yellow",
-        ))
+        ui.console.print(
+            Panel(
+                f"[yellow]Model connectivity check failed.[/yellow]\n"
+                f"Check that [bold]{config.get('model', {}).get('base_url', DEFAULT_BASE_URL)}[/bold] is running.\n"
+                f"Use [dim]--check-model[/dim] for details.",
+                title="[bold yellow]Warning[/bold yellow]",
+                border_style="yellow",
+            )
+        )
         response = input("Continue anyway? [y/N]: ")
         if response.lower() != "y":
             sys.exit(1)
@@ -172,7 +196,9 @@ def main():
 
     if state.get("complexity", "unset") == "unset":
         from eng_loop.tools.autosizing import (
-            classify_complexity, classify_work_type, detect_ui_project,
+            classify_complexity,
+            classify_work_type,
+            detect_ui_project,
         )
 
         state["complexity"] = classify_complexity(args.work_item, config)
@@ -182,6 +208,7 @@ def main():
     # ── Determine graph mode ─────────────────────────────────────
     dynamic_graph = args.dynamic_graph or config.get("dynamic_graph", {}).get("enabled", False)
     parallel_qa = args.parallel_qa or config.get("dynamic_graph", {}).get("parallel_qa", False)
+    hud_mode = args.interactive or args.tui
 
     # Convert pause-at stage IDs to node names (dots → hyphens)
     interrupt_nodes = []
@@ -189,74 +216,180 @@ def main():
         interrupt_nodes = [s.replace(".", "-").replace("_", "-") for s in args.pause_at]
 
     if dynamic_graph:
-        if parallel_qa:
-            ui.console.print("[bold cyan]Mode:[/bold cyan] Dynamic graph + parallel QA")
-        else:
-            ui.console.print("[bold cyan]Mode:[/bold cyan] Dynamic graph")
-        if args.opencode_agent:
-            ui.console.print("[bold cyan]Agent backend:[/bold cyan] opencode (hybrid mode)")
+        if not hud_mode:
+            ui.console.print("[bold cyan]Mode:[/bold cyan] Dynamic graph" + (" + parallel QA" if parallel_qa else ""))
+            if args.opencode_agent:
+                ui.console.print("[bold cyan]Agent backend:[/bold cyan] opencode (hybrid mode)")
 
         from eng_loop.graph_builder import GraphBuilder
+
         graph_builder = GraphBuilder(parallel_qa=parallel_qa)
+
+        # ── Pre-build: Architect proposes topology ──
+        authorized_topology = None
+        use_proposal = False
+
+        try:
+            from eng_loop.nodes.dynamic_architect import propose_topology
+            from eng_loop.tools.policy_resolver import TopologyValidationError
+            from eng_loop.tools.policy_resolver import authorize_topology as auth_topology
+
+            proposal = propose_topology(
+                work_item=args.work_item,
+                codebase_facts=state.get("codebase_facts", {}),
+                config=config,
+                state=state,
+                paths=paths,
+            )
+
+            if proposal:
+                authorized_topology = auth_topology(proposal, state)
+                use_proposal = True
+                if not hud_mode:
+                    ui.console.print(
+                        f"[bold green]Architect:[/bold green] topology proposed "
+                        f"({len(authorized_topology.authorized_stages)} stages)"
+                    )
+                    if authorized_topology.policy_notes:
+                        ui.console.print(
+                            f"[dim]  Policy notes: {authorized_topology.policy_notes}[/dim]"
+                        )
+
+                # Store proposal in state for runtime reference
+                state["topology_proposal"] = proposal.model_dump()
+
+        except TopologyValidationError as e:
+            if not hud_mode:
+                ui.console.print(
+                    f"[bold yellow]Architect rejected:[/bold yellow] [{e.layer}] {e.message}"
+                )
+        except Exception as e:
+            if not hud_mode:
+                ui.console.print(
+                    f"[bold yellow]Architect error:[/bold yellow] {e} — falling back to deterministic"
+                )
+
+        if not use_proposal:
+            if not hud_mode:
+                ui.console.print("[dim]Architect: falling back to deterministic graph builder[/dim]")
+
+        # ── Compile graph (proposal or deterministic) ──
         compiled, topology = graph_builder.compile(
-            state, config, interrupt_before=interrupt_nodes or None
+            state,
+            config,
+            interrupt_before=interrupt_nodes or None,
+            authorized_topology=authorized_topology if use_proposal else None,
         )
         graph = compiled
 
         state["graph_topology"] = topology.to_dict()
         state["active_nodes"] = topology.active_nodes
 
-        ui.render_topology(
-            work_item=args.work_item,
-            active_nodes=topology.active_nodes,
-            complexity=state.get("complexity", "unset"),
-            total_available=topology.total_available,
-            work_type=state.get("work_type", "feature"),
-            ui_project=state.get("ui_project", False),
-        )
+        if not hud_mode:
+            ui.render_topology(
+                work_item=args.work_item,
+                active_nodes=topology.active_nodes,
+                complexity=state.get("complexity", "unset"),
+                total_available=topology.total_available,
+                work_type=state.get("work_type", "feature"),
+                ui_project=state.get("ui_project", False),
+            )
     else:
-        ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")
+        if not hud_mode:
+            ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")
         graph = compile_graph(config=config)
 
     thread_config = {"configurable": {"thread_id": "eng-loop-run"}}
 
     # HUD initialization for --interactive mode
     hud = None
-    if args.interactive:
-        from eng_loop.tools.hud import HUDRenderer
+    tui_controller = None
+    exec_state = None
+    normalizer = None
+    use_tui = args.tui
+
+    if args.interactive or use_tui:
+        from eng_loop.tools.event_normalizer import EventNormalizer
+        from eng_loop.tools.execution_state import ExecutionState
+
         active_stages = state.get("active_nodes", [])
-        hud = HUDRenderer(ui.console, graph, thread_config)
-        ui.set_hud(hud)
-        hud.start(
-            work_item=args.work_item,
-            active_stages=active_stages,
-            config=config,
-            initial_state=state,
+
+        quest_id = f"Q_{uuid.uuid4().hex[:6]}"
+
+        max_att_map = {}
+        constraints = config.get("constraints", {})
+        for node in active_stages:
+            key = f"max_{node.replace('.', '_').replace('-', '_')}_attempts"
+            max_att_map[node] = constraints.get(key, 2)
+
+        exec_state = ExecutionState(
+            quest_id=quest_id,
+            title=args.work_item,
+            all_node_names=active_stages,
+            max_attempts_map=max_att_map,
         )
+        normalizer = EventNormalizer(exec_state, active_stages, max_att_map)
+
+        if use_tui:
+            # Textual TUI (MAGE HUD v2.0)
+            try:
+                from eng_loop.tools.hud_tui import TextualHUDController
+
+                tui_controller = TextualHUDController(exec_state, normalizer, args.work_item)
+                ui.set_normalizer(normalizer)
+            except ImportError:
+                ui.console.print("[yellow]Warning: Textual not installed, falling back to Rich HUD.[/yellow]")
+                use_tui = False
+        else:
+            # Rich-based HUD (legacy)
+            from eng_loop.tools.hud import HUDRenderer
+
+            hud = HUDRenderer(ui.console, execution_state=exec_state, normalizer=normalizer)
+            ui.set_hud(hud)
+            ui.set_normalizer(normalizer)
+            hud.start(
+                work_item=args.work_item,
+                active_stages=active_stages,
+                config=config,
+                initial_state=state,
+            )
+        # Silence all Python logging output to prevent stdout/stderr leakage
+        # that would corrupt the HUD terminal rendering.
+        import logging as _logging
+
+        _logging.getLogger().addHandler(_logging.NullHandler())
+        _logging.getLogger().setLevel(_logging.CRITICAL)
 
     model_info = config.get("model", {})
-    ui.console.print()
-    ui.console.print(
-        Panel(
-            f"[bold]Work item:[/bold] {args.work_item}\n"
-            f"[bold]Model:[/bold] {model_info.get('model', DEFAULT_MODEL)} @ {model_info.get('base_url', DEFAULT_BASE_URL)}\n"
-            f"[bold]Complexity:[/bold] auto-sized",
-            title="[bold blue]Engineering Loop v11[/bold blue]",
-            border_style="blue",
+    if not tui_controller:
+        ui.console.print()
+        ui.console.print(
+            Panel(
+                f"[bold]Work item:[/bold] {args.work_item}\n"
+                f"[bold]Model:[/bold] {model_info.get('model', DEFAULT_MODEL)} @ {model_info.get('base_url', DEFAULT_BASE_URL)}\n"
+                f"[bold]Complexity:[/bold] auto-sized",
+                title="[bold blue]Engineering Loop v11[/bold blue]",
+                border_style="blue",
+            )
         )
-    )
 
-    if interrupt_nodes:
-        ui.console.print(f"[bold yellow]Breakpoints set at:[/bold yellow] {', '.join(interrupt_nodes)}")
+        if interrupt_nodes:
+            ui.console.print(f"[bold yellow]Breakpoints set at:[/bold yellow] {', '.join(interrupt_nodes)}")
 
     # ── Execute graph with interrupt support ─────────────────────
     try:
         tracker.start_loop()
         prev_stage = ""
-        was_interrupted = False
 
         for event in _stream_with_interrupts(
-            graph, state, thread_config, interrupt_nodes, paths, config
+            graph,
+            state,
+            thread_config,
+            interrupt_nodes,
+            paths,
+            config,
+            exec_state=exec_state,
+            normalizer=normalizer,
         ):
             status = event.get("status", "running")
             current = event.get("current_stage", "")
@@ -264,10 +397,18 @@ def main():
 
             if current and current != prev_stage:
                 log_iteration(iteration, current)
-                if not hud:
+                if not hud and not tui_controller:
                     _print_progress_bar(event)
                 _save_state(event, paths)
                 _save_snapshot(event, paths, current, config)
+
+                # Store payload for Node Inspector
+                if normalizer and current:
+                    stage_data = event.get("stages", {}).get(current, {})
+                    output = stage_data.get("output", "")
+                    if output:
+                        normalizer.store_output_result(current, str(output)[:8000])
+
                 prev_stage = current
 
             if hud:
@@ -277,13 +418,22 @@ def main():
                 log_iteration(iteration, current or "complete")
 
         final_state = event
-        _print_result(final_state)
+        if normalizer:
+            status = final_state.get("status", "unknown")
+            if status == "done":
+                normalizer.quest_completed()
+            elif status == "blocked":
+                normalizer.quest_failed(final_state.get("blocking_condition", ""))
+        if not tui_controller:
+            _print_result(final_state)
         _save_state(final_state, paths, verbose=True)
 
     except KeyboardInterrupt:
         state["status"] = "halted"
         state["blocking_condition"] = "user interrupted"
         _save_state(state, paths, verbose=True)
+        if normalizer:
+            normalizer.quest_cancelled("user interrupted")
         if hud:
             hud.log("SYS", "User interrupted")
         ui.console.print()
@@ -295,11 +445,14 @@ def main():
         state["status"] = "halted"
         state["blocking_condition"] = str(e)
         _save_state(state, paths, verbose=True)
+        if normalizer:
+            normalizer.quest_failed(str(e))
         if hud:
             hud.log("ERROR", str(e))
         ui.console.print()
         ui.console.print(Panel(f"[bold red]Loop halted:[/bold red] {e}", border_style="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:
@@ -315,25 +468,48 @@ def _stream_with_interrupts(
     interrupt_nodes: list[str],
     paths: dict[str, Any],
     config: dict[str, Any],
+    exec_state: Any = None,
+    normalizer: Any = None,
 ) -> Any:
     """Stream graph events, handling breakpoint interrupts.
 
     Yields events from graph.stream(). When an interrupt occurs at a
     breakpoint node, shows the interactive menu and resumes or aborts.
+
+    When exec_state is provided, checks for pause/resume and step mode.
     """
     from langgraph.types import Command
+
     from eng_loop.tools.interactive import edit_state_in_editor
 
     def do_stream(initial_input):
-        for event in graph.stream(initial_input, config=thread_config, stream_mode="values"):
-            yield event
+        yield from graph.stream(initial_input, config=thread_config, stream_mode="values")
 
     # First stream (or resume stream)
     stream_input = state
     while True:
+        # Check for pause before executing next batch
+        if exec_state and exec_state.is_paused:
+            # Wait for resume — poll with sleep
+            import time as _time
+
+            while exec_state.is_paused:
+                _time.sleep(0.1)
+
         events_from_stream = list(do_stream(stream_input))
         for event in events_from_stream:
+            # Check for interventions on the current node
+            current_stage = event.get("current_stage", "")
+            if current_stage and exec_state and exec_state.has_intervention(current_stage):
+                intervention = exec_state.get_intervention(current_stage)
+                if intervention:
+                    ui.console.print(f"\n  [bold yellow]Intervention injected for {current_stage}[/bold yellow]")
+
             yield event
+
+        # Step mode: pause after each batch
+        if exec_state and exec_state.step_mode:
+            exec_state.pause_after_step()
 
         # Check if stream stopped due to interrupt
         # LangGraph with interrupt_before stops the stream when it hits a paused node.
@@ -345,15 +521,19 @@ def _stream_with_interrupts(
                 interrupted_node = current_state.next[0]
                 stage_id = interrupted_node.replace("-", ".")
 
+                if ui.is_hud_active():
+                    # TUI mode: skip breakpoint menu (input() would hang), auto-resume
+                    stream_input = Command(resume=True)
+                    continue
+
                 ui.console.print()
                 action = ui.show_breakpoint_menu(interrupted_node, current_state.values)
 
                 if action == "abort":
                     ui.console.print()
-                    ui.console.print(Panel(
-                        "[bold yellow]Loop aborted at breakpoint.[/bold yellow]",
-                        border_style="yellow"
-                    ))
+                    ui.console.print(
+                        Panel("[bold yellow]Loop aborted at breakpoint.[/bold yellow]", border_style="yellow")
+                    )
                     return
 
                 if action == "edit":
@@ -375,6 +555,7 @@ def _stream_with_interrupts(
 # ───────────────────────────────────────────────────────────────────
 # Surgical Command Implementations
 # ───────────────────────────────────────────────────────────────────
+
 
 def _cmd_rollback(stage_id: str, paths: dict[str, str], config: dict[str, Any]) -> None:
     """eng-loop rollback <stage_id>"""
@@ -403,7 +584,9 @@ def _cmd_rollback(stage_id: str, paths: dict[str, str], config: dict[str, Any]) 
         sys.exit(1)
 
 
-def _cmd_run_node(stage_id: str, from_state: str | None, paths: dict[str, str], config: dict[str, Any], framework_root: Path) -> None:
+def _cmd_run_node(
+    stage_id: str, from_state: str | None, paths: dict[str, str], config: dict[str, Any], framework_root: Path
+) -> None:
     """eng-loop run-node <stage_id> --from-state <file>"""
     from eng_loop.node_registry import build_registry
 
@@ -427,6 +610,7 @@ def _cmd_run_node(stage_id: str, from_state: str | None, paths: dict[str, str], 
     try:
         result = spec.handler(state)
         from langgraph.types import Command
+
         if isinstance(result, Command):
             update = result.update or {}
             state.update(update)
@@ -445,6 +629,7 @@ def _cmd_run_node(stage_id: str, from_state: str | None, paths: dict[str, str], 
     except Exception as e:
         ui.console.print(Panel(f"[bold red]Node failed:[/bold red] {e}", border_style="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -502,8 +687,7 @@ def _cmd_skip_node(stage_id: str, paths: dict[str, str], config: dict[str, Any])
 
     ui.console.print(
         Panel(
-            f"[bold yellow]Stage skipped: {stage_id}[/bold yellow]\n"
-            f"Marked as done: true",
+            f"[bold yellow]Stage skipped: {stage_id}[/bold yellow]\nMarked as done: true",
             title="[bold yellow]Node Skipped[/bold yellow]",
             border_style="yellow",
         )
@@ -512,8 +696,9 @@ def _cmd_skip_node(stage_id: str, paths: dict[str, str], config: dict[str, Any])
 
 def _cmd_history(paths: dict[str, str], config: dict[str, Any]) -> None:
     """eng-loop history"""
-    from eng_loop.tools.state_history import list_snapshots
     from rich.table import Table
+
+    from eng_loop.tools.state_history import list_snapshots
 
     snapshots = list_snapshots(paths, config)
     if not snapshots:
@@ -565,6 +750,15 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "graph_topology": state.get("graph_topology", {}),
         "parallel_groups": state.get("parallel_groups", {}),
         "timing": tracker.to_json(),
+        "current_stage": state.get("current_stage", ""),
+        "fix_tasks": state.get("fix_tasks", []),
+        "fix_iteration": state.get("fix_iteration", 0),
+        "rollback_target": state.get("rollback_target", ""),
+        "explorer_evidence": state.get("explorer_evidence", []),
+        "codebase_facts": state.get("codebase_facts", {}),
+        "topology_proposal": state.get("topology_proposal"),
+        "dynamic_plan": state.get("dynamic_plan"),
+        "dynamic_runtime": state.get("dynamic_runtime", {}),
     }
 
 
@@ -572,10 +766,11 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
 # Existing helper functions (preserved)
 # ───────────────────────────────────────────────────────────────────
 
+
 def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str]) -> None:
     """Build dynamic graph topology and output as markdown for LLM orchestrator."""
-    from eng_loop.tools.autosizing import classify_complexity, classify_work_type, detect_ui_project
     from eng_loop.graph_builder import GraphBuilder
+    from eng_loop.tools.autosizing import classify_complexity, classify_work_type, detect_ui_project
 
     complexity = classify_complexity(work_item, config)
     work_type = classify_work_type(work_item)
@@ -595,6 +790,7 @@ def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str
 
     topology_file = paths.get("artifact_root", "artifacts") + "/graph-topology.md"
     from eng_loop.tools.file_ops import write_file
+
     write_file(topology_file, md)
 
     topology_json = paths.get("artifact_root", "artifacts") + "/graph-topology.json"
@@ -607,7 +803,7 @@ def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str
 
 
 def _topology_to_markdown(
-    topology: "GraphTopology",
+    topology: GraphTopology,
     work_item: str,
     complexity: str,
     work_type: str,
@@ -615,7 +811,7 @@ def _topology_to_markdown(
     config: dict[str, Any],
 ) -> str:
     """Convert graph topology to markdown instructions for LLM orchestrator."""
-    from eng_loop.state import STAGE_ORDER, STAGE_MIN_COMPLEXITY, get_active_stages
+    from eng_loop.state import STAGE_MIN_COMPLEXITY, STAGE_ORDER, get_active_stages
     from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
 
     lines = []
@@ -649,9 +845,15 @@ def _topology_to_markdown(
     lines.append("|---|----------|-------|-------------|")
 
     phase_labels = {
-        "init": "INIT", "design": "DESIGN", "arch": "ARCH",
-        "impl": "IMPL", "verify": "VERIFY", "qa": "QA",
-        "deploy": "DEPLOY", "doc": "DOC", "post": "POST",
+        "init": "INIT",
+        "design": "DESIGN",
+        "arch": "ARCH",
+        "impl": "IMPL",
+        "verify": "VERIFY",
+        "qa": "QA",
+        "deploy": "DEPLOY",
+        "doc": "DOC",
+        "post": "POST",
     }
 
     for i, node_id in enumerate(topology.active_nodes, 1):
@@ -670,43 +872,43 @@ def _topology_to_markdown(
     lines.append("")
 
     lines.append("### Post-Init-Refine")
-    lines.append(f"- IF complexity >= `medium` → `arch.requirements`")
-    lines.append(f"- ELSE → `impl.design`")
+    lines.append("- IF complexity >= `medium` → `arch.requirements`")
+    lines.append("- ELSE → `impl.design`")
     lines.append("")
 
     lines.append("### Post-Verify (PASS)")
     if ui_project:
-        lines.append(f"- → `e2e.execute` (UI project)")
+        lines.append("- → `e2e.execute` (UI project)")
     else:
-        lines.append(f"- IF complexity >= `medium` → `qa.security`")
-    lines.append(f"- IF complexity == `small` → `deploy.prepare`")
+        lines.append("- IF complexity >= `medium` → `qa.security`")
+    lines.append("- IF complexity == `small` → `deploy.prepare`")
     lines.append("")
 
     lines.append("### Post-E2E (PASS)")
-    lines.append(f"- IF complexity >= `medium` → `qa.security`")
-    lines.append(f"- ELSE → `deploy.prepare`")
+    lines.append("- IF complexity >= `medium` → `qa.security`")
+    lines.append("- ELSE → `deploy.prepare`")
     lines.append("")
 
     lines.append("### QA Chain")
-    lines.append(f"- `qa.security` PASS → `qa.api-contract` (if medium+) or `deploy.prepare`")
-    lines.append(f"- `qa.api-contract` PASS → `qa.performance` (if complex) or `deploy.prepare`")
-    lines.append(f"- `qa.performance` PASS → `deploy.prepare`")
-    lines.append(f"- Any QA FAIL → `impl.code` (RESET)")
+    lines.append("- `qa.security` PASS → `qa.api-contract` (if medium+) or `deploy.prepare`")
+    lines.append("- `qa.api-contract` PASS → `qa.performance` (if complex) or `deploy.prepare`")
+    lines.append("- `qa.performance` PASS → `deploy.prepare`")
+    lines.append("- Any QA FAIL → `impl.code` (RESET)")
     lines.append("")
 
     lines.append("### Post-Deploy (PASS)")
     if ui_project:
-        lines.append(f"- → `smoke.test` (UI project)")
-    lines.append(f"- IF complexity >= `medium` → `doc.decisions`")
-    lines.append(f"- ELSE → `post`")
+        lines.append("- → `smoke.test` (UI project)")
+    lines.append("- IF complexity >= `medium` → `doc.decisions`")
+    lines.append("- ELSE → `post`")
     lines.append("")
 
     lines.append("### FAIL ROUTING (any stage with verdict)")
-    lines.append(f"- `verify` FAIL → `impl.code` (RESET)")
-    lines.append(f"- `e2e.execute` FAIL → `impl.code` (RESET)")
-    lines.append(f"- `qa.*` FAIL → `impl.code` (RESET)")
-    lines.append(f"- `deploy.prepare` FAIL → `impl.code` (RESET)")
-    lines.append(f"- `smoke.test` FAIL → `impl.code` (RESET)")
+    lines.append("- `verify` FAIL → `impl.code` (RESET)")
+    lines.append("- `e2e.execute` FAIL → `impl.code` (RESET)")
+    lines.append("- `qa.*` FAIL → `impl.code` (RESET)")
+    lines.append("- `deploy.prepare` FAIL → `impl.code` (RESET)")
+    lines.append("- `smoke.test` FAIL → `impl.code` (RESET)")
     lines.append("")
 
     if topology.parallel_groups:
@@ -730,12 +932,13 @@ def _topology_to_markdown(
 
     lines.append("")
 
-    all_stages = get_active_stages(complexity, ui_project, "feature")
+    get_active_stages(complexity, ui_project, "feature")
     deactivated = [s for s in STAGE_ORDER if s not in topology.active_nodes]
     if deactivated:
         lines.append("## DEACTIVATED STAGES (auto-sizing)")
         lines.append("")
         from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES
+
         for s in deactivated:
             min_c = STAGE_MIN_COMPLEXITY.get(s, "small")
             reason = ""
@@ -743,8 +946,18 @@ def _topology_to_markdown(
                 reason = "excluded for documentation work"
             elif s in OPERATIONAL_EXCLUDED_STAGES and work_type == "operational":
                 reason = "excluded for operational work"
-            elif s in ("design.user-research", "design.personas", "design.info-arch",
-                       "design.interaction", "design.design-system", "design.visual-design") and work_type == "bugfix":
+            elif (
+                s
+                in (
+                    "design.user-research",
+                    "design.personas",
+                    "design.info-arch",
+                    "design.interaction",
+                    "design.design-system",
+                    "design.visual-design",
+                )
+                and work_type == "bugfix"
+            ):
                 reason = "excluded for bugfix work"
             elif min_c != "small":
                 reason = f"min_complexity={min_c}, current={complexity}"
@@ -800,15 +1013,14 @@ def _print_progress_bar(state: dict) -> None:
 
 
 def _is_active(stage_id: str, complexity: str, ui_project: bool) -> bool:
-    from eng_loop.state import STAGE_MIN_COMPLEXITY, COMPLEXITY_ORDER
+    from eng_loop.state import COMPLEXITY_ORDER, STAGE_MIN_COMPLEXITY
+
     if complexity == "unset":
         return True
     min_c = STAGE_MIN_COMPLEXITY.get(stage_id)
     if min_c and COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_c, 0):
         return False
-    if stage_id in ("e2e.execute", "smoke.test") and not ui_project:
-        return False
-    return True
+    return not (stage_id in ("e2e.execute", "smoke.test") and not ui_project)
 
 
 def _check_model(config: dict[str, Any], quiet: bool = False) -> bool:
@@ -850,6 +1062,7 @@ def _save_state(state: dict, paths: dict, verbose: bool = False) -> None:
 def _save_snapshot(state: dict, paths: dict, stage_id: str, config: dict[str, Any] | None = None) -> None:
     """Save a state snapshot after a stage completes."""
     from eng_loop.tools.state_history import save_snapshot as _save_snap
+
     _save_snap(state, paths, stage_id, config)
 
 

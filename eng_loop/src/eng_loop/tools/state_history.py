@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -8,15 +7,12 @@ from typing import Any
 
 from eng_loop.state import STAGE_ORDER
 from eng_loop.tools.file_ops import load_json, save_json
-from eng_loop.tools.progress import ui
 
 
 def get_history_dir(paths: dict[str, str], config: dict[str, Any] | None = None) -> Path:
     """Resolve the history directory path."""
     config = config or {}
-    history_dir = config.get("state_history", {}).get(
-        "history_dir", ".eng/history"
-    )
+    history_dir = config.get("state_history", {}).get("history_dir", ".eng/history")
     artifact_root = paths.get("artifact_root", "artifacts")
     loop_root = Path(artifact_root).parent
     return Path(os.path.join(str(loop_root), history_dir))
@@ -38,7 +34,9 @@ def _make_snapshot_filename(stage_id: str) -> str:
     return f"state_after_{safe_id}_{ts}.json"
 
 
-def save_snapshot(state: dict[str, Any], paths: dict[str, str], stage_id: str, config: dict[str, Any] | None = None) -> Path | None:
+def save_snapshot(
+    state: dict[str, Any], paths: dict[str, str], stage_id: str, config: dict[str, Any] | None = None
+) -> Path | None:
     """Save a state snapshot after a stage completes.
 
     Returns the path to the saved snapshot, or None if history is disabled.
@@ -82,10 +80,20 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "graph_topology": state.get("graph_topology", {}),
         "parallel_groups": state.get("parallel_groups", {}),
         "timing": state.get("timing", {}),
+        "current_stage": state.get("current_stage", ""),
+        "fix_tasks": state.get("fix_tasks", []),
+        "fix_iteration": state.get("fix_iteration", 0),
+        "rollback_target": state.get("rollback_target", ""),
+        "explorer_evidence": state.get("explorer_evidence", []),
+        "codebase_facts": state.get("codebase_facts", {}),
+        "dynamic_plan": state.get("dynamic_plan"),
+        "dynamic_runtime": state.get("dynamic_runtime", {}),
     }
 
 
-def _enforce_retention(stage_id: str, history_dir: Path, paths: dict[str, str], config: dict[str, Any] | None = None) -> None:
+def _enforce_retention(
+    stage_id: str, history_dir: Path, paths: dict[str, str], config: dict[str, Any] | None = None
+) -> None:
     """Remove oldest snapshots for a stage if retention limit exceeded."""
     retention = get_retention(paths, config)
     safe_id = stage_id.replace(".", "-").replace("_", "-")
@@ -113,19 +121,21 @@ def list_snapshots(paths: dict[str, str], config: dict[str, Any] | None = None) 
     for fp in sorted(history_dir.glob("state_after_*.json")):
         stage_id = _extract_stage_id(fp.name)
         timestamp = _extract_timestamp(fp.name)
-        results.append({
-            "path": str(fp),
-            "stage_id": stage_id,
-            "timestamp": timestamp,
-            "size": fp.stat().st_size,
-        })
+        results.append(
+            {
+                "path": str(fp),
+                "stage_id": stage_id,
+                "timestamp": timestamp,
+                "size": fp.stat().st_size,
+            }
+        )
     return results
 
 
 def _extract_stage_id(filename: str) -> str:
     # "state_after_impl-code_20260812_143022_123456.json" -> "impl.code"
     # Timestamp suffix: _YYYYMMDD_HHMMSS_ffffff (23 chars)
-    core = filename[len("state_after_"):-len(".json")]
+    core = filename[len("state_after_") : -len(".json")]
     if len(core) > 23 and core[-23:].startswith("_"):
         node_part = core[:-23]
         return node_part.replace("-", ".")
@@ -138,7 +148,7 @@ def _extract_stage_id(filename: str) -> str:
 
 def _extract_timestamp(filename: str) -> str:
     # "state_after_impl-code_20260812_143022_123456.json" -> "2026-08-12 14:30:22"
-    core = filename[len("state_after_"):-len(".json")]
+    core = filename[len("state_after_") : -len(".json")]
     # Try new format first: _YYYYMMDD_HHMMSS_ffffff (23 chars)
     if len(core) > 23 and core[-23:].startswith("_"):
         ts_str = core[-22:]  # "YYYYMMDD_HHMMSS_ffffff"
@@ -172,7 +182,7 @@ def get_snapshot_before(stage_id: str, paths: dict[str, str], config: dict[str, 
     if target_idx is None:
         return None
 
-    target_stages = STAGE_ORDER[:target_idx + 1]
+    target_stages = STAGE_ORDER[: target_idx + 1]
     history_dir = get_history_dir(paths, config)
     if not history_dir.exists():
         return None

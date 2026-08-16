@@ -2,34 +2,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
-from eng_loop.state import PipelineState
-from eng_loop.graph_builder import GraphBuilder, GraphTopology, build_dynamic_graph
-from eng_loop.node_registry import build_registry
-from eng_loop.edge_rules import build_edge_rules
+from eng_loop.graph_builder import GraphBuilder
+from eng_loop.nodes.architecture import arch_node, get_arch_nodes
+from eng_loop.nodes.deploy import deploy_prepare_node, smoke_test_node
 
 # Legacy imports — kept for backward compatibility with existing tests
-from eng_loop.nodes.design import DESIGN_STAGES, get_design_nodes, design_node
-from eng_loop.nodes.architecture import ARCH_STAGES, get_arch_nodes, arch_node
-from eng_loop.nodes.qa import QA_STAGES, get_qa_nodes, qa_node
-from eng_loop.nodes.essence import essence_gate_node
-from eng_loop.nodes.init import init_node, init_ideate_node, init_bdd_node, init_refine_node
-from eng_loop.nodes.implementation import impl_design_node, impl_code_node, doc_update_node
-from eng_loop.nodes.verification import verify_node, e2e_execute_node
-from eng_loop.nodes.deploy import deploy_prepare_node, smoke_test_node
+from eng_loop.nodes.design import design_node, get_design_nodes
 from eng_loop.nodes.documentation import doc_decisions_node, doc_project_node
+from eng_loop.nodes.implementation import doc_update_node, impl_code_node, impl_design_node
+from eng_loop.nodes.init import init_bdd_node, init_ideate_node, init_node, init_refine_node
 from eng_loop.nodes.post import post_node
+from eng_loop.nodes.qa import get_qa_nodes, qa_node
+from eng_loop.nodes.verification import e2e_execute_node, verify_node
 from eng_loop.routing import (
-    route_init_complete,
-    route_verify_result,
-    route_e2e_result,
-    route_deploy_result,
-    route_smoke_result,
-    route_design_complete,
     route_arch_complete,
+    route_deploy_result,
+    route_design_complete,
+    route_e2e_result,
+    route_init_complete,
     route_qa_result,
+    route_smoke_result,
+    route_verify_result,
 )
+from eng_loop.state import PipelineState
 from eng_loop.tools.progress import trace_node
 
 
@@ -76,18 +73,26 @@ def build_graph() -> StateGraph:
     builder.add_edge(START, "init")
 
     # --- Init chain ---
-    builder.add_conditional_edges("init", route_init_complete, {
-        "init-ideate": "init-ideate",
-        "__end__": END,
-    })
+    builder.add_conditional_edges(
+        "init",
+        route_init_complete,
+        {
+            "init-ideate": "init-ideate",
+            "__end__": END,
+        },
+    )
 
     builder.add_edge("init-ideate", "init-bdd")
     builder.add_edge("init-bdd", "init-refine")
 
-    builder.add_conditional_edges("init-refine", lambda s: _post_init_refine(s), {
-        "arch-requirements": "arch-requirements",
-        "impl-design": "impl-design",
-    })
+    builder.add_conditional_edges(
+        "init-refine",
+        lambda s: _post_init_refine(s),
+        {
+            "arch-requirements": "arch-requirements",
+            "impl-design": "impl-design",
+        },
+    )
 
     # --- Design chain ---
     builder.add_edge("design-user-research", "design-personas")
@@ -96,18 +101,26 @@ def build_graph() -> StateGraph:
     builder.add_edge("design-interaction", "design-design-system")
     builder.add_edge("design-design-system", "design-visual-design")
 
-    builder.add_conditional_edges("design-visual-design", route_design_complete, {
-        "arch-requirements": "arch-requirements",
-        "impl-design": "impl-design",
-    })
+    builder.add_conditional_edges(
+        "design-visual-design",
+        route_design_complete,
+        {
+            "arch-requirements": "arch-requirements",
+            "impl-design": "impl-design",
+        },
+    )
 
     # --- Architecture chain ---
     builder.add_edge("arch-requirements", "arch-solution")
 
-    builder.add_conditional_edges("arch-solution", route_arch_complete, {
-        "arch-review": "arch-review",
-        "impl-design": "impl-design",
-    })
+    builder.add_conditional_edges(
+        "arch-solution",
+        route_arch_complete,
+        {
+            "arch-review": "arch-review",
+            "impl-design": "impl-design",
+        },
+    )
 
     builder.add_edge("arch-review", "impl-design")
 
@@ -117,51 +130,79 @@ def build_graph() -> StateGraph:
     builder.add_edge("doc-update", "verify")
 
     # --- Verification ---
-    builder.add_conditional_edges("verify", route_verify_result, {
-        "impl-code": "impl-code",
-        "e2e-execute": "e2e-execute",
-        "qa-security": "qa-security",
-        "deploy-prepare": "deploy-prepare",
-    })
+    builder.add_conditional_edges(
+        "verify",
+        route_verify_result,
+        {
+            "impl-code": "impl-code",
+            "e2e-execute": "e2e-execute",
+            "qa-security": "qa-security",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
 
     # --- E2E ---
-    builder.add_conditional_edges("e2e-execute", route_e2e_result, {
-        "impl-code": "impl-code",
-        "qa-security": "qa-security",
-        "deploy-prepare": "deploy-prepare",
-    })
+    builder.add_conditional_edges(
+        "e2e-execute",
+        route_e2e_result,
+        {
+            "impl-code": "impl-code",
+            "qa-security": "qa-security",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
 
     # --- QA chain ---
-    builder.add_conditional_edges("qa-security", route_qa_result, {
-        "impl-code": "impl-code",
-        "qa-api-contract": "qa-api-contract",
-        "deploy-prepare": "deploy-prepare",
-    })
+    builder.add_conditional_edges(
+        "qa-security",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-api-contract": "qa-api-contract",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
 
-    builder.add_conditional_edges("qa-api-contract", route_qa_result, {
-        "impl-code": "impl-code",
-        "qa-performance": "qa-performance",
-        "deploy-prepare": "deploy-prepare",
-    })
+    builder.add_conditional_edges(
+        "qa-api-contract",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-performance": "qa-performance",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
 
-    builder.add_conditional_edges("qa-performance", route_qa_result, {
-        "impl-code": "impl-code",
-        "deploy-prepare": "deploy-prepare",
-    })
+    builder.add_conditional_edges(
+        "qa-performance",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
 
     # --- Deploy ---
-    builder.add_conditional_edges("deploy-prepare", route_deploy_result, {
-        "impl-code": "impl-code",
-        "smoke-test": "smoke-test",
-        "doc-decisions": "doc-decisions",
-        "post": "post",
-    })
+    builder.add_conditional_edges(
+        "deploy-prepare",
+        route_deploy_result,
+        {
+            "impl-code": "impl-code",
+            "smoke-test": "smoke-test",
+            "doc-decisions": "doc-decisions",
+            "post": "post",
+        },
+    )
 
-    builder.add_conditional_edges("smoke-test", route_smoke_result, {
-        "impl-code": "impl-code",
-        "doc-decisions": "doc-decisions",
-        "post": "post",
-    })
+    builder.add_conditional_edges(
+        "smoke-test",
+        route_smoke_result,
+        {
+            "impl-code": "impl-code",
+            "doc-decisions": "doc-decisions",
+            "post": "post",
+        },
+    )
 
     # --- Documentation ---
     builder.add_edge("doc-decisions", "doc-project")

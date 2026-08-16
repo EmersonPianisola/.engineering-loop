@@ -71,7 +71,10 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
         qa_type = QA_STAGES.get(stage_id, "review")
 
         prompt = build_node_prompt(
-            stage_id, state, paths, config,
+            stage_id,
+            state,
+            paths,
+            config,
             role_description=f"{qa_type} QA agent",
             include_skill=False,
             instructions=(

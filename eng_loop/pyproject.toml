@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "rich>=13.0",
+    "textual>=0.69",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,25 @@ eng-loop = "eng_loop.cli:main"
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+
+[tool.ruff.lint]
+# Acceptable patterns in CLI/orchestrator code:
+# BLE001: Broad except in CLI/tools for robustness
+# SIM102: Nested ifs are clearer than combined in complex routing
+# RUF012: Mutable class attrs (BINDINGS, ICONS) are read-only constants
+# DTZ: Datetime without tz is fine for local file timestamps
+# PLW1510: subprocess.run without check=False is intentional
+# PERF102: dict.items() is fine when keys are needed contextually
+ignore = [
+    "BLE001",
+    "DTZ",
+    "PERF102",
+    "PLW1510",
+    "RUF012",
+    "S110",
+    "S112",
+    "SIM102",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

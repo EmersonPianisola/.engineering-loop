@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Annotated
 
 from langchain_core.tools import Tool
 

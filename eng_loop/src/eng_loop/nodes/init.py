@@ -1,32 +1,30 @@
 from __future__ import annotations
 
-import json
-import time
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import InitBddOutput, InitIdeateOutput, InitOutput, InitRefineOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.json_parse import extract_json
-from eng_loop.tools.autosizing import classify_complexity, deactivate_inactive_stages, detect_ui_project
-from eng_loop.tools.file_ops import save_json, read_file
-from eng_loop.tools.graphify import run_graphify_init
-from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
-from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done,
-    log_stage_skip, log_stage_fail, log_complexity, log_blocked, log_decision,
-    log_artifact,
-)
-from langgraph.types import Command
-
-from eng_loop.templates import load_skill, load_stage_procedure, get_stage_file, get_skill_name
+from eng_loop.tools.file_ops import read_file
 from eng_loop.tools.next_active import resolve_next
+from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
+from eng_loop.tools.progress import (
+    log_artifact,
+    log_blocked,
+    log_stage_done,
+    log_stage_fail,
+    log_stage_skip,
+)
 
 
 def _resolve_work_item(work_item: str) -> str:
     from pathlib import Path
 
-    cleaned = work_item.strip().strip("'\"")
+    if isinstance(work_item, dict):
+        work_item = work_item.get("description", work_item.get("text", str(work_item)))
+    cleaned = str(work_item).strip().strip("'\"")
     p = Path(cleaned)
     if p.exists() and p.is_file():
         return read_file(cleaned)
@@ -34,41 +32,46 @@ def _resolve_work_item(work_item: str) -> str:
 
 
 def init_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
-    from eng_loop.tools.agent_tools import get_tools_for_stage
+    """Cognitive node — validates work item via LLM.
+
+    Reads classification results from state['codebase_facts'] (computed
+    by init_setup_node). Does NOT perform classification, graphify,
+    or stage deactivation here — that is the setup node's job.
+    """
     import logging as _logging
+
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     _dbg = _logging.getLogger(__name__)
 
     stage_id = "init"
-
     config = state.get("config", {})
     paths = state.get("paths", {})
     stages = dict(state.get("stages", {}))
-    _dbg.debug("[DEBUG] init_node: work_item=%r, max_agent_iterations=%d",
-                state.get("work_item", "")[:120],
-                config.get("agent", {}).get("max_agent_iterations", 25))
 
     work_item = _resolve_work_item(state.get("work_item", ""))
 
-    # Use pre-classified values from CLI if available; otherwise classify now.
-    complexity = state.get("complexity", "unset")
-    if complexity == "unset":
-        complexity = classify_complexity(work_item, config)
-    ui_project = state.get("ui_project", False)
-    if not ui_project:
-        ui_project = detect_ui_project(paths)
+    # Read cached classification from codebase_facts
+    codebase_facts = state.get("codebase_facts", {})
+    complexity = state.get("complexity", codebase_facts.get("complexity", "unset"))
+    ui_project = state.get("ui_project", codebase_facts.get("ui_project", False))
 
-    stages = deactivate_inactive_stages(stages, complexity, ui_project)
-    log_complexity(complexity, ui_project)
-
-    # Run graphify deterministically (before LLM prompt)
-    project_root = paths.get("project_root", ".")
-    graphify_result = run_graphify_init(config, complexity, project_root)
+    _dbg.debug(
+        "[DEBUG] init_node: work_item=%r, complexity=%s, ui=%s, max_agent_iterations=%d",
+        work_item[:120],
+        complexity,
+        ui_project,
+        config.get("agent", {}).get("max_agent_iterations", 25),
+    )
 
     prompt = build_node_prompt(
-        "init", state, paths, config,
+        "init",
+        state,
+        paths,
+        config,
         role_description="Engineering Loop INIT agent",
-        extra_sections=f"## COMPLEXITY CLASSIFICATION\n{complexity}",
+        extra_sections=(f"## COMPLEXITY CLASSIFICATION\n{complexity}\n\n## CODEBASE FACTS\n{codebase_facts}"),
         instructions=(
             f"Validate the work item and prepare for the loop.\n"
             f"Work item: {work_item}\n\n"
@@ -77,13 +80,6 @@ def init_node(state: dict[str, Any]) -> Command[str]:
         ),
     )
 
-    # Pass graphify state forward for subsequent stages
-    graphify_state = {
-        "built": graphify_result.get("graphify_built", False),
-        "stats": graphify_result.get("graphify_stats"),
-        "skipped": graphify_result.get("graphify_skipped", False),
-        "error": graphify_result.get("graphify_error"),
-    }
     model = create_model_from_config(state.get("config", {}), stage_id)
 
     tools = get_tools_for_stage(stage_id, paths, config, state)
@@ -144,7 +140,7 @@ def init_node(state: dict[str, Any]) -> Command[str]:
             "complexity": complexity,
             "ui_project": ui_project,
             "work_item": refined,
-            "graphify": graphify_state,
+            "graphify": codebase_facts.get("graphify", {}),
             **handoff_update,
             "current_stage": "init-ideate",
             "iteration": 1,
@@ -154,9 +150,11 @@ def init_node(state: dict[str, Any]) -> Command[str]:
 
 
 def init_ideate_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
-    from eng_loop.tools.agent_tools import get_tools_for_stage
     import logging as _logging
+
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     _dbg = _logging.getLogger(__name__)
 
     stages = dict(state.get("stages", {}))
@@ -171,9 +169,12 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
     paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_ideate_attempts", 3)
     current_attempts = stages[stage_id].get("attempts", 0)
-    _dbg.debug("[DEBUG] init_ideate_node: attempts=%d/%d, max_agent_iterations=%d",
-                current_attempts, max_attempts,
-                config.get("agent", {}).get("max_agent_iterations", 25))
+    _dbg.debug(
+        "[DEBUG] init_ideate_node: attempts=%d/%d, max_agent_iterations=%d",
+        current_attempts,
+        max_attempts,
+        config.get("agent", {}).get("max_agent_iterations", 25),
+    )
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
@@ -184,7 +185,10 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
         )
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="BMAD Ideation agent",
         instructions=(
             "Ideate on the work item and decompose into tasks.\n"
@@ -210,9 +214,14 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
     result = agent_result.data
 
     if agent_result.error:
-        _dbg.error("[DEBUG] init_ideate_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
-                    agent_result.error, agent_result.iterations, agent_result.elapsed,
-                    agent_result.tool_calls_made, str(agent_result.data)[:300])
+        _dbg.error(
+            "[DEBUG] init_ideate_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
+            agent_result.error,
+            agent_result.iterations,
+            agent_result.elapsed,
+            agent_result.tool_calls_made,
+            str(agent_result.data)[:300],
+        )
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
@@ -270,7 +279,7 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
 
 def init_bdd_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -292,7 +301,10 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
         return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="BDD Journey Mapper",
         instructions=(
             "Map user journeys with Gherkin scenarios. Keep it concise.\n"
@@ -341,6 +353,7 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
     journey_content = result.get("journey_map", "")
     if journey_content:
         from eng_loop.tools.file_ops import write_file
+
         artifact_path = f"{artifact_root}/bdd-journeys/journey.md"
         write_file(artifact_path, journey_content)
         log_artifact(stage_id, artifact_path)
@@ -355,9 +368,11 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
 
 def init_refine_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
-    from eng_loop.tools.agent_tools import get_tools_for_stage
     import logging as _logging
+
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
+    from eng_loop.tools.agent_tools import get_tools_for_stage
+
     _dbg = _logging.getLogger(__name__)
 
     stages = dict(state.get("stages", {}))
@@ -372,9 +387,12 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
     paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_refine_attempts", 5)
     current_attempts = stages[stage_id].get("attempts", 0)
-    _dbg.debug("[DEBUG] init_refine_node: attempts=%d/%d, max_agent_iterations=%d",
-                current_attempts, max_attempts,
-                config.get("agent", {}).get("max_agent_iterations", 25))
+    _dbg.debug(
+        "[DEBUG] init_refine_node: attempts=%d/%d, max_agent_iterations=%d",
+        current_attempts,
+        max_attempts,
+        config.get("agent", {}).get("max_agent_iterations", 25),
+    )
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
@@ -383,7 +401,10 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="Idea Refinement agent",
         instructions=(
             "Refine the work item into an engineering-ready specification. Keep it concise.\n"
@@ -408,9 +429,14 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
     result = agent_result.data
 
     if agent_result.error:
-        _dbg.error("[DEBUG] init_refine_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
-                    agent_result.error, agent_result.iterations, agent_result.elapsed,
-                    agent_result.tool_calls_made, str(agent_result.data)[:300])
+        _dbg.error(
+            "[DEBUG] init_refine_node: agent_result.error=%s, iterations=%d, elapsed=%.1fs, tool_calls=%d, data=%s",
+            agent_result.error,
+            agent_result.iterations,
+            agent_result.elapsed,
+            agent_result.tool_calls_made,
+            str(agent_result.data)[:300],
+        )
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
@@ -424,7 +450,9 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
                 },
                 goto="init-refine",
             )
-        _dbg.error("[DEBUG] init_refine_node: max attempts %d reached, proceeding to %s", max_attempts, _next_phase_node(state))
+        _dbg.error(
+            "[DEBUG] init_refine_node: max attempts %d reached, proceeding to %s", max_attempts, _next_phase_node(state)
+        )
         stages[stage_id]["done"] = True
         next_node = _next_phase_node(state)
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})

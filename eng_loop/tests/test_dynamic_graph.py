@@ -134,7 +134,7 @@ def test_graph_builder_small():
     state["ui_project"] = False
 
     builder = GraphBuilder()
-    graph_builder, topology = builder.build(state)
+    _graph_builder, topology = builder.build(state)
 
     assert topology.nodes_included < topology.total_available
     assert "init" in topology.active_nodes
@@ -150,7 +150,7 @@ def test_graph_builder_complex():
     state["ui_project"] = True
 
     builder = GraphBuilder()
-    graph_builder, topology = builder.build(state)
+    _graph_builder, topology = builder.build(state)
 
     assert topology.nodes_included == topology.total_available
     assert "arch.review" in topology.active_nodes
@@ -182,7 +182,7 @@ def test_graph_compiles():
     state["ui_project"] = False
 
     builder = GraphBuilder()
-    compiled, topology = builder.compile(state)
+    compiled, _topology = builder.compile(state)
     assert compiled is not None
 
 

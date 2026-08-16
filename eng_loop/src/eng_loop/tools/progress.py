@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
+from rich.rule import Rule
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
-
-from rich.live import Live
-from rich.syntax import Syntax
-from rich.rule import Rule
 
 from eng_loop.tools.timing import TimingTracker, format_time
 
@@ -27,9 +27,11 @@ if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     elif hasattr(sys.stdout, "buffer"):
         import io
+
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 console = Console(force_terminal=True, soft_wrap=False)
+_null_console = Console(quiet=True)
 tracker = TimingTracker()
 
 
@@ -41,6 +43,30 @@ class UIManager:
         self.console = console
         self._live: Live | None = None
         self._stage_times: dict[str, float] = {}
+        self._hud = None
+        self._normalizer = None
+        self._tui_active = False
+
+    def set_hud(self, hud):
+        self._hud = hud
+
+    def set_normalizer(self, normalizer):
+        self._normalizer = normalizer
+
+    def set_tui_active(self, active: bool) -> None:
+        """Mark TUI mode as active/inactive. Suppresses all console output."""
+        self._tui_active = active
+        if active:
+            self.console = _null_console
+        else:
+            self.console = console
+
+    def is_hud_active(self) -> bool:
+        return self._hud is not None or self._tui_active
+
+    def hud_log(self, level, message):
+        if self._hud:
+            self._hud.log(level, message)
 
     # ── Topology Tree ──────────────────────────────────────────────
     def render_topology(
@@ -61,6 +87,7 @@ class UIManager:
             "feature": "[green]FEATURE[/green] — Full loop (design → impl → verify → QA → deploy)",
             "bugfix": "[yellow]BUGFIX[/yellow] — Skips design, keeps implementation + verification",
             "operational": "[cyan]OPERATIONAL[/cyan] — Runs existing code, skips impl/design/arch",
+            "documentation": "[magenta]DOCUMENTATION[/magenta] — Init → impl.code → post (no design/verify/deploy)",
         }
         strategy_line = work_type_labels.get(work_type, f"[white]{work_type}[/white]")
 
@@ -73,7 +100,9 @@ class UIManager:
         comp_color = complexity_colors.get(complexity, "white")
 
         bypassed = []
-        if work_type == "operational":
+        if work_type == "documentation":
+            bypassed.append("Design/Arch/Verify/Deploy")
+        elif work_type == "operational":
             bypassed.append("Design/Arch/Impl")
         elif work_type == "bugfix":
             bypassed.append("Design stages")
@@ -117,11 +146,9 @@ class UIManager:
             for n in nodes:
                 branch.add(f"[dim]⚙[/dim] {n}")
 
-        header = f"[bold]{len(active_nodes)}[/bold]{f' / {total_available}' if total_available else ''} active"
+        f"[bold]{len(active_nodes)}[/bold]{f' / {total_available}' if total_available else ''} active"
         subtitle = f"[dim]{work_item}[/dim]"
-        self.console.print(
-            Panel(tree, title="Graph Topology", subtitle=subtitle, border_style="blue")
-        )
+        self.console.print(Panel(tree, title="Graph Topology", subtitle=subtitle, border_style="blue"))
         self.console.print(Panel(classification, border_style="blue", padding=(0, 1)))
 
     # ── Stage Progress Bar ─────────────────────────────────────────
@@ -231,24 +258,52 @@ class UIManager:
         lines = [
             f"[bold]Status:[/bold] {status_style}",
             f"[bold]Iterations:[/bold] {iterations}",
-            f"[bold]Stages:[/bold] "
-            f"[green]{sum(1 for s in stages.values() if s.get('done'))}[/green]"
-            f"/{len(stages)} complete",
+            (
+                f"[bold]Stages:[/bold] "
+                f"[green]{sum(1 for s in stages.values() if s.get('done'))}[/green]"
+                f"/{len(stages)} complete"
+            ),
             f"[bold]Total Time:[/bold] [cyan]{tracker.get_loop_elapsed_formatted()}[/cyan]",
         ]
         if blocking_condition:
             lines.append(f"[bold red]Blocking:[/bold red] {blocking_condition}")
+
+        # Show failed stages for blocked pipelines
+        if status in ("blocked", "halted"):
+            [sid for sid, s in stages.items() if not s.get("done") or s.get("attempts", 0) > 1]
+            # Filter to only show stages that were attempted but not cleanly done
+            troubled = [
+                sid
+                for sid, s in stages.items()
+                if s.get("attempts", 0) > 0 and (not s.get("done") or s.get("attempts", 0) >= 2)
+            ]
+            if troubled:
+                lines.append("")
+                lines.append("[bold red]Troubled Stages:[/bold red]")
+                for sid in troubled:
+                    s = stages[sid]
+                    done_str = "[green]done[/]" if s.get("done") else "[red]not done[/]"
+                    lines.append(f"  \u2022 [bold]{sid}[/bold]: {s.get('attempts', 0)} attempts, {done_str}")
+
         if decisions:
             lines.append(f"[bold]Decisions:[/bold] {len(decisions)}")
             for d in decisions:
                 lines.append(f"  \u2022 {d}")
 
-        self.console.print(
-            Rule("[bold]Engineering Loop Complete[/bold]", style="blue")
-        )
-        self.console.print(
-            Panel("\n".join(lines), border_style="blue")
-        )
+        panel_title = {
+            "done": "[bold]Engineering Loop Complete[/bold]",
+            "blocked": "[bold red]Engineering Loop BLOCKED[/bold red]",
+            "halted": "[bold yellow]Engineering Loop HALTED[/bold yellow]",
+        }.get(status, "[bold]Engineering Loop Complete[/bold]")
+
+        panel_style = {
+            "done": "green",
+            "blocked": "red",
+            "halted": "yellow",
+        }.get(status, "blue")
+
+        self.console.print(Rule(panel_title, style=panel_style))
+        self.console.print(Panel("\n".join(lines), border_style=panel_style))
 
         # Timing table
         timing_rows = tracker.get_summary()
@@ -268,9 +323,7 @@ class UIManager:
             # Total row
             table.add_row("", "[bold cyan]" + format_time(tracker.get_total_seconds()) + "[/bold cyan]", "")
 
-            self.console.print(
-                Panel(table, title="[bold]Stage Timing[/bold]", border_style="blue")
-            )
+            self.console.print(Panel(table, title="[bold]Stage Timing[/bold]", border_style="blue"))
 
     # ── Live Dashboard ─────────────────────────────────────────────
     def start_live(self, refresh_per_second: float = 2) -> None:
@@ -293,9 +346,7 @@ class UIManager:
     ) -> None:
         """Update the live dashboard with current state."""
         if self._live:
-            self._live.update(
-                self._build_dashboard(stage, iteration, attempts, action, elapsed)
-            )
+            self._live.update(self._build_dashboard(stage, iteration, attempts, action, elapsed))
 
     def stop_live(self) -> None:
         """Stop the Live display."""
@@ -424,6 +475,13 @@ class StageSpinner:
                 f"[cyan]{icon}[/cyan] {action_type}{target_str} "
                 f"[dim]({self.tool_count} tools, {elapsed:.0f}s)[/dim]"
             )
+        # Push tool action to HUD for casting bar visibility
+        if ui.is_hud_active() and ui._normalizer:
+            ui._normalizer.agent_action(
+                self.stage_id,
+                action_type,
+                f"{action_type}{target_str}".strip(),
+            )
 
     def think(self, text: str) -> None:
         elapsed = time.monotonic() - self.start_time
@@ -432,24 +490,24 @@ class StageSpinner:
             truncated += "…"
         if self._status:
             self._status.update(
-                f"[bold cyan]{self.stage_id}[/bold cyan] "
-                f"[dim]🧠 {truncated}[/dim] "
-                f"[dim]({elapsed:.0f}s)[/dim]"
+                f"[bold cyan]{self.stage_id}[/bold cyan] [dim]🧠 {truncated}[/dim] [dim]({elapsed:.0f}s)[/dim]"
             )
+        # Push thinking text to HUD for real-time visibility
+        if ui.is_hud_active() and ui._normalizer:
+            ui._normalizer.token_streamed(self.stage_id, text, is_thought=True)
 
     def idle(self) -> None:
         elapsed = time.monotonic() - self.start_time
         if self._status:
-            self._status.update(
-                f"[bold cyan]{self.stage_id}[/bold cyan] "
-                f"[dim]waiting… ({elapsed:.0f}s)[/dim]"
-            )
+            self._status.update(f"[bold cyan]{self.stage_id}[/bold cyan] [dim]waiting… ({elapsed:.0f}s)[/dim]")
 
 
 # ─── Thread-local stage context ──────────────────────────────────────
 # Allows trace_node to activate a spinner that run_agent() picks up
 # automatically without modifying node caller signatures.
 import threading
+
+from typing_extensions import Self
 
 _stage_ctx: threading.local = threading.local()
 
@@ -470,7 +528,7 @@ class stage_context:
         self.stage_id = stage_id
         self.spinner = StageSpinner(stage_id)
 
-    def __enter__(self) -> stage_context:
+    def __enter__(self) -> Self:
         self.spinner.start()
         _stage_ctx.active = True  # type: ignore[attr-defined]
         _stage_ctx.spinner = self.spinner  # type: ignore[attr-defined]
@@ -499,27 +557,50 @@ ui = UIManager()
 # calling convention so no other file needs to change.
 
 
+def store_stage_prompt(stage_id: str, prompt: str) -> None:
+    """Store the input prompt for a stage (for Node Inspector X-Ray)."""
+    if ui._normalizer:
+        ui._normalizer.store_input_prompt(stage_id, prompt)
+
+
 def log_stage_enter(stage_id: str, iteration: int = 0) -> None:
-    ui.console.print(
-        f"[dim][iter {iteration}][/dim] [bold cyan]>> {stage_id}[/bold cyan]"
-    )
+    if ui.is_hud_active():
+        ui._hud.set_current_stage(stage_id)
+        ui.hud_log("INFO", f"[iter {iteration}] >> {stage_id}")
+        if ui._normalizer:
+            ui._normalizer.node_entered(stage_id)
+            ui._hud.update()
+        elif hasattr(ui._hud, "normalizer") and ui._hud.normalizer:
+            ui._hud.normalizer.node_entered(stage_id)
+            ui._hud.update()
+    else:
+        ui.console.print(f"[dim][iter {iteration}][/dim] [bold cyan]>> {stage_id}[/bold cyan]")
 
 
 def log_model_invoke(stage_id: str) -> None:
-    ui.console.print(f"[dim]  [/dim][yellow]model →[/] {stage_id} [dim]...[/dim]")
+    if ui.is_hud_active():
+        ui.hud_log("DEBUG", f"model -> {stage_id}...")
+    else:
+        ui.console.print(f"[dim]  [/dim][yellow]model →[/] {stage_id} [dim]...[/dim]")
 
 
 def log_model_done(stage_id: str, elapsed: float) -> None:
-    ui.console.print(f"[dim]  [/dim][green]model ←[/] {stage_id} [dim]({format_time(elapsed)})[/dim]")
+    if ui.is_hud_active():
+        ui.hud_log("DEBUG", f"model <- {stage_id} ({format_time(elapsed)})")
+    else:
+        ui.console.print(f"[dim]  [/dim][green]model ←[/] {stage_id} [dim]({format_time(elapsed)})[/dim]")
 
 
 def log_stage_done(stage_id: str, result: str = "") -> None:
-    ui.console.print(f"[dim]  [/dim][bold green]done   [/][bold]{stage_id}[/bold]")
-    if result:
-        truncated = result[:120]
-        if len(result) > 120:
-            truncated += "..."
-        ui.console.print(f"         [dim]{truncated}[/dim]")
+    if ui.is_hud_active():
+        ui.hud_log("INFO", f"done {stage_id}")
+    else:
+        ui.console.print(f"[dim]  [/dim][bold green]done   [/][bold]{stage_id}[/bold]")
+        if result:
+            truncated = result[:120]
+            if len(result) > 120:
+                truncated += "..."
+            ui.console.print(f"         [dim]{truncated}[/dim]")
 
 
 def log_stage_complete(
@@ -528,87 +609,122 @@ def log_stage_complete(
     tool_calls: int,
     summary: str = "",
     iterations: int = 0,
+    output_data: dict | None = None,
 ) -> None:
-    """Render a structured handoff panel for a completed stage.
+    if ui.is_hud_active():
+        ui.hud_log("INFO", f"done {stage_id} ({tool_calls} tools, {duration:.0f}s)")
+        ui._hud.clear_current_stage()
+        normalizer = ui._normalizer
+        if not normalizer and ui._hud:
+            normalizer = getattr(ui._hud, "normalizer", None)
+        if normalizer:
+            from eng_loop.tools.execution_state import NodeStatus
 
-    Replaces the plain 'done stage_id' line with a green panel showing
-    duration, tool count, iterations, and result summary.
-    """
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column("Key", style="bold dim", width=10)
-    table.add_column("Value", style="white")
-
-    table.add_row("Duration", f"[cyan]{format_time(duration)}[/cyan]")
-    table.add_row("Tools", f"[cyan]{tool_calls}[/cyan] calls")
-    if iterations:
-        table.add_row("Iterations", f"[cyan]{iterations}[/cyan]")
-    if summary:
-        truncated = summary[:100]
-        if len(summary) > 100:
-            truncated += "\u2026"
-        table.add_row("Result", f"[green]{truncated}[/green]")
-
-    ui.console.print(
-        Panel(table, title=f"[bold green]\u2713 {stage_id.upper()}[/bold green]", border_style="green")
-    )
+            normalizer.node_completed(stage_id, NodeStatus.COMPLETED)
+            if summary:
+                normalizer.store_output_result(stage_id, summary[:8000], output_data)
+            ui._hud.update()
+    else:
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column("Key", style="bold dim", width=10)
+        table.add_column("Value", style="white")
+        table.add_row("Duration", f"[cyan]{format_time(duration)}[/cyan]")
+        table.add_row("Tools", f"[cyan]{tool_calls}[/cyan] calls")
+        if iterations:
+            table.add_row("Iterations", f"[cyan]{iterations}[/cyan]")
+        if summary:
+            truncated = summary[:100]
+            if len(summary) > 100:
+                truncated += "\u2026"
+            table.add_row("Result", f"[green]{truncated}[/green]")
+        ui.console.print(
+            Panel(table, title=f"[bold green]\u2713 {stage_id.upper()}[/bold green]", border_style="green")
+        )
 
 
 def log_stage_skip(stage_id: str) -> None:
-    ui.console.print(f"[dim]  skip   {stage_id} (already done)[/dim]")
+    if ui.is_hud_active():
+        ui.hud_log("INFO", f"skip {stage_id} (already done)")
+    else:
+        ui.console.print(f"[dim]  skip   {stage_id} (already done)[/dim]")
 
 
 def log_stage_fail(stage_id: str, reason: str) -> None:
-    ui.console.print(f"[dim]  [/dim][bold red]fail   [/][bold red]{stage_id}[/]: {reason}")
+    if ui.is_hud_active():
+        ui.hud_log("ERROR", f"{stage_id}: {reason}")
+        normalizer = ui._normalizer
+        if not normalizer and ui._hud:
+            normalizer = getattr(ui._hud, "normalizer", None)
+        if normalizer:
+            from eng_loop.tools.execution_state import NodeStatus
+
+            normalizer.node_completed(stage_id, NodeStatus.FAILED)
+            ui._hud.update()
+    else:
+        ui.console.print(f"[dim]  [/dim][bold red]fail   [/][bold red]{stage_id}[/]: {reason}")
 
 
 def log_stage_retry(stage_id: str, attempt: int) -> None:
-    ui.console.print(
-        f"[dim]  [/dim][yellow]retry  [/][yellow]{stage_id}[/] [dim](attempt {attempt})[/dim]"
-    )
+    if ui.is_hud_active():
+        ui.hud_log("WARN", f"retry {stage_id} (attempt {attempt})")
+    else:
+        ui.console.print(f"[dim]  [/dim][yellow]retry  [/][yellow]{stage_id}[/] [dim](attempt {attempt})[/dim]")
 
 
 def log_artifact(stage_id: str, path: str) -> None:
-    ui.console.print(f"  [dim]file   {path}[/dim]")
+    if ui.is_hud_active():
+        ui.hud_log("DEBUG", f"file {path}")
 
 
 def log_complexity(complexity: str, ui_project: bool) -> None:
-    complexity_colors = {
-        "small": "green",
-        "medium": "yellow",
-        "large": "red",
-        "complex": "bold red",
-    }
-    color = complexity_colors.get(complexity, "white")
-    ui_project_str = "true" if ui_project else "false"
-    ui.console.print(
-        f"  [bold cyan]complexity=[/bold cyan][{color}]{complexity}[/]  "
-        f"ui_project=[bold]{ui_project_str}[/bold]"
-    )
+    if ui.is_hud_active():
+        ui.hud_log("SYS", f"complexity={complexity} ui_project={ui_project}")
+    else:
+        complexity_colors = {
+            "small": "green",
+            "medium": "yellow",
+            "large": "red",
+            "complex": "bold red",
+        }
+        color = complexity_colors.get(complexity, "white")
+        ui_project_str = "true" if ui_project else "false"
+        ui.console.print(
+            f"  [bold cyan]complexity=[/bold cyan][{color}]{complexity}[/]  ui_project=[bold]{ui_project_str}[/bold]"
+        )
 
 
 def log_blocked(reason: str) -> None:
-    ui.console.print(f"  [bold red]blocked:[/bold red] {reason}")
+    if ui.is_hud_active():
+        ui.hud_log("ERROR", f"blocked: {reason}")
+    else:
+        ui.console.print(f"  [bold red]blocked:[/bold red] {reason}")
 
 
 def log_decision(text: str) -> None:
-    ui.console.print(f"  [bold magenta]decision:[/bold magenta] {text}")
+    if ui.is_hud_active():
+        ui.hud_log("SYS", f"decision: {text}")
+    else:
+        ui.console.print(f"  [bold magenta]decision:[/bold magenta] {text}")
 
 
 def log_iteration(iteration: int, current_stage: str) -> None:
-    ui.console.print()
-    ui.console.print(
-        Rule(f"[iter {iteration}] stage={current_stage}", style="cyan", align="left")
-    )
+    if ui.is_hud_active():
+        ui.hud_log("SYS", f"Iteration {iteration}: {current_stage}")
+    else:
+        ui.console.print()
+        ui.console.print(Rule(f"[iter {iteration}] stage={current_stage}", style="cyan", align="left"))
 
 
 def log_stall_warning(stage_id: str, report_msg: str) -> None:
-    ui.console.print(
-        f"  [yellow]stall  {stage_id}: {report_msg}[/yellow]"
-    )
+    if ui.is_hud_active():
+        ui.hud_log("STALL", f"{stage_id}: {report_msg}")
+    else:
+        ui.console.print(f"  [yellow]stall  {stage_id}: {report_msg}[/yellow]")
 
 
 def trace_node(stage_id: str):
     """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel."""
+
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
         def wrapper(state: dict[str, Any], *args, **kwargs):
@@ -616,14 +732,19 @@ def trace_node(stage_id: str):
             log_stage_enter(stage_id, iteration)
             t0 = time.monotonic()
             try:
-                with stage_context(stage_id) as ctx:
+                if ui.is_hud_active():
                     result = fn(state, *args, **kwargs)
+                    tool_count = 0
+                else:
+                    with stage_context(stage_id) as ctx:
+                        result = fn(state, *args, **kwargs)
+                        tool_count = ctx.spinner.tool_count
                 elapsed = time.monotonic() - t0
                 tracker.record_stage(stage_id, elapsed)
                 log_stage_complete(
                     stage_id,
                     duration=elapsed,
-                    tool_calls=ctx.spinner.tool_count,
+                    tool_calls=tool_count,
                 )
                 return result
             except Exception as e:
@@ -631,32 +752,35 @@ def trace_node(stage_id: str):
                 tracker.record_stage(stage_id, elapsed)
                 log_stage_fail(stage_id, f"{e} ({elapsed:.1f}s)")
                 raise
+
         return wrapper
+
     return decorator
 
 
 __all__ = [
-    "ui",
-    "UIManager",
     "StageSpinner",
-    "stage_context",
+    "UIManager",
     "_get_active_spinner",
     "console",
-    "tracker",
     "format_time",
-    "log_stage_enter",
-    "log_model_invoke",
-    "log_model_done",
-    "log_stage_done",
-    "log_stage_complete",
-    "log_stage_skip",
-    "log_stage_fail",
-    "log_stage_retry",
     "log_artifact",
-    "log_complexity",
     "log_blocked",
+    "log_complexity",
     "log_decision",
     "log_iteration",
+    "log_model_done",
+    "log_model_invoke",
+    "log_stage_complete",
+    "log_stage_done",
+    "log_stage_enter",
+    "log_stage_fail",
+    "log_stage_retry",
+    "log_stage_skip",
     "log_stall_warning",
+    "stage_context",
+    "store_stage_prompt",
     "trace_node",
+    "tracker",
+    "ui",
 ]

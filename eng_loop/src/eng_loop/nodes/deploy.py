@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+
+from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DeployPrepareOutput, SmokeTestOutput
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.node_helpers import build_node_prompt, build_handoff_update
-from eng_loop.tools.progress import (
-    log_model_invoke, log_model_done, log_stage_done, log_stage_fail, log_artifact,
-)
-from langgraph.types import Command
-
-from eng_loop.templates import load_stage_procedure, get_stage_file
 from eng_loop.tools.next_active import resolve_next
+from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
+from eng_loop.tools.progress import (
+    log_artifact,
+    log_stage_done,
+    log_stage_fail,
+)
 
 
 def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -40,7 +40,10 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
         )
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="Deploy Preparation agent",
         include_skill=False,
         instructions=(
@@ -144,7 +147,7 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
 
 
 def smoke_test_node(state: dict[str, Any]) -> Command[str]:
-    from eng_loop.tools.agent_runner import run_agent, AgentResult
+    from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
     stages = dict(state.get("stages", {}))
@@ -167,7 +170,10 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
         )
 
     prompt = build_node_prompt(
-        stage_id, state, paths, config,
+        stage_id,
+        state,
+        paths,
+        config,
         role_description="Smoke Test agent",
         include_skill=False,
         instructions=(
@@ -244,6 +250,7 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
 
     artifact_root = paths.get("artifact_root", "")
     from eng_loop.tools.file_ops import write_file
+
     write_file(f"{artifact_root}/smoke-report.md", str(result))
     log_artifact(stage_id, f"{artifact_root}/smoke-report.md")
 

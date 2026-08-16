@@ -22,7 +22,13 @@ def should_skip_graphify(config: dict[str, Any], complexity: str, project_root: 
         return True, "complexity small"
 
     project = Path(project_root)
-    code_files = list(project.glob("**/*.js")) + list(project.glob("**/*.ts")) + list(project.glob("**/*.jsx")) + list(project.glob("**/*.tsx")) + list(project.glob("**/*.py"))
+    code_files = (
+        list(project.glob("**/*.js"))
+        + list(project.glob("**/*.ts"))
+        + list(project.glob("**/*.jsx"))
+        + list(project.glob("**/*.tsx"))
+        + list(project.glob("**/*.py"))
+    )
     if not code_files:
         return True, "no codebase"
 
@@ -89,7 +95,7 @@ def _parse_graph_stats(graph_file: Path) -> dict[str, Any]:
 
         nodes = len(data.get("nodes", []))
         edges = len(data.get("edges", []))
-        communities = len(set(n.get("community", "") for n in data.get("nodes", [])))
+        communities = len({n.get("community", "") for n in data.get("nodes", [])})
 
         return {
             "nodes": nodes,
@@ -101,35 +107,194 @@ def _parse_graph_stats(graph_file: Path) -> dict[str, Any]:
         return {"nodes": 0, "edges": 0, "communities": 0}
 
 
-def get_graphify_prompt_injection(graph_path: str) -> str:
-    """Generate prompt instructions for stages to use graphify queries."""
-    return f"""## KNOWLEDGE GRAPH AVAILABLE
+def get_graphify_prompt_injection(graph_path: str, tools_available: bool = True) -> str:
+    """Generate prompt instructions for stages to use graphify queries.
+
+    Args:
+        graph_path: Path to the project root containing graphify-out/
+        tools_available: Whether graphify tools (graphify_query, etc.) are available.
+            If False, only provides guidance for pre-computed context.
+    """
+    if tools_available:
+        return f"""## KNOWLEDGE GRAPH AVAILABLE
 
 A knowledge graph of the codebase is available at `{graph_path}/graphify-out/`.
 
-**MANDATORY EXECUTION ORDER — Use graphify tools FIRST, read files SECOND:**
+**MANDATORY: Query the graph BEFORE reading files you don't already know.**
 
-1. **graphify_query** — Start here. Get high-level architecture context before touching files.
-2. **graphify_explain** — Understand specific entities before reading their source.
-3. **graphify_path** — Trace connections between entities without reading intermediate files.
-4. **read/glob/grep** — ONLY after graphify gives you structural context. Use for contract/type details.
+Before calling `read`, `glob`, or `grep` on any entity you don't already know:
+1. Use `graphify_query` to get architectural context for your task
+2. Use `graphify_explain` to understand specific entities' structure and connections
+3. Only then read the specific files you need
+
+**Tools:**
+- **graphify_query** — Get architecture context for a question. Use this FIRST.
+- **graphify_explain** — Understand a specific entity's structure and connections.
+- **graphify_path** — Trace connections between two entities.
 
 **Confidence rules:**
 - EXTRACTED edges: Trust — explicit in source
 - INFERRED edges: Verify if critical — derived by resolution
 - AMBIGUOUS edges: Must Read source — do not trust
 
-**Important:** Graph is the map, Read is the terrain. Use graphify for structural overview, Read for contract/type details. DO NOT skip graphify and go straight to reading files."""
+**DO NOT** start with 10+ file reads. Use graphify to find what to read.
+If you have made 3+ consecutive reads without writing anything, STOP and use graphify."""
+    else:
+        return """## KNOWLEDGE GRAPH AVAILABLE
+
+A knowledge graph of the codebase is available. Pre-computed context is provided above.
+
+**Use the GRAPH CONTEXT section above** to understand the codebase structure before reading files.
+Focus your reads on files directly relevant to your current task.
+**DO NOT** start with 10+ file reads — use the pre-computed context to guide your exploration."""
 
 
-def get_graphify_injection(state: dict[str, Any], paths: dict[str, str]) -> str:
-    """Get graphify prompt injection if graph was built. Returns empty string if not available."""
+def get_graphify_injection(
+    state: dict[str, Any],
+    paths: dict[str, str],
+    tools_available: bool = True,
+) -> str:
+    """Get graphify prompt injection if graph was built. Returns empty string if not available.
+
+    Args:
+        state: Pipeline state
+        paths: Filesystem paths
+        tools_available: Whether graphify tools (graphify_query, etc.) are available to the agent.
+            Set to False for backends that don't support graphify tools (e.g., opencode).
+    """
     graphify_state = state.get("graphify", {})
     if not graphify_state.get("built", False):
         return ""
 
     project_root = paths.get("project_root", ".")
-    return get_graphify_prompt_injection(project_root)
+    return get_graphify_prompt_injection(project_root, tools_available)
+
+
+def _run_graphify_cmd(args: list[str], cwd: str) -> str:
+    """Execute a graphify CLI command and return stdout."""
+    try:
+        result = subprocess.run(
+            ["graphify"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            return f"graphify error: {result.stderr.strip()}"
+        return result.stdout.strip() or "(no output)"
+    except subprocess.TimeoutExpired:
+        return "graphify command timed out"
+    except FileNotFoundError:
+        return "graphify CLI not found"
+
+
+def _extract_entities_from_text(text: str, max_entities: int = 5) -> list[str]:
+    """Extract potential code entities from text (file paths, module names, function-like identifiers)."""
+    import re
+
+    entities = []
+
+    # File paths
+    paths = re.findall(r"[\w]+[\w\.\-]+(?:/[\w]+[\w\.\-]+)*\.(?:ts|tsx|js|jsx|py|css|json|md|yaml|yml)", text)
+    entities.extend(paths[:max_entities])
+
+    # CamelCase class/function names
+    classes = re.findall(r"\b[A-Z][a-zA-Z]{2,}\b", text)
+    entities.extend(classes[:max_entities])
+
+    # snake_case function/module names
+    snake = re.findall(r"\b[a-z][a-z0-9_]{3,}\b", text)
+    entities.extend(snake[:max_entities])
+
+    # Module/directory paths (no extension)
+    modules = re.findall(r"\b[\w]+(?:/[\w]+)+\b", text)
+    entities.extend(modules[:max_entities])
+
+    # Deduplicate, preserve order
+    seen = set()
+    unique = []
+    for e in entities:
+        if e not in seen and len(e) > 2:
+            seen.add(e)
+            unique.append(e)
+        if len(unique) >= max_entities:
+            break
+    return unique
+
+
+def precompute_graph_context(
+    state: dict[str, Any],
+    paths: dict[str, str],
+    config: dict[str, Any],
+    max_entities: int = 5,
+) -> str:
+    """Pre-compute graph context from work item and blueprint entities.
+
+    Runs graphify_query on the work item and graphify_explain on key entities
+    extracted from the work item and blueprint. Returns formatted markdown
+    to inject into the agent prompt.
+
+    Returns empty string if graph is not built or no context could be retrieved.
+    """
+    graphify_state = state.get("graphify", {})
+    if not graphify_state.get("built", False):
+        return ""
+
+    project_root = paths.get("project_root", ".")
+    work_item = state.get("work_item", "")
+    blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
+
+    # Combine text sources for entity extraction
+    combined_text = f"{work_item}\n{blueprint}"
+    if not combined_text.strip():
+        return ""
+
+    # Verify graphify CLI is available before attempting queries
+    _cli_available, _ = check_graphify_cli()
+    if not _cli_available:
+        return ""
+
+    parts = []
+
+    # Query on work item — broad architectural context
+    if work_item.strip():
+        query_result = _run_graphify_cmd(["query", work_item[:500]], project_root)
+        if query_result and not _is_graphify_error(query_result):
+            parts.append(f"### Task Context\n{query_result}")
+
+    # Explain key entities
+    entities = _extract_entities_from_text(combined_text, max_entities)
+    if entities:
+        explain_results = []
+        for entity in entities:
+            result = _run_graphify_cmd(["explain", entity], project_root)
+            if result and not _is_graphify_error(result):
+                explain_results.append(f"#### {entity}\n{result}")
+                if len(explain_results) >= max(3, max_entities // 2):
+                    break
+
+        if explain_results:
+            parts.append("### Key Entities\n" + "\n\n".join(explain_results))
+
+    if parts:
+        return "## GRAPH CONTEXT (pre-computed)\n" + "\n\n".join(parts)
+
+    return ""
+
+
+def _is_graphify_error(result: str) -> bool:
+    """Check if a graphify command result is an error or empty."""
+    empty_or_error = {
+        "(no output)",
+        "",
+        "graphify CLI not found",
+        "graphify command timed out",
+    }
+    if result in empty_or_error:
+        return True
+    return bool(result.startswith("graphify error:"))
 
 
 def run_graphify_init(config: dict[str, Any], complexity: str, project_root: str) -> dict[str, Any]:

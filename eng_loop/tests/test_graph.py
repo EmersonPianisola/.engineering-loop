@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from eng_loop.graph import compile_graph, build_graph
-from eng_loop.state import PipelineState, STAGE_ORDER
+from eng_loop.graph import build_graph, compile_graph
+from eng_loop.state import STAGE_ORDER
 
 
 def test_graph_compiles():

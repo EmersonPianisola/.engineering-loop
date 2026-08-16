@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from eng_loop.schemas import GraphTopologyProposal
 
 
 @dataclass(frozen=True)
@@ -320,8 +323,7 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         "dynamic-architect",
         "meta-executor",
         condition=lambda s: (
-            (s.get("dynamic_plan") or {}).get("trigger") == "augment"
-            and (s.get("dynamic_plan") or {}).get("steps")
+            (s.get("dynamic_plan") or {}).get("trigger") == "augment" and (s.get("dynamic_plan") or {}).get("steps")
         ),
         description="Blueprint augment → meta executor",
     )
@@ -738,3 +740,189 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     engine.add_fixed("post", "__end__", description="Post → End")
 
     return engine
+
+
+# ───────────────────────────────────────────────────────────────────
+# Condition predicates — allowed conditions mapped to state predicates
+# These are the ONLY conditions the LLM can reference in edge definitions.
+# ───────────────────────────────────────────────────────────────────
+
+def _get_condition_predicate(condition: str) -> Callable[[dict[str, Any]], bool]:
+    """Translate an allowed condition identifier into a state predicate function."""
+
+    predicates = {
+        "always": lambda s: True,
+        "stage_done": lambda s: s.get("status") != "blocked",
+        "stage_failed": lambda s: False,  # Populated per-stage in build_rules_from_proposal
+        "stage_blocked": lambda s: s.get("status") == "blocked",
+        "complexity_at_least_medium": lambda s: _complexity_at_least(s, "medium"),
+        "complexity_at_least_large": lambda s: _complexity_at_least(s, "large"),
+        "complexity_is_complex": lambda s: _complexity_is(s, "complex"),
+        "complexity_is_small": lambda s: not _complexity_at_least(s, "medium"),
+        "is_ui_project": lambda s: s.get("ui_project", False),
+        "not_ui_project": lambda s: not s.get("ui_project", False),
+    }
+    return predicates.get(condition, lambda s: True)
+
+
+def build_rules_from_proposal(
+    proposal: GraphTopologyProposal,
+    parallel_qa: bool = False,
+) -> EdgeRulesEngine:
+    """Convert an authorized GraphTopologyProposal into EdgeRule objects.
+
+    Takes the declarative proposal and produces executable edge rules.
+    Standard failure-routing patterns (loopback, terminal) are injected
+    automatically for verification/QA/deploy stages — the architect
+    doesn't need to redefine operational behavior.
+    """
+    engine = EdgeRulesEngine()
+    stage_set = set(proposal.required_stages)
+
+    # Entry point: init-setup is ALWAYS the entry (registered by graph builder)
+    engine.add_fixed("__start__", "init-setup", description="Entry → deterministic setup")
+
+    # Meta nodes (dynamic-architect, meta-executor) are always registered by builder
+    # Add architect routing regardless of whether it's in the proposal
+    engine.add_conditional(
+        "init-setup",
+        "dynamic-architect",
+        condition=lambda s: True,
+        description="Setup → architect gate",
+    )
+    engine.add_conditional(
+        "dynamic-architect",
+        "init",
+        condition=lambda s: (
+            not s.get("dynamic_plan")
+            or (s.get("dynamic_plan") or {}).get("trigger") != "augment"
+            or not (s.get("dynamic_plan") or {}).get("steps")
+        ),
+        description="No augmentation → pipeline",
+    )
+    engine.add_conditional(
+        "dynamic-architect",
+        "meta-executor",
+        condition=lambda s: (
+            (s.get("dynamic_plan") or {}).get("trigger") == "augment"
+            and (s.get("dynamic_plan") or {}).get("steps")
+        ),
+        description="Augment → meta executor",
+    )
+    engine.add_loopback(
+        "meta-executor",
+        "meta-executor",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "running",
+        description="Meta executor self-loop",
+    )
+    engine.add_conditional(
+        "meta-executor",
+        "init",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "completed",
+        description="Dynamic steps done → pipeline",
+    )
+    engine.add_conditional(
+        "meta-executor",
+        "__end__",
+        condition=lambda s: s.get("dynamic_runtime", {}).get("status") == "blocked",
+        edge_type="terminal",
+        description="Dynamic step blocked → terminate",
+    )
+
+    # Compile proposed edges
+    for edge in proposal.edges:
+        from_name = edge.from_stage.replace(".", "-").replace("_", "-")
+        to_name = edge.to_stage.replace(".", "-").replace("_", "-")
+
+        if from_name in ("__start__", "__end__"):
+            from_name = edge.from_stage
+        if to_name in ("__start__", "__end__"):
+            to_name = edge.to_stage
+
+        if edge.edge_type == "fixed":
+            engine.add_fixed(from_name, to_name, description=edge.description)
+        elif edge.edge_type == "loopback":
+            predicate = _get_condition_predicate(edge.condition)
+            engine.add_loopback(from_name, to_name, condition=predicate, description=edge.description)
+        elif edge.edge_type == "terminal":
+            predicate = _get_condition_predicate(edge.condition)
+            engine.add_conditional(
+                from_name, to_name,
+                condition=predicate,
+                edge_type="terminal",
+                description=edge.description,
+            )
+        else:  # conditional
+            predicate = _get_condition_predicate(edge.condition)
+            engine.add_conditional(
+                from_name, to_name,
+                condition=predicate,
+                description=edge.description,
+            )
+
+    # Inject standard failure-routing for stages that need it
+    # These are operational policies, not topology decisions
+    _inject_failure_routing(engine, stage_set, proposal)
+
+    return engine
+
+
+def _inject_failure_routing(
+    engine: EdgeRulesEngine,
+    stage_set: set[str],
+    proposal: GraphTopologyProposal,
+) -> None:
+    """Inject standard loopback/terminal edges for verification, QA, and deploy stages.
+
+    The architect proposes the happy-path topology. Failure routing is
+    an operational concern handled by the framework, not the LLM.
+    """
+    # Build a lookup of execution policies from the proposal
+    policy_map = {}
+    for pol in proposal.execution_policies:
+        policy_map[pol.stage_id] = pol
+
+    # Build normalized set: both dot and hyphen notation
+    normalized_set = set()
+    for s in stage_set:
+        normalized_set.add(s)
+        normalized_set.add(s.replace(".", "-").replace("_", "-"))
+
+    failure_routing_stages = {
+        "verify": {"loopback": "impl-code", "stage_key": "verify"},
+        "e2e-execute": {"loopback": "impl-code", "stage_key": "e2e.execute"},
+        "qa-security": {"loopback": "impl-code", "stage_key": "qa.security"},
+        "qa-api-contract": {"loopback": "impl-code", "stage_key": "qa.api-contract"},
+        "qa-performance": {"loopback": "impl-code", "stage_key": "qa.performance"},
+        "deploy-prepare": {"loopback": "impl-code", "stage_key": "deploy.prepare"},
+        "smoke-test": {"loopback": "impl-code", "stage_key": "smoke.test"},
+    }
+
+    for node_name, info in failure_routing_stages.items():
+        if node_name not in normalized_set:
+            continue
+
+        stage_key = info["stage_key"]
+        loopback_target = info["loopback"]
+
+        # Check if a custom failure route was specified in the policy
+        policy = policy_map.get(stage_key)
+        if policy and policy.failure_route:
+            loopback_target = policy.failure_route.replace(".", "-").replace("_", "-")
+
+        if loopback_target in normalized_set:
+            engine.add_loopback(
+                node_name,
+                loopback_target,
+                condition=lambda s, sk=stage_key: not _stage_done(s, sk) and not _is_blocked(s),
+                description=f"{node_name} FAIL → retry {loopback_target}",
+            )
+
+        # Terminal edge for blocked state
+        engine.add_conditional(
+            node_name,
+            "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description=f"{node_name} BLOCKED → terminate",
+        )

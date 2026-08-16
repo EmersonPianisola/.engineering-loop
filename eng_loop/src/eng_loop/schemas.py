@@ -6,7 +6,174 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ──────────────────────────────────────────────
-# DYNAMIC NODE ORCHESTRATION (V1.3)
+# TOPOLOGY PROPOSAL — LLM proposes, Policy authorizes, Builder compiles
+# ──────────────────────────────────────────────
+
+# Allowed edge condition identifiers. The LLM may only reference these;
+# the builder translates them to actual state predicates.
+ALLOWED_CONDITIONS: set[str] = {
+    # Stage lifecycle
+    "stage_done",
+    "stage_failed",
+    "stage_blocked",
+    # Complexity gates
+    "complexity_at_least_medium",
+    "complexity_at_least_large",
+    "complexity_is_complex",
+    "complexity_is_small",
+    # Project context
+    "is_ui_project",
+    "not_ui_project",
+    # Terminal
+    "always",
+}
+
+
+class EdgeDefinition(BaseModel):
+    """Declarative edge: source, target, and an allowed condition identifier."""
+    model_config = ConfigDict(frozen=True)
+
+    from_stage: str = Field(description="Source stage ID (e.g. 'init', 'impl.code')")
+    to_stage: str = Field(description="Target stage ID or '__end__'")
+    edge_type: Literal["fixed", "conditional", "loopback", "terminal"] = "fixed"
+    condition: Literal[tuple(ALLOWED_CONDITIONS)] = "always"
+    description: str = Field(default="", description="Human-readable edge description")
+
+
+class PhaseGroup(BaseModel):
+    """Logical grouping of stages for display and execution ordering."""
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(description="Phase label, e.g. 'INIT', 'IMPL', 'QA'")
+    stages: tuple[str, ...] = Field(description="Stage IDs in this phase")
+
+
+class ExecutionPolicy(BaseModel):
+    """Runtime execution rules that apply to specific stages.
+    Separated from topology so the architect doesn't need to redefine
+    standard failure/retry behavior for every proposal.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    stage_id: str = Field(description="Stage this policy applies to")
+    max_attempts: int = Field(default=3, ge=1, le=5)
+    failure_route: str = Field(
+        default="",
+        description="Stage to route to on failure (empty = use default terminal)",
+    )
+
+
+class GraphTopologyProposal(BaseModel):
+    """Complete topology proposal from the dynamic architect.
+
+    This is a DECLARATIVE specification. The LLM says WHAT graph it wants,
+    not HOW to execute it. The builder compiles this into an executable graph.
+
+    Invariant: LLM proposes → Policy authorizes → Builder compiles → Runtime executes.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    plan_id: str = Field(description="Unique identifier for this proposal")
+    work_type: Literal["feature", "bugfix", "documentation", "operational"] = "feature"
+    complexity: Literal["small", "medium", "large", "complex"] = "small"
+    required_stages: tuple[str, ...] = Field(
+        description="Stage IDs that must be included in the graph"
+    )
+    edges: tuple[EdgeDefinition, ...] = Field(
+        description="Declarative edges between stages"
+    )
+    phase_groups: tuple[PhaseGroup, ...] = Field(
+        default_factory=tuple,
+        description="Logical phase grouping for display",
+    )
+    execution_policies: tuple[ExecutionPolicy, ...] = Field(
+        default_factory=tuple,
+        description="Per-stage execution policies (retry, failure routing)"
+    )
+    rationale: str = Field(
+        description="Explanation of why this topology is optimal for the task"
+    )
+
+    @field_validator("required_stages")
+    @classmethod
+    def validate_stages_not_empty(cls, v):
+        if not v:
+            raise ValueError("required_stages must not be empty")
+        ids = list(v)
+        if len(ids) != len(set(ids)):
+            raise ValueError("required_stages must not contain duplicates")
+        return v
+
+    @field_validator("edges")
+    @classmethod
+    def validate_edges_not_empty(cls, v):
+        if not v:
+            raise ValueError("edges must not be empty")
+        return v
+
+    @model_validator(mode="after")
+    def validate_edge_references(self) -> GraphTopologyProposal:
+        stage_set = set(self.required_stages)
+        special = {"__end__", "__start__"}
+        valid_targets = stage_set | special
+
+        for edge in self.edges:
+            if edge.from_stage not in stage_set and edge.from_stage not in special:
+                raise ValueError(
+                    f"Edge from_stage '{edge.from_stage}' not in required_stages"
+                )
+            if edge.to_stage not in valid_targets:
+                raise ValueError(
+                    f"Edge to_stage '{edge.to_stage}' not in required_stages or __end__"
+                )
+            # Self-loops only allowed for loopback type
+            if edge.from_stage == edge.to_stage and edge.edge_type != "loopback":
+                raise ValueError(
+                    f"Self-loop on '{edge.from_stage}' requires edge_type='loopback'"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_phase_group_stages(self) -> GraphTopologyProposal:
+        stage_set = set(self.required_stages)
+        for pg in self.phase_groups:
+            for s in pg.stages:
+                if s not in stage_set:
+                    raise ValueError(
+                        f"Phase group '{pg.name}' references stage '{s}' not in required_stages"
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def validate_policy_stages(self) -> GraphTopologyProposal:
+        stage_set = set(self.required_stages)
+        for pol in self.execution_policies:
+            if pol.stage_id not in stage_set:
+                raise ValueError(
+                    f"Execution policy references stage '{pol.stage_id}' not in required_stages"
+                )
+            if pol.failure_route and pol.failure_route not in stage_set:
+                raise ValueError(
+                    f"Execution policy failure_route '{pol.failure_route}' not in required_stages"
+                )
+        return self
+
+
+class AuthorizedGraphTopology(BaseModel):
+    """Policy-authorized version of a topology proposal. Immutable and safe to compile."""
+    model_config = ConfigDict(frozen=True)
+
+    plan_id: str
+    authorized_stages: tuple[str, ...]
+    authorized_edges: tuple[EdgeDefinition, ...]
+    phase_groups: tuple[PhaseGroup, ...]
+    execution_policies: tuple[ExecutionPolicy, ...]
+    rationale: str
+    policy_notes: str = Field(default="", description="Notes from policy validation")
+
+
+# ──────────────────────────────────────────────
+# DYNAMIC NODE ORCHESTRATION (V1.3) — Runtime augmentation
 # ──────────────────────────────────────────────
 
 
@@ -58,6 +225,17 @@ class DynamicBlueprintProposal(BaseModel):
     proposed_complexity: Literal["standard", "adaptive", "restricted"] = "standard"
     steps: tuple[DynamicStep, ...] = Field(default_factory=tuple)
     rationale: str
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def coerce_steps_to_tuple(cls, v):
+        if v is None:
+            return ()
+        if isinstance(v, list):
+            return tuple(v)
+        if isinstance(v, tuple):
+            return v
+        return (v,)
 
     @model_validator(mode="after")
     def validate_trigger_consistency(self) -> DynamicBlueprintProposal:
@@ -304,3 +482,7 @@ STAGE_SCHEMA: dict[str, type[BaseModel]] = {
 
 def get_schema(stage_id: str) -> type[BaseModel] | None:
     return STAGE_SCHEMA.get(stage_id)
+
+
+def get_topology_proposal_schema() -> type[BaseModel]:
+    return GraphTopologyProposal

@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from eng_loop.state import (
-    STAGE_ORDER,
     all_active_stages_done,
-    get_active_stages,
     get_max_attempts,
     next_incomplete_stage,
 )

@@ -526,34 +526,3 @@ class TestDeployHelpers:
 # ============================================================
 # ESSENCE HELPERS
 # ============================================================
-
-
-class TestEssenceHelpers:
-    def test_next_node_name_dots(self):
-        from eng_loop.nodes.essence import _next_node_name
-
-        assert _next_node_name("init.bdd") == "init-bdd"
-
-    def test_next_node_name_dots_and_underscores(self):
-        from eng_loop.nodes.essence import _next_node_name
-
-        assert _next_node_name("e2e.execute") == "e2e-execute"
-
-    def test_next_node_name_simple(self):
-        from eng_loop.nodes.essence import _next_node_name
-
-        assert _next_node_name("verify") == "verify"
-
-    def test_adjust_inputs_inline(self):
-        from eng_loop.nodes.essence import _adjust_inputs_inline
-
-        state = {"work_item": "test item", "other": "data"}
-        result = _adjust_inputs_inline({}, state)
-        assert result == {"work_item": "test item"}
-
-    def test_adjust_inputs_inline_empty(self):
-        from eng_loop.nodes.essence import _adjust_inputs_inline
-
-        state = {}
-        result = _adjust_inputs_inline({}, state)
-        assert result == {"work_item": ""}

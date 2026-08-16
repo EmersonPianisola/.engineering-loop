@@ -32,7 +32,12 @@ def _fs(complexity="small", ui=False, wt="feature"):
         "constraints": {"max_init_ideate_attempts": 3, "max_impl_code_attempts": 3, "max_verify_attempts": 3},
         "lessons": {"enabled": False},
     }
-    s["paths"] = {"project_root": "/tmp/t", "artifact_root": "/tmp/t/.eng/a", "framework_stage_root": "", "framework_skill_root": ""}
+    s["paths"] = {
+        "project_root": "/tmp/t",
+        "artifact_root": "/tmp/t/.eng/a",
+        "framework_stage_root": "",
+        "framework_skill_root": "",
+    }
     s["decisions"] = []
     s["errors"] = []
     s["handoffs"] = {}
@@ -46,7 +51,7 @@ class TestSmallFeatureFlow:
         reg = build_registry()
         s = _fs(complexity="small")
         builder = GraphBuilder(registry=reg)
-        graph, topology = builder.build(s)
+        graph, _topology = builder.build(s)
         nodes = list(graph.nodes)
         assert "init" in nodes
         assert "impl-code" in nodes
@@ -67,7 +72,7 @@ class TestMediumFeatureFlow:
         reg = build_registry()
         s = _fs(complexity="medium")
         builder = GraphBuilder(registry=reg)
-        graph, topology = builder.build(s)
+        graph, _topology = builder.build(s)
         nodes = list(graph.nodes)
         assert "arch-requirements" in nodes
         assert "arch-solution" in nodes
@@ -85,12 +90,14 @@ class TestDocumentationFlow:
     def test_excludes_stages(self):
         from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES
         from eng_loop.tools.next_active import _is_active
+
         s = _fs(wt="documentation")
         for sid in DOCUMENTATION_EXCLUDED_STAGES:
             assert not _is_active(sid, s)
 
     def test_includes_core(self):
         from eng_loop.tools.next_active import _is_active
+
         s = _fs(wt="documentation")
         assert _is_active("init", s)
         assert _is_active("impl.code", s)
@@ -101,6 +108,7 @@ class TestOperationalFlow:
     def test_excludes_impl(self):
         from eng_loop.tools.autosizing import OPERATIONAL_EXCLUDED_STAGES
         from eng_loop.tools.next_active import _is_active
+
         s = _fs(wt="operational")
         for sid in OPERATIONAL_EXCLUDED_STAGES:
             assert not _is_active(sid, s)
@@ -135,6 +143,7 @@ class TestBlockedFlow:
 class TestGraphBypass:
     def test_skips_bdd(self):
         from eng_loop.tools.next_active import _is_active
+
         s = _fs(complexity="small")
         assert not _is_active("init.bdd", s)
 
@@ -150,6 +159,7 @@ class TestGraphBypass:
 class TestStatePersistence:
     def test_save_restore(self):
         from eng_loop.tools.state_history import save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             s = _fs(complexity="medium")
             s["stages"]["init"] = {"done": True, "attempts": 1}
@@ -161,6 +171,7 @@ class TestStatePersistence:
 
     def test_roundtrip(self):
         from eng_loop.tools.state_history import save_snapshot
+
         with tempfile.TemporaryDirectory() as tmp:
             s = _fs()
             s["decisions"] = ["D1", "D2"]
@@ -177,6 +188,7 @@ class TestHUDIntegration:
         from rich.console import Console
 
         from eng_loop.tools.hud import HUDRenderer
+
         c = Console(force_terminal=True)
         r = HUDRenderer(console=c)
         r.log("INFO", "test")
@@ -186,6 +198,7 @@ class TestHUDIntegration:
         from rich.console import Console
 
         from eng_loop.tools.hud import HUDRenderer
+
         c = Console(force_terminal=True)
         r = HUDRenderer(console=c)
         r.set_current_stage("init")
@@ -197,12 +210,14 @@ class TestHUDIntegration:
 class TestContextHandoff:
     def test_data_flows(self):
         from eng_loop.tools.context_consolidator import build_handoff_summary
+
         h = build_handoff_summary("init", {"valid": True, "work_item_refined": "R"}, [])
         assert isinstance(h, str)
         assert len(h) > 0
 
     def test_accumulates(self):
         from eng_loop.tools.context_consolidator import build_handoff_summary
+
         hs = {}
         hs["init"] = build_handoff_summary("init", {"valid": True}, [])
         hs["impl.design"] = build_handoff_summary("impl.design", {"blueprint": "p"}, [])

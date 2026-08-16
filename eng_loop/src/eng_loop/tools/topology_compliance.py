@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from eng_loop.edge_rules import build_edge_rules
@@ -21,12 +20,15 @@ class ComplianceResult:
     requested_stage: str = ""
 
     def to_json(self) -> str:
-        return json.dumps({
-            "ok": self.ok,
-            "violations": self.violations,
-            "expected_next": self.expected_next,
-            "requested_stage": self.requested_stage,
-        }, indent=2)
+        return json.dumps(
+            {
+                "ok": self.ok,
+                "violations": self.violations,
+                "expected_next": self.expected_next,
+                "requested_stage": self.requested_stage,
+            },
+            indent=2,
+        )
 
     def __str__(self) -> str:
         status = "OK" if self.ok else "BLOCKED"
@@ -65,7 +67,9 @@ def check_compliance(
             f"(complexity={complexity}, work_type={work_type}, ui={ui_project})"
         )
         return ComplianceResult(
-            ok=False, violations=violations, requested_stage=requested_stage,
+            ok=False,
+            violations=violations,
+            requested_stage=requested_stage,
         )
 
     # CHECK 2: Are there skipped active stages?
@@ -73,16 +77,12 @@ def check_compliance(
     if last_done:
         skipped = _find_skipped_stages(stages, last_done, requested_stage, complexity, ui_project, work_type)
         if skipped:
-            violations.append(
-                f"STAGE_SKIP: {len(skipped)} active stage(s) skipped: {skipped}"
-            )
+            violations.append(f"STAGE_SKIP: {len(skipped)} active stage(s) skipped: {skipped}")
 
     # CHECK 3: Is this the expected next stage per edge rules?
     expected = _get_expected_next_stage(state, last_done, complexity, ui_project, work_type)
     if expected and expected != requested_stage:
-        violations.append(
-            f"WRONG_ORDER: Expected '{expected}', got '{requested_stage}'"
-        )
+        violations.append(f"WRONG_ORDER: Expected '{expected}', got '{requested_stage}'")
     elif not expected:
         # No expected next stage — all active stages may be done
         all_done = all(
@@ -92,14 +92,12 @@ def check_compliance(
         )
         if not all_done:
             incomplete = [
-                s for s in STAGE_ORDER
-                if is_stage_active(s, complexity, ui_project, work_type)
-                and not stages.get(s, {}).get("done", False)
+                s
+                for s in STAGE_ORDER
+                if is_stage_active(s, complexity, ui_project, work_type) and not stages.get(s, {}).get("done", False)
             ]
             if incomplete:
-                violations.append(
-                    f"NO_EXPECTED: No routing rule found. Incomplete stages: {incomplete}"
-                )
+                violations.append(f"NO_EXPECTED: No routing rule found. Incomplete stages: {incomplete}")
 
     return ComplianceResult(
         ok=len(violations) == 0,

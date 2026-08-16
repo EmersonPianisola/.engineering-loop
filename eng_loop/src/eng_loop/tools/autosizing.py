@@ -34,12 +34,14 @@ def classify_complexity(work_item: str, config: dict[str, Any]) -> str:
 
 def _estimate_files(text: str) -> int:
     import re
+
     file_keywords = re.findall(r"\b(file|module|component|class|function|endpoint|route|page|screen)\b", text.lower())
     return max(len(file_keywords), 1)
 
 
 def _estimate_tasks(text: str) -> int:
     import re
+
     task_indicators = re.findall(r"\b(should|must|need to|implement|create|build|add|update|fix)\b", text.lower())
     return max(len(task_indicators), 1)
 
@@ -51,7 +53,16 @@ def _has_new_domains(text: str) -> bool:
 
 
 def _has_integrations(text: str) -> bool:
-    integration_keywords = ["api", "integration", "webhook", "third-party", "external service", "sdk", "oauth", "payment"]
+    integration_keywords = [
+        "api",
+        "integration",
+        "webhook",
+        "third-party",
+        "external service",
+        "sdk",
+        "oauth",
+        "payment",
+    ]
     text_lower = text.lower()
     return any(kw in text_lower for kw in integration_keywords)
 
@@ -63,7 +74,7 @@ def _has_ambiguity(text: str) -> bool:
 
 
 def deactivate_inactive_stages(stages: dict[str, Any], complexity: str, ui_project: bool) -> dict[str, Any]:
-    from eng_loop.state import STAGE_MIN_COMPLEXITY, COMPLEXITY_ORDER, STAGE_ORDER
+    from eng_loop.state import COMPLEXITY_ORDER, STAGE_MIN_COMPLEXITY, STAGE_ORDER
 
     result = dict(stages)
     for sid in STAGE_ORDER:
@@ -81,6 +92,7 @@ def deactivate_inactive_stages(stages: dict[str, Any], complexity: str, ui_proje
 
 def detect_ui_project(paths: dict[str, Any]) -> bool:
     import os
+
     project_root = paths.get("project_root", "")
     ui_indicators = ["package.json", "vite.config", "next.config", "nuxt.config", "angular.json", "tailwind.config"]
     for indicator in ui_indicators:
@@ -97,45 +109,152 @@ def detect_ui_project(paths: dict[str, Any]) -> bool:
 # ──────────────────────────────────────────────
 
 WORK_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "documentation": [
+        "write summary",
+        "create summary",
+        "generate summary",
+        "write document",
+        "create document",
+        "generate report",
+        "write docs",
+        "create docs",
+        "update docs",
+        "update documentation",
+        "escrever resumo",
+        "criar resumo",
+        "gerar relatorio",
+        "project summary",
+        "sumario do projeto",
+        "sumário do projeto",
+        "write a summary",
+        "create a summary",
+        "generate a summary",
+        "write the",
+        "create the",
+        "generate the",
+        "documentation",
+        "documentação",
+        "readme",
+        "changelog",
+        "write changelog",
+        "report",
+        "relatorio",
+        "relatório",
+        "artifact",
+        "artifacts",
+    ],
+    "documentation_single": [
+        "summary",
+        "document",
+        "docs",
+        "report",
+        "relatorio",
+        "changelog",
+        "readme",
+        "artifact",
+    ],
     "operational": [
-        "run tests", "execute tests", "run test", "execute test",
-        "rodar testes", "executar testes", "rodar test", "executar test",
-        "run e2e", "execute e2e", "rodar e2e", "executar e2e",
-        "run build", "execute build",
-        "deploy", "deployar", "migrate", "seed", "rollback",
-        "backup", "monitor", "check health", "verify deployment",
-        "run lint", "run typecheck", "npm test", "pytest",
-        "playwright test", "vitest", "jest",
-        "garantir que esteja funcionando", "garantir funcionamento",
-        "production readiness", "entregue ao cliente",
-        "test suite", "full test", "all tests", "run the test",
+        "run tests",
+        "execute tests",
+        "run test",
+        "execute test",
+        "rodar testes",
+        "executar testes",
+        "rodar test",
+        "executar test",
+        "run e2e",
+        "execute e2e",
+        "rodar e2e",
+        "executar e2e",
+        "run build",
+        "execute build",
+        "deploy",
+        "deployar",
+        "migrate",
+        "seed",
+        "rollback",
+        "backup",
+        "monitor",
+        "check health",
+        "verify deployment",
+        "run lint",
+        "run typecheck",
+        "npm test",
+        "pytest",
+        "playwright test",
+        "vitest",
+        "jest",
+        "garantir que esteja funcionando",
+        "garantir funcionamento",
+        "production readiness",
+        "entregue ao cliente",
+        "test suite",
+        "full test",
+        "all tests",
+        "run the test",
     ],
     "operational_single": [
-        "testes", "test", "e2e", "build", "deploy", "lint",
-        "typecheck", "rodar", "executar",
-        "firebase", "production", "staging", "suite",
+        "testes",
+        "test",
+        "e2e",
+        "build",
+        "deploy",
+        "lint",
+        "typecheck",
+        "rodar",
+        "executar",
+        "firebase",
+        "production",
+        "staging",
+        "suite",
     ],
     "bugfix": [
-        "fix", "repair", "corrigir", "broken", "bug",
-        "fix bug", "fix error", "fix test", "fix tests",
-        "corrigir erro", "corrigir bug", "corrigir teste",
-        "resolve issue", "patch", "hotfix",
+        "fix",
+        "repair",
+        "corrigir",
+        "broken",
+        "bug",
+        "fix bug",
+        "fix error",
+        "fix test",
+        "fix tests",
+        "corrigir erro",
+        "corrigir bug",
+        "corrigir teste",
+        "resolve issue",
+        "patch",
+        "hotfix",
     ],
     "bugfix_single": [
-        "erro", "error", "falha", "fail", "failing",
+        "erro",
+        "error",
+        "falha",
+        "fail",
+        "failing",
     ],
     "feature": [
-        "implement", "create", "add feature", "build", "develop",
-        "implementar", "criar", "adicionar", "desenvolver",
-        "new feature", "nova funcionalidade", "novo recurso",
-        "add support", "implement support",
+        "implement",
+        "create",
+        "add feature",
+        "build",
+        "develop",
+        "implementar",
+        "criar",
+        "adicionar",
+        "desenvolver",
+        "new feature",
+        "nova funcionalidade",
+        "novo recurso",
+        "add support",
+        "implement support",
     ],
 }
 
 
 def classify_work_type(work_item: str) -> str:
-    """Classify work item as operational, bugfix, or feature.
+    """Classify work item as documentation, operational, bugfix, or feature.
 
+    Documentation: write/generate documents, summaries, reports.
     Operational: run existing code (tests, builds, deploys).
     Bugfix: fix broken behavior.
     Feature: create new functionality (default).
@@ -147,20 +266,34 @@ def classify_work_type(work_item: str) -> str:
     text_lower = work_item.lower()
 
     # Tier 1: Multi-word phrase matches (weight=2)
+    documentation_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["documentation"] if kw in text_lower)
     operational_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["operational"] if kw in text_lower)
     bugfix_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["bugfix"] if kw in text_lower)
     feature_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["feature"] if kw in text_lower)
 
-    # Tier 2: Single-word matches (weight=1) — only if no phrase matched
+    # Tier 2: Single-word matches (weight=1)
+    documentation_single = sum(1 for kw in WORK_TYPE_KEYWORDS["documentation_single"] if kw in text_lower)
     operational_single = sum(1 for kw in WORK_TYPE_KEYWORDS["operational_single"] if kw in text_lower)
     bugfix_single = sum(1 for kw in WORK_TYPE_KEYWORDS["bugfix_single"] if kw in text_lower)
 
+    documentation_score = documentation_phrase + documentation_single
     operational_score = operational_phrase + operational_single
     bugfix_score = bugfix_phrase + bugfix_single
     feature_score = feature_phrase
 
+    # Documentation: needs phrase match (>=2) OR strong single-word signal (>=3)
+    if documentation_phrase >= 2 or (
+        documentation_single >= 3
+        and documentation_score > operational_score
+        and documentation_score > bugfix_score
+        and documentation_score > feature_score
+    ):
+        return "documentation"
+
     # Operational: needs phrase match (>=2) OR strong single-word signal (>=4)
-    if operational_phrase >= 2 or (operational_single >= 4 and operational_score > bugfix_score and operational_score > feature_score):
+    if operational_phrase >= 2 or (
+        operational_single >= 4 and operational_score > bugfix_score and operational_score > feature_score
+    ):
         return "operational"
 
     # Bugfix: needs phrase match or single-word signal
@@ -193,6 +326,30 @@ OPERATIONAL_EXCLUDED_STAGES: list[str] = [
     "doc.project",
 ]
 
+# Stages to deactivate for documentation work (just init + impl.code + post)
+DOCUMENTATION_EXCLUDED_STAGES: list[str] = [
+    "impl.design",
+    "doc.update",
+    "verify",
+    "deploy.prepare",
+    "arch.requirements",
+    "arch.solution",
+    "arch.review",
+    "design.user-research",
+    "design.personas",
+    "design.info-arch",
+    "design.interaction",
+    "design.design-system",
+    "design.visual-design",
+    "qa.security",
+    "qa.api-contract",
+    "qa.performance",
+    "e2e.execute",
+    "smoke.test",
+    "doc.decisions",
+    "doc.project",
+]
+
 
 def deactivate_for_work_type(stages: dict[str, Any], work_type: str) -> dict[str, Any]:
     """Deactivate stages that don't apply for the given work type."""
@@ -202,13 +359,19 @@ def deactivate_for_work_type(stages: dict[str, Any], work_type: str) -> dict[str
     result = dict(stages)
     excluded = []
 
-    if work_type == "operational":
+    if work_type == "documentation":
+        excluded = DOCUMENTATION_EXCLUDED_STAGES
+    elif work_type == "operational":
         excluded = OPERATIONAL_EXCLUDED_STAGES
     elif work_type == "bugfix":
         # Bugfix: skip design stages, keep impl but skip heavy architecture
         excluded = [
-            "design.user-research", "design.personas", "design.info-arch",
-            "design.interaction", "design.design-system", "design.visual-design",
+            "design.user-research",
+            "design.personas",
+            "design.info-arch",
+            "design.interaction",
+            "design.design-system",
+            "design.visual-design",
         ]
 
     for sid in excluded:

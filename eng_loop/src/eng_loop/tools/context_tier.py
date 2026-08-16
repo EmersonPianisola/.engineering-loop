@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
 
 # ============================================================
 # CONTEXT TIERS — Hierarchical memory model (3 layers)
@@ -26,8 +25,12 @@ GLOBAL_TIER_KEYS = {
 GROUP_DOMAINS = {
     "init": {"init_summary", "ideation", "journey_map", "refined_work_item"},
     "design": {
-        "design.user-research", "design.personas", "design.info-arch",
-        "design.interaction", "design.design-system", "design.visual-design",
+        "design.user-research",
+        "design.personas",
+        "design.info-arch",
+        "design.interaction",
+        "design.design-system",
+        "design.visual-design",
     },
     "arch": {"arch.requirements", "arch.solution", "arch.review"},
     "impl": {"impl.design", "impl.code", "diff"},
@@ -111,6 +114,7 @@ STAGE_READ_DEPENDENCIES: dict[str, list[str]] = {
 @dataclass
 class ContextTierConfig:
     """Configuration for context budget per tier."""
+
     global_max_tokens: int = 4000
     group_max_tokens: int = 8000
     private_max_tokens: int = 2000
@@ -195,7 +199,7 @@ def get_accessible_context(
 def estimate_context_tokens(tiers: dict[str, dict[str, Any]]) -> int:
     """Estimate token count of context tiers (4 chars per token)."""
     total_chars = 0
-    for tier_name, tier_data in tiers.items():
+    for tier_data in tiers.values():
         total_chars += len(str(tier_data))
     return total_chars // 4
 
@@ -219,8 +223,8 @@ def enforce_context_budget(
     global_tokens = global_chars // 4
 
     if global_tokens > config.global_max_tokens:
-        global_str = str(result["global"])
-        max_chars = config.global_max_tokens * 4
+        str(result["global"])
+        config.global_max_tokens * 4
         result["global"] = {"_truncated": True, "_original_size": global_tokens}
         remaining -= config.global_max_tokens
     else:

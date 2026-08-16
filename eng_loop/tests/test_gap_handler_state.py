@@ -28,16 +28,20 @@ def _fs(complexity="medium", ui_project=False):
     s["config"] = {
         "agent": {"max_agent_iterations": 25},
         "constraints": {
-            "max_init_ideate_attempts": 3, "max_init_bdd_attempts": 2,
-            "max_init_refine_attempts": 5, "max_impl_design_attempts": 2,
-            "max_impl_code_attempts": 3, "max_verify_attempts": 3,
+            "max_init_ideate_attempts": 3,
+            "max_init_bdd_attempts": 2,
+            "max_init_refine_attempts": 5,
+            "max_impl_design_attempts": 2,
+            "max_impl_code_attempts": 3,
+            "max_verify_attempts": 3,
         },
         "lessons": {"enabled": False},
     }
     s["paths"] = {
         "project_root": "/tmp/test-project",
         "artifact_root": "/tmp/test-project/.eng/artifacts",
-        "framework_stage_root": "", "framework_skill_root": "",
+        "framework_stage_root": "",
+        "framework_skill_root": "",
     }
     s["decisions"] = []
     s["errors"] = []
@@ -50,7 +54,16 @@ def _fs(complexity="medium", ui_project=False):
 class TestCommandReturnType:
     def test_impl_code_returns_command_with_goto(self):
         spec = build_registry().get("impl.code")
-        mock = _mr({"implementation_summary": "Auth", "files_created": ["a.py"], "tests_passed": True, "complete": True, "decisions": [], "diff": ""})
+        mock = _mr(
+            {
+                "implementation_summary": "Auth",
+                "files_created": ["a.py"],
+                "tests_passed": True,
+                "complete": True,
+                "decisions": [],
+                "diff": "",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(_fs())
         assert isinstance(result, Command)
@@ -59,7 +72,16 @@ class TestCommandReturnType:
 
     def test_verify_returns_command_with_update(self):
         spec = build_registry().get("verify")
-        mock = _mr({"verdict": "PASS", "per_ac_evidence": [], "discrimination_sensor": {}, "coverage_audit": {}, "gaps": [], "complete": True})
+        mock = _mr(
+            {
+                "verdict": "PASS",
+                "per_ac_evidence": [],
+                "discrimination_sensor": {},
+                "coverage_audit": {},
+                "gaps": [],
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(_fs())
         assert isinstance(result, Command)
@@ -71,7 +93,9 @@ class TestEmptyWorkItem:
         spec = build_registry().get("init")
         s = _fs()
         s["work_item"] = ""
-        mock = _mr({"valid": False, "work_item_refined": "", "estimated_files": 0, "estimated_tasks": 0, "notes": "empty"})
+        mock = _mr(
+            {"valid": False, "work_item_refined": "", "estimated_files": 0, "estimated_tasks": 0, "notes": "empty"}
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert result.goto == "__end__"
@@ -80,7 +104,16 @@ class TestEmptyWorkItem:
         spec = build_registry().get("impl.code")
         s = _fs()
         s["work_item"] = ""
-        mock = _mr({"implementation_summary": "", "files_created": [], "tests_passed": False, "complete": True, "decisions": [], "diff": ""})
+        mock = _mr(
+            {
+                "implementation_summary": "",
+                "files_created": [],
+                "tests_passed": False,
+                "complete": True,
+                "decisions": [],
+                "diff": "",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert isinstance(result, Command)
@@ -91,18 +124,37 @@ class TestInvalidPaths:
         spec = build_registry().get("impl.code")
         s = _fs()
         s["paths"] = {}
-        mock = _mr({"implementation_summary": "d", "files_created": [], "tests_passed": True, "complete": True, "decisions": [], "diff": ""})
+        mock = _mr(
+            {
+                "implementation_summary": "d",
+                "files_created": [],
+                "tests_passed": True,
+                "complete": True,
+                "decisions": [],
+                "diff": "",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert isinstance(result, Command)
 
     def test_empty_artifact_root(self):
         import tempfile
+
         spec = build_registry().get("verify")
         with tempfile.TemporaryDirectory() as tmp:
             s = _fs()
             s["paths"]["artifact_root"] = tmp
-            mock = _mr({"verdict": "PASS", "per_ac_evidence": [], "discrimination_sensor": {}, "coverage_audit": {}, "gaps": [], "complete": True})
+            mock = _mr(
+                {
+                    "verdict": "PASS",
+                    "per_ac_evidence": [],
+                    "discrimination_sensor": {},
+                    "coverage_audit": {},
+                    "gaps": [],
+                    "complete": True,
+                }
+            )
             with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
                 result = spec.handler(s)
             assert isinstance(result, Command)
@@ -113,7 +165,16 @@ class TestMissingConfigDefaults:
         spec = build_registry().get("impl.code")
         s = _fs()
         s["config"] = {}
-        mock = _mr({"implementation_summary": "d", "files_created": [], "tests_passed": True, "complete": True, "decisions": [], "diff": ""})
+        mock = _mr(
+            {
+                "implementation_summary": "d",
+                "files_created": [],
+                "tests_passed": True,
+                "complete": True,
+                "decisions": [],
+                "diff": "",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert isinstance(result, Command)
@@ -122,7 +183,16 @@ class TestMissingConfigDefaults:
         spec = build_registry().get("verify")
         s = _fs()
         s["config"] = {"agent": {"max_agent_iterations": 25}}
-        mock = _mr({"verdict": "PASS", "per_ac_evidence": [], "discrimination_sensor": {}, "coverage_audit": {}, "gaps": [], "complete": True})
+        mock = _mr(
+            {
+                "verdict": "PASS",
+                "per_ac_evidence": [],
+                "discrimination_sensor": {},
+                "coverage_audit": {},
+                "gaps": [],
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert isinstance(result, Command)

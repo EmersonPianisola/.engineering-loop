@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from langgraph.types import Command
 
@@ -78,9 +79,7 @@ def architecture_exists_for_review(
     state: dict[str, Any],
 ) -> tuple[bool, str]:
     """arch.solution → arch.review: Both requirements and solution must exist."""
-    has_requirements = bool(
-        state.get("stage_artifacts", {}).get("arch.requirements", "")
-    )
+    has_requirements = bool(state.get("stage_artifacts", {}).get("arch.requirements", ""))
     has_solution = bool(source_output.get("architecture_output", ""))
 
     if not has_requirements:
@@ -176,6 +175,7 @@ def _ensure_dict(value: Any) -> dict[str, Any]:
     # Try JSON first
     try:
         import json
+
         parsed = json.loads(value)
         if isinstance(parsed, dict):
             return parsed
@@ -187,6 +187,7 @@ def _ensure_dict(value: Any) -> dict[str, Any]:
     if stripped.startswith("{") and stripped.endswith("}"):
         try:
             import ast
+
             parsed = ast.literal_eval(value)
             if isinstance(parsed, dict):
                 return parsed
@@ -223,8 +224,10 @@ def check_contract(
     stages = state.get("stages", {})
     source_stage_key = source_node.replace("-", ".")
     source_stage = stages.get(source_stage_key, {})
-    source_max_attempts = state.get("config", {}).get("constraints", {}).get(
-        f"max_{source_stage_key.replace('.', '_').replace('-', '_')}_attempts", 2
+    source_max_attempts = (
+        state.get("config", {})
+        .get("constraints", {})
+        .get(f"max_{source_stage_key.replace('.', '_').replace('-', '_')}_attempts", 2)
     )
 
     for rule in CONTRACT_RULES:
@@ -237,7 +240,10 @@ def check_contract(
 
         logger.warning(
             "Contract violation [%s→%s]: %s (rule: %s)",
-            rule.source, rule.target, msg, rule.description,
+            rule.source,
+            rule.target,
+            msg,
+            rule.description,
         )
 
         if rule.on_fail == "retry_source":
@@ -245,7 +251,9 @@ def check_contract(
             if source_stage.get("attempts", 0) >= source_max_attempts:
                 logger.error(
                     "Contract violation [%s→%s]: source exhausted %d attempts, blocking pipeline",
-                    rule.source, rule.target, source_max_attempts,
+                    rule.source,
+                    rule.target,
+                    source_max_attempts,
                 )
                 return "block", {
                     "status": "blocked",
@@ -297,9 +305,7 @@ def contract_gate_middleware(
         if source_stage.get("done", False) and source_stage.get("output"):
             return handler_result
 
-    action, update = check_contract(
-        source_node, target_node, source_output, state
-    )
+    action, update = check_contract(source_node, target_node, source_output, state)
 
     if action == "proceed":
         merged_update = {**handler_result.update, **update} if update else handler_result.update
@@ -367,9 +373,7 @@ def with_contract_gate(source_node: str):
                 if artifact:
                     stage_output = {"output": artifact}
 
-            return contract_gate_middleware(
-                source_node, cmd, stage_output, state
-            )
+            return contract_gate_middleware(source_node, cmd, stage_output, state)
 
         return wrapper
 

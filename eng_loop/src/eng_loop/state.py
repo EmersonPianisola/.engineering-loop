@@ -265,9 +265,8 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type:
         return True
 
     min_complexity = STAGE_MIN_COMPLEXITY.get(stage_id)
-    if min_complexity:
-        if COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_complexity, 0):
-            return False
+    if min_complexity and COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_complexity, 0):
+        return False
 
     if stage_id in ("e2e.execute", "smoke.test"):
         return ui_project
@@ -278,17 +277,18 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type:
         return False
     if work_type == "operational" and stage_id in OPERATIONAL_EXCLUDED_STAGES:
         return False
-    if work_type == "bugfix" and stage_id in (
-        "design.user-research",
-        "design.personas",
-        "design.info-arch",
-        "design.interaction",
-        "design.design-system",
-        "design.visual-design",
-    ):
-        return False
-
-    return True
+    return not (
+        work_type == "bugfix"
+        and stage_id
+        in (
+            "design.user-research",
+            "design.personas",
+            "design.info-arch",
+            "design.interaction",
+            "design.design-system",
+            "design.visual-design",
+        )
+    )
 
 
 def get_active_stages(complexity: str, ui_project: bool, work_type: str = "feature") -> list[str]:
@@ -356,6 +356,7 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
         "rollback_target": data.get("rollback_target", ""),
         "explorer_evidence": data.get("explorer_evidence", []),
         "codebase_facts": data.get("codebase_facts", {}),
+        "topology_proposal": data.get("topology_proposal"),
         "dynamic_plan": data.get("dynamic_plan"),
         "dynamic_runtime": data.get(
             "dynamic_runtime",
@@ -370,3 +371,51 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
         ),
     }
     return defaults
+
+
+# Stage descriptions for the architect's node catalog
+STAGE_CATALOG: dict[str, dict[str, str]] = {
+    "init": {"phase": "init", "description": "Validate work item, classify complexity, prepare loop"},
+    "init.ideate": {"phase": "init", "description": "BMAD ideation with Party Mode"},
+    "init.bdd": {"phase": "init", "description": "BDD journey mapping with Gherkin scenarios (large+)"},
+    "init.refine": {"phase": "init", "description": "Refine work item into engineering spec"},
+    "design.user-research": {"phase": "design", "description": "User research and requirements gathering (large+)"},
+    "design.personas": {"phase": "design", "description": "Persona creation and analysis (large+)"},
+    "design.info-arch": {"phase": "design", "description": "Information architecture (large+)"},
+    "design.interaction": {"phase": "design", "description": "Interaction design (large+)"},
+    "design.design-system": {"phase": "design", "description": "Design system definition (large+)"},
+    "design.visual-design": {"phase": "design", "description": "Visual design and styling (large+)"},
+    "arch.requirements": {"phase": "arch", "description": "Architecture requirements analysis (medium+)"},
+    "arch.solution": {"phase": "arch", "description": "Architecture solution design (medium+)"},
+    "arch.review": {"phase": "arch", "description": "Architecture review (complex)"},
+    "impl.design": {"phase": "impl", "description": "Implementation blueprint creation"},
+    "impl.code": {"phase": "impl", "description": "TDD code implementation"},
+    "doc.update": {"phase": "impl", "description": "Update existing project documentation"},
+    "verify": {"phase": "verify", "description": "Independent verification with discrimination sensor"},
+    "e2e.execute": {"phase": "verify", "description": "E2E Playwright testing (UI only)"},
+    "qa.security": {"phase": "qa", "description": "Security audit (medium+)"},
+    "qa.api-contract": {"phase": "qa", "description": "API contract validation (medium+)"},
+    "qa.performance": {"phase": "qa", "description": "Performance testing (complex)"},
+    "deploy.prepare": {"phase": "deploy", "description": "Build, lint, typecheck, env config, migration"},
+    "smoke.test": {"phase": "deploy", "description": "Full user journey against production build (UI only)"},
+    "doc.decisions": {"phase": "doc", "description": "Consolidate AD-NNN decisions into MADR format (medium+)"},
+    "doc.project": {"phase": "doc", "description": "Generate project documentation: arc42 + C4 (medium+)"},
+    "post": {"phase": "post", "description": "Finalize, lessons consolidation, commit"},
+}
+
+# Stages that are always mandatory for any valid graph
+MANDATORY_ENTRY = "init"
+MANDATORY_EXIT = "post"
+
+
+def build_node_catalog_text() -> str:
+    """Build a text description of available stages for the architect's context."""
+    lines = []
+    current_phase = ""
+    for stage_id, info in STAGE_CATALOG.items():
+        if info["phase"] != current_phase:
+            current_phase = info["phase"]
+            lines.append(f"\n  [{current_phase.upper()}]")
+        min_c = STAGE_MIN_COMPLEXITY.get(stage_id, "small")
+        lines.append(f"  {stage_id:30s} min_complexity={min_c:8s}  {info['description']}")
+    return "\n".join(lines)
