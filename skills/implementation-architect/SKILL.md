@@ -1,6 +1,6 @@
 ---
 name: implementation-architect
-description: 'Produces an Implementation Blueprint: architecture decisions, file responsibilities, data flows, interface contracts, and execution order. Design artifact for implementation execution skills. Use for Phase 2a of the engineering loop or any task requiring architectural planning before coding.'
+description: 'Produces an Implementation Blueprint: architecture decisions, file responsibilities, data flows, interface contracts, execution order, testing strategy, CI/CD pipeline, and rollback plan. Design artifact for implementation execution skills. Use for Phase 2a of the engineering loop or any task requiring architectural planning before coding.'
 ---
 
 # Implementation Architect
@@ -94,7 +94,89 @@ Define the error handling approach per layer:
 |-------|----------|-------------|
 ```
 
-### Step 8: Produce Blueprint
+### Step 8: Testing Strategy
+
+Define how each component will be tested:
+
+```markdown
+## Testing Strategy
+
+### Unit Tests
+| Module | Test File | Coverage Target | Key Scenarios |
+|--------|-----------|----------------|---------------|
+| `utils/validate.ts` | `utils/validate.test.ts` | 100% | Boundary values, invalid inputs |
+
+### Integration Tests
+| Flow | Test File | Mock Strategy |
+|------|-----------|---------------|
+| User registration | `integration/register.test.ts` | Mock email service |
+
+### E2E Tests
+| User Flow | Test File | Priority |
+|-----------|-----------|----------|
+| Complete checkout | `e2e/checkout.spec.js` | @smoke |
+
+### Test Data
+- Fixtures: [describe shared test data]
+- Factories: [describe data generation]
+- Seed data: [describe database seeding]
+```
+
+### Step 9: CI/CD Pipeline
+
+Define the automation pipeline:
+
+```markdown
+## CI/CD Pipeline
+
+### Pre-commit
+- Linting: [tool, scope]
+- Type checking: [tool, scope]
+- Pre-commit hooks: [list]
+
+### PR Checks
+- Unit tests: [command, coverage threshold]
+- Integration tests: [command]
+- Build: [command]
+- Security scan: [tool]
+
+### Post-Merge
+- E2E tests: [command, browser targets]
+- Deployment: [environment, strategy]
+- Smoke tests: [command]
+
+### Artifacts
+- Build output: [location]
+- Test reports: [format, location]
+- Coverage reports: [format, location]
+```
+
+### Step 10: Rollback Plan
+
+Define how to undo this implementation if needed:
+
+```markdown
+## Rollback Plan
+
+### Rollback Triggers
+- [Condition that warrants rollback, e.g., error rate > 5%]
+- [Condition, e.g., critical bug in core flow]
+
+### Rollback Steps
+1. [Step 1, e.g., Revert deployment to previous version]
+2. [Step 2, e.g., Run database migration rollback]
+3. [Step 3, e.g., Verify health checks]
+
+### Data Migration Rollback
+- [If data migrations are involved, describe rollback strategy]
+- [If irreversible, describe compensating actions]
+
+### Communication
+- [Who to notify]
+- [Status update template]
+```
+
+### Step 11: Produce Blueprint
 
 Write to `{artifact-root}/blueprints/blueprint-{slug}.md`:
 
@@ -116,6 +198,9 @@ modified_files: {count}
 ## Execution Order
 ## Integration Points
 ## Error Handling Strategy
+## Testing Strategy
+## CI/CD Pipeline
+## Rollback Plan
 ## Interface Contracts
 ```
 
@@ -127,6 +212,9 @@ modified_files: {count}
 - [ ] Execution order respects all dependencies
 - [ ] Integration points identified with risk assessment
 - [ ] Error handling covers all failure modes
+- [ ] Testing strategy covers unit, integration, and E2E
+- [ ] CI/CD pipeline defined for all stages
+- [ ] Rollback plan includes triggers, steps, and communication
 - [ ] Artifact does not exceed `max_artifact_size_lines` (from config.yaml)
 
 ## Anti-Patterns
@@ -136,3 +224,5 @@ modified_files: {count}
 - **Never ignore integration risk** — every existing code touchpoint needs assessment
 - **Never produce vague responsibilities** — ownership must be unambiguous
 - **Never skip error handling** — every layer needs a defined approach
+- **Never skip testing strategy** — untested code is a rollback risk
+- **Never skip rollback plan** — every deployment needs an undo path

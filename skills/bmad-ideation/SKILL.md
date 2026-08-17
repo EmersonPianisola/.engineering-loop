@@ -1,13 +1,14 @@
 ---
 name: bmad-ideation
-version: 1.0.0
+version: 2.0.0
 role: design
 domain: ideation-decomposition
 stage: init > ideate
 description: >
   Transforms raw, under-specified work items into rich, decomposed work flows
   using BMAD-derived patterns: Party Mode (9-role analysis), Brainstorming
-  (62 techniques), SDD extraction, and impact-gated decomposition.
+  (62 techniques), SDD extraction, impact-gated decomposition, Hourglass Framework,
+  and idea evaluation matrix.
 ---
 
 # BMAD Ideation Skill
@@ -17,8 +18,8 @@ description: >
 Transform a raw, under-specified work item into a concrete, decomposed set of
 atomic tasks with acceptance criteria, code maps, edge cases, and impact
 classification. Uses BMAD-derived patterns embedded in
-`{reference-root}/bmad-ideation-patterns.md` — no external BMAD installation
-required.
+`{reference-root}/bmad-ideation-patterns.md` and the Hourglass Ideation Framework
+— no external BMAD installation required.
 
 ## Inputs
 
@@ -31,6 +32,31 @@ required.
 - `{artifact-root}/ideation/sdd-{slug}.md` — Software Design Document
 - `{artifact-root}/ideation/flows-{slug}.md` — Decomposed work flows
 - Updated `state.work_item` — enriched with all fields
+
+## The Hourglass Ideation Framework
+
+The ideation process follows the Hourglass Framework: diverge wide, then converge narrow.
+
+```
+Phase 1 (Diverge): Party Mode → Brainstorming → Many ideas
+Phase 2 (Evaluate):  Idea Evaluation Matrix → Score and compare
+Phase 3 (Converge): SDD Extraction → Decomposition → Focused tasks
+```
+
+### Divergence Phase
+- **Goal:** Maximize idea quantity and diversity
+- **Methods:** Party Mode (multiple perspectives), Brainstorming (multiple techniques)
+- **Rule:** No criticism during divergence — all ideas are valid
+
+### Evaluation Phase
+- **Goal:** Assess ideas against objective criteria
+- **Method:** Idea Evaluation Matrix (see below)
+- **Rule:** Score each idea independently before comparing
+
+### Convergence Phase
+- **Goal:** Select best ideas, decompose into actionable tasks
+- **Methods:** SDD extraction, impact-gated decomposition
+- **Rule:** Every selected idea must trace to a task
 
 ## Execution Phases
 
@@ -87,9 +113,24 @@ Output format:
 3. ...
 ```
 
-### Phase 3: SDD Extraction
+### Phase 3: Idea Evaluation Matrix
 
-Compile Party Mode findings + Brainstorming ideas into a structured Software
+Score each idea from Party Mode + Brainstorming:
+
+| Idea | Value (1-5) | Feasibility (1-5) | Effort (1-5, 5=low) | Risk (1-5, 5=low) | Score | Decision |
+|------|-------------|-------------------|---------------------|-------------------|-------|----------|
+| [description] | 4 | 3 | 4 | 3 | 14/20 | Include |
+
+**Scoring:** `Value + Feasibility + Effort + Risk`. Threshold: >= 14/20 to include.
+
+**Convergence techniques:**
+- **Impact/Effort Matrix:** Plot ideas on 2x2 grid; prioritize high-impact, low-effort
+- **Dot Voting:** Each Party Mode role gets 3 dots to distribute across ideas
+- **Must/Should/Could/Won't (MoSCoW):** Categorize ideas by priority
+
+### Phase 4: SDD Extraction
+
+Compile Party Mode findings + evaluated Brainstorming ideas into a structured Software
 Design Document following the SDD template in the reference document.
 
 Sections:
@@ -107,7 +148,7 @@ Sections:
 **Traceability rule:** Every FR-NNN must cite its source: which Party Mode role
 identified it, or which brainstorming technique generated it.
 
-### Phase 4: Decomposition + Impact Gate
+### Phase 5: Decomposition + Impact Gate
 
 Convert the SDD's task table into executable work flows with impact
 classification.
@@ -129,8 +170,6 @@ classification.
 ```
 
 #### Impact Classification
-
-Apply these criteria to each task:
 
 | Level | Criteria |
 |-------|----------|
@@ -165,6 +204,7 @@ Apply these criteria to each task:
 4. Set `state.ideation.artifacts = { ideation_log, sdd, flows }`
 5. Set `state.ideation.techniques_used = [list]`
 6. Set `state.ideation.role_conflicts = [list of conflicting findings]`
+7. Set `state.ideation.evaluation_matrix = [matrix data]`
 
 ## Anti-Patterns
 
@@ -174,3 +214,5 @@ Apply these criteria to each task:
 - **Never skip traceability** — every requirement must cite its source
 - **Never auto-execute Critical** — human confirmation is mandatory
 - **Never produce unstructured output** — follow the SDD template exactly
+- **Never skip the evaluation matrix** — un-scored ideas lead to biased selection
+- **Never converge before diverging** — premature convergence kills creativity

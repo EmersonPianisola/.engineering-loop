@@ -1,6 +1,6 @@
 ---
 name: e2e-playwright
-description: 'Implements end-to-end tests using Playwright from a Behavior Map. Handles infrastructure setup, Page Objects, fixtures, and test authoring. Use for Phase 3b of the engineering loop or any task requiring E2E test implementation.'
+description: 'Implements end-to-end tests using Playwright from a Behavior Map. Handles infrastructure setup, Page Objects, fixtures, test authoring, visual regression, trace debugging, and Playwright MCP integration. Use for Phase 3b of the engineering loop or any task requiring E2E test implementation.'
 ---
 
 # E2E Playwright Tester
@@ -37,12 +37,14 @@ If Playwright is not configured:
      forbidOnly: !!process.env.CI,
      retries: process.env.CI ? 2 : 0,
      workerTimeout: 120000,
-     reporter: [['list'], ['html', { open: 'never' }]],
+     reporter: [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'e2e-results.json' }]],
      use: {
        baseURL: 'http://localhost:5173',
        trace: 'on-first-retry',
        screenshot: 'only-on-failure',
        video: 'retain-on-failure',
+       actionTimeout: 10000,
+       navigationTimeout: 30000,
      },
      projects: [
        { name: 'Mobile Chrome', use: { ...devices['Pixel 5'] } },
@@ -76,7 +78,8 @@ If Playwright is not configured:
 5. **Add scripts to project config:**
    ```json
    "test:e2e": "playwright test",
-   "test:e2e:ui": "playwright test --ui"
+   "test:e2e:ui": "playwright test --ui",
+   "test:e2e:report": "playwright show-report"
    ```
 
 ### Step 2: Map Scenarios to Test Files
@@ -121,11 +124,83 @@ For tests requiring backend services:
 2. **Network interception:** Intercept service calls with `page.route()`
 3. **Local state:** Set mock auth/user state in localStorage
 
-### Step 5: Run and Verify
+### Step 5: Visual Regression (Optional)
+
+For UI-critical flows, add visual regression checks:
+
+```js
+// Full page screenshot comparison
+await expect(page).toHaveScreenshot('dashboard.png', { maxDiffPixels: 50 });
+
+// Element-specific comparison
+await expect(page.locator('.chart')).toHaveScreenshot('chart.png', { maxDiffPixels: 20 });
+
+// Partial screenshot (ignores dynamic content)
+await expect(page.locator('.static-section')).toHaveScreenshot('header.png', {
+  mask: [page.locator('.dynamic-data')],
+});
+```
+
+**Visual regression rules:**
+- Store baseline screenshots in `e2e/snapshots/`
+- Use `maxDiffPixels` tolerance for anti-aliasing differences
+- Mask dynamic content (timestamps, user names, random data)
+- Update baselines intentionally: `npx playwright test --update-snapshots`
+
+### Step 6: Trace Viewer Debugging
+
+Configure trace collection for debugging:
+
+```js
+// In playwright.config.js — collect traces on retry
+trace: 'on-first-retry'
+
+// For full trace collection (development only)
+trace: '{ mode: "on", retainAfterFailingTest: true }'
+
+// View traces
+npx playwright show-trace trace.zip
+```
+
+**Debugging workflow:**
+1. Test fails → trace file generated
+2. Run `npx playwright show-trace trace.zip`
+3. Inspect DOM snapshots, network requests, console logs, actions timeline
+4. Identify root cause: timing issue, missing element, wrong assertion
+5. Fix test or application code
+
+### Step 7: Run and Verify
 
 1. `npm run test:e2e`
 2. All tests must pass on both Mobile and Desktop projects
 3. Cross-reference passing tests against Behavior Map `@e2e` scenarios — every scenario must have a passing test
+
+## Playwright MCP Integration
+
+For AI-assisted test generation and debugging:
+
+```json
+// In .claude.json or MCP client config
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@anthropic-ai/mcp-server-playwright"]
+    }
+  }
+}
+```
+
+**MCP use cases:**
+- AI explores the app and generates test cases from natural language
+- AI verifies code changes in a real browser after implementation
+- AI assists with debugging failed tests using trace data
+- AI generates Page Object methods from UI descriptions
+
+**MCP limitations:**
+- AI-generated tests may vary between runs — always review
+- AI may assume missing context — provide Behavior Map as reference
+- AI cannot replace human understanding of business logic
 
 ## Quality Gates
 
@@ -142,6 +217,7 @@ For tests requiring backend services:
 - [ ] **BDD→E2E 1:1 coverage** (mandatory)
 - [ ] **Dimension assertions** (CSS collapse detection)
 - [ ] **Auth bypass configured** (if auth exists)
+- [ ] **JSON report generated** (`e2e-results.json`)
 
 ## Anti-Patterns
 
@@ -157,3 +233,4 @@ For tests requiring backend services:
 - **Never skip BDD→E2E coverage check** — every `@e2e` scenario needs a test
 - **Never test against dev server for smoke tests** — use production build
 - **Never skip screenshots** — visual evidence is mandatory
+- **Never commit trace files** — they are large and transient; use for debugging only

@@ -6,16 +6,16 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v11.6.0
+**Framework:** Engineering Loop v12.1.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
 
 | ID | Skill | Role | Stage | Description |
 |----|-------|------|-------|-------------|
-| `ideation` | `bmad-ideation` | Design | init.ideate | Party Mode (9 roles), Brainstorming (62 techniques), SDD extraction, impact-gated decomposition |
+| `ideation` | `bmad-ideation` | Design | init.ideate | Party Mode (9 roles), Brainstorming (62 techniques), Hourglass Framework, idea evaluation matrix, SDD extraction, impact-gated decomposition |
 | `bridge` | `bmad-integration` | Bridge | init | BMad → universal work item transformation + auto-size |
-| `bdd-journey` | `bmad-bdd-mapper` | Design | init.bdd | Full user journey mapping with Gherkin scenarios (large+) |
+| `bdd-journey` | `bmad-bdd-mapper` | Design | init.bdd | Gherkin scenarios, Scenario Outlines, hooks, data-driven testing, tag strategy, traceability matrix (large+) |
 | `refine` | essence + `bmad-brainstorming` | Design | init.refine | Iterative refinement of ad-hoc work items |
 | `design-user-research` | `bmad-user-research` | Design | design.user-research | User research: interviews, contextual studies, usability testing |
 | `design-personas` | `bmad-personas` | Design | design.personas | Personas and journey maps from research |
@@ -23,25 +23,25 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `design-interaction` | `bmad-interaction` | Design | design.interaction | Interaction patterns, component behaviors, motion |
 | `design-design-system` | `bmad-design-system` | Design | design.design-system | Design system: tokens, components, guidelines |
 | `design-visual-design` | `bmad-visual-design` | Design | design.visual-design | Visual design: typography, colors, layout, micro-animations |
-| `req` | `requirements-refiner` | Design | arch.requirements | Quantifies requirements: volumetry, scalability, observability |
-| `sol` | `solution-designer` | Design | arch.solution | Application architecture: components, data, APIs, cross-cutting |
+| `req` | `requirements-refiner` | Design | arch.requirements | Quantifies requirements: volumetry, scalability, observability, INVEST/SMART scoring, risk matrix, conflict detection |
+| `sol` | `solution-designer` | Design | arch.solution | Application architecture: components, data, APIs, ADRs, STRIDE threat modeling, API design principles |
 | `arch-rev` | `architecture-reviewer` | Design | arch.review | Cross-artifact review, gap analysis, consolidated architecture |
-| `impl-arch` | `implementation-architect` | Design | impl.design | Implementation blueprint: files, contracts, data flows, order |
+| `impl-arch` | `implementation-architect` | Design | impl.design | Implementation blueprint: files, contracts, data flows, execution order, testing strategy, CI/CD pipeline, rollback plan |
 | `impl-domain` | Domain Skill | Execute | impl.code | TDD code implementation (self-constructed from internet best practices) |
-| `verifier` | `verifier` | Verify | verify | Spec-anchored check + discrimination sensor + coverage audit |
+| `verifier` | `verifier` | Verify | verify | Spec-anchored check + discrimination sensor + equivalent mutant filtering + mutation feedback loop (4-iter plateau) + coverage audit |
 | `sec-review` | Security Reviewer | Validate | qa.security | OWASP WSTG-based security audit (self-constructed from OWASP) |
 | `api-contract` | API Contract Validator | Validate | qa.api-contract | OpenAPI contract compliance (DEPRECATED, use qa.integration) |
 | `perf-check` | Performance Checker | Validate | qa.performance | Load targets, bundle size, response time (self-constructed) |
-| `linter-agent` | Linter Agent | Validate | qa.static | Static analysis: lint, type-check, cyclomatic complexity |
-| `tester-unit` | Unit Tester | Validate | qa.unit | Unit test generation and execution (Vitest/Jest) |
+| `linter-agent` | Linter Agent | Validate | qa.static | Static analysis: lint, type-check, security analysis (Bandit/ESLint-security), maintainability index, false positive handling, dependency audit |
+| `tester-unit` | Unit Tester | Validate | qa.unit | Unit test generation (two-step: scenario→code), boundary value analysis, mutation score threshold, execution (Vitest/Jest) |
 | `integration-tester` | Integration Tester | Validate | qa.integration | API contracts + component communication |
-| `persona-simulator` | Persona Simulator | Validate | qa.human.flow | Persona-based heuristic navigation simulation |
-| `ux-auditor` | UX Auditor | Validate | qa.human.ux | WCAG 2.1 AA audit + cognitive walkthrough |
+| `persona-simulator` | Persona Simulator | Validate | qa.human.flow | Structured persona profiles (Avenir-UX), SEQ step scoring (4-dim), SUS session scoring (Sauro-Lewis), friction analysis |
+| `ux-auditor` | UX Auditor | Validate | qa.human.ux | WCAG 2.2 AA audit, Nielsen's 10 heuristics, SEQ step scoring, SUS session grading, cognitive walkthrough |
 | `doc-update` | Project Documentation Updater | Document | doc.update | Update existing README, CHANGELOG, docs, inline comments |
 | `doc-decisions` | Decision Log Consolidator | Document | doc.decisions | MADR ADR consolidation from AD-NNN entries (self-constructed) |
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
-| `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, query-first for architecture |
+| `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
 | `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
 
 ## Self-Constructed Skills
@@ -85,3 +85,16 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-15 | all | v11.6.0 — **Dynamic Graph Topology Proposal**: LLM architect proposes optimal graph per task, authorized by 5-layer policy firewall, compiled by deterministic builder. Invariant: LLM proposes → Policy authorizes → Builder compiles → Runtime executes. 5 new schemas: `GraphTopologyProposal`, `EdgeDefinition`, `PhaseGroup`, `ExecutionPolicy`, `AuthorizedGraphTopology`. Policy firewall: structural, registry, boundary, connectivity (cycle detection + reachability), semantic. Dual-path compilation: proposal (LLM-optimized) or deterministic (fallback). Allowed conditions enum: LLM may reference conditions (`stage_done`, `complexity_at_least_medium`, `is_ui_project`) but never arbitrary code. Failure routing injected automatically (operational policy, not topology decision). Pre-build architect invocation in CLI. 34 new tests, 1484 total tests pass |
 | 2026-08-16 | all | v11.6.1 — **Graph integrity + evidence-based status**: Honest task outcome (`compute_task_outcome()`) — DONE/FAILED/PARTIAL/WARNINGS. Post stage propagates failure instead of forcing DONE. Artifact evidence tracking (existência verificada vs declarada). Topology fidelity (proposed vs compiled). Result rendering evidencia-based (stages ativos, artefatos, falhas). Tool aliases (snake_case + camelCase). LangGraph warning suppression. 117 integration tests (1603 total) |
 | 2026-08-16 | all | v12.0.0 — **QA Declarativa**: Evidence-based QA engine with trinary state (PASS/FAIL/BLOCKED). New topology: static → unit → integration → E2E → security/performance (parallel) → human.flow/human.ux (parallel). 5 new stages, 4 new skills, `stage_gate.py` unified gate system (Evidence/Dependency/Policy/Transition). `QAResult` envelope with friction_score, confidence, severity. Configurable thresholds via `qa_policy`. Failure policy: critical→rollback, high→repair, medium→repair, low→continue. `qa.api-contract` deprecated → `qa.integration`. Parallel groups: `qa-post-e2e`, `qa-human`. |
+| 2026-08-17 | persona-simulator | v2.0.0 — Structured persona profiles (digital_literacy, primary_device, reading_speed, tolerance_for_friction), SEQ step scoring (4 dimensions: ease/efficiency/clarity/confidence), SUS session scoring with Sauro-Lewis grading, friction type classification. Source: Avenir-UX (UCL Nexus Labs) |
+| 2026-08-17 | verifier | v2.0.0 — Equivalent mutant filtering (prevents >50% false gaps), mutation feedback loop (surviving mutants → prompt → regenerate, 4-iteration plateau), boundary value mutations, mutation score threshold (80%). Source: agentpatterns.ai, MUTGEN paper (arXiv 2506.02954) |
+| 2026-08-17 | ux-auditor | v2.0.0 — WCAG 2.2 AA (updated from 2.1), Nielsen's 10 usability heuristics, SEQ step scoring (4 dimensions), SUS session grading (Sauro-Lewis), structured violation reporting with severity. Source: Avenir-UX, Nielsen Norman Group |
+| 2026-08-17 | bmad-bdd-mapper | v2.0.0 — Scenario Outline pattern for data-driven testing, hook strategy (Before/After Suite/Scenario/Step), comprehensive tag strategy for CI, traceability matrix. Source: Cucumber BDD best practices, yrkan.com |
+| 2026-08-17 | tester-unit | v2.0.0 — Two-step prompting (scenario identification → code generation for stronger assertions), boundary value analysis enforcement, mutation score threshold (80%), assertion quality rules. Source: MUTGEN, Diffblue, arXiv research |
+| 2026-08-17 | linter-agent | v2.0.0 — Security analysis (Bandit, ESLint-security, npm/pip audit), maintainability index, technical debt ratio, false positive handling with suppression protocol, dependency vulnerability scanning. Source: arXiv 2508.14419, OWASP |
+| 2026-08-17 | cloud-architect | v2.0.0 — Multi-cloud awareness (AWS/GCP/Azure/hybrid), IaC generation strategy, DR/BCP section (RTO/RPO, failover, runbook), compliance mapping (LGPD, SOC2, ISO 27001). Source: Cloud Architect AI, AWS Prescriptive Guidance |
+| 2026-08-17 | requirements-refiner | v2.0.0 — INVEST quality scoring for user stories, SMART criteria for requirements, risk matrix (likelihood × impact), conflict detection with resolution tracking. Source: Visure Solutions, Jama Software |
+| 2026-08-17 | solution-designer | v2.0.0 — ADR format (MADR) for architecture decisions, STRIDE threat modeling, API design principles (versioning, pagination, error format, idempotency). Source: arc42, OWASP Threat Dragon |
+| 2026-08-17 | implementation-architect | v2.0.0 — Testing strategy (unit/integration/E2E per component), CI/CD pipeline definition (pre-commit, PR checks, post-merge), rollback plan (triggers, steps, data migration, communication). Source: Addy Osmani methodology |
+| 2026-08-17 | bmad-ideation | v2.0.0 — Hourglass Ideation Framework (diverge→evaluate→converge), idea evaluation matrix (Value/Feasibility/Effort/Risk scoring), convergence techniques (Impact/Effort matrix, MoSCoW, dot voting). Source: arXiv 2503.00946 (LLM-Assisted Ideation Review) |
+| 2026-08-17 | e2e-playwright | v2.0.0 — Visual regression testing (toHaveScreenshot with masking), Trace Viewer debugging workflow, Playwright MCP integration for AI-assisted test generation, JSON report generation. Source: Microsoft Playwright docs, cegeka.com |
+| 2026-08-17 | graphify | v2.0.0 — Data flow tracing (flow/flows-from/flows-to), dead code detection (unreachable functions, unused exports, orphaned modules), incremental update strategy vs full rebuild. Source: CodeGraph, Code-Graph-RAG |

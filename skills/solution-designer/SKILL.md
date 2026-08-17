@@ -1,13 +1,13 @@
 ---
 name: solution-designer
-version: 1.0.0
+version: 2.0.0
 role: design
 domain: solution-architecture
 stage: architecture > solution
 description: >
   Designs the application-level solution architecture based on refined requirements.
-  Covers component design, data models, API contracts, and cross-cutting concerns.
-  Runs in parallel with cloud-architect.
+  Covers component design, data models, API contracts, cross-cutting concerns,
+  ADRs, threat modeling, and API design principles. Runs in parallel with cloud-architect.
 ---
 
 # Solution Designer
@@ -16,8 +16,8 @@ description: >
 
 Design the **application-level solution architecture**. Consumes the refined
 requirements document and produces a solution design covering components,
-data models, API contracts, and cross-cutting concerns. Runs in parallel
-with cloud-architect.
+data models, API contracts, cross-cutting concerns, architecture decisions,
+and threat models. Runs in parallel with cloud-architect.
 
 ## Inputs
 
@@ -103,6 +103,15 @@ with cloud-architect.
 ```markdown
 ## API Contracts
 
+### Design Principles
+- Resource-oriented naming (REST) or RPC-style (gRPC)
+- Versioning strategy: [URL path / header / query param]
+- Pagination: [cursor-based / offset-based]
+- Filtering: [query params / OData / custom]
+- Error format: [RFC 7807 Problem Details / custom]
+- Rate limiting: [token bucket / fixed window]
+- Idempotency: [idempotency-key header for POST/PUT]
+
 ### Internal Interfaces
 - [Interface Name]
   - Purpose
@@ -120,7 +129,7 @@ with cloud-architect.
 
 ### API Versioning Strategy
 - Versioning approach (URL, header, etc.)
-- Deprecation policy
+- Deprecation policy (sunset header, migration guide)
 
 ### WebSocket / Real-Time (if applicable)
 - Connection lifecycle
@@ -135,9 +144,9 @@ with cloud-architect.
 
 ### Error Handling
 - Error taxonomy (business, infrastructure, validation)
-- Error response format
-- Retry policy per operation type
-- Circuit breaker configuration
+- Error response format (RFC 7807 Problem Details)
+- Retry policy per operation type (exponential backoff, max attempts)
+- Circuit breaker configuration (failure threshold, reset timeout)
 - Dead letter strategy
 
 ### Logging
@@ -148,12 +157,12 @@ with cloud-architect.
 
 ### Caching Strategy
 - Cache layers (browser, CDN, application, database)
-- Cache invalidation strategy
+- Cache invalidation strategy (TTL, event-driven, write-through)
 - TTL per data type
 - Cache-warming strategy
 
 ### Authentication & Authorization
-- OAuth flow (Google/Facebook)
+- OAuth flow (Google/Facebook/custom)
 - Token structure and lifecycle
 - RBAC matrix
 - Session management
@@ -221,26 +230,66 @@ with cloud-architect.
 - Compatibility matrix
 ```
 
+### 7. Architecture Decision Records
+
+```markdown
+## Architecture Decision Records
+
+### ADR-001: [Decision Title]
+**Status:** [Accepted / Deprecated / Superseded]
+**Context:** [What is the issue we're facing?]
+**Decision:** [What is the change we're proposing?]
+**Consequences:** [What becomes easier or more difficult?]
+
+### ADR-002: [Decision Title]
+...
+```
+
+### 8. Threat Model
+
+```markdown
+## Threat Model
+
+### STRIDE Analysis
+| Threat | Component | Attack Vector | Mitigation |
+|--------|-----------|--------------|------------|
+| **S**poofing | API Gateway | Fake client certificates | mTLS, JWT validation |
+| **T**ampering | Database | SQL injection | Parameterized queries, ORM |
+| **R**epudiation | User actions | No audit trail | Audit log with correlation IDs |
+| **I**nformation Disclosure | API responses | Over-fetching | Field-level filtering, least privilege |
+| **D**enial of Service | All | Traffic flood | Rate limiting, WAF, auto-scaling |
+| **E**levation of Privilege | Auth service | Token manipulation | Short-lived tokens, server-side validation |
+
+### Data Flow Security
+- Encryption at rest: [algorithm, key management]
+- Encryption in transit: [TLS version, certificate management]
+- Secrets rotation: [frequency, method]
+```
+
 ## Design Phase
 
 1. **Load requirements:** Read `state.artifacts.requirements`. If null → `status: blocked`, `blocking_condition: requirements not refined`. **EXIT.**
 2. **Design components:** Define boundaries, responsibilities, and communication patterns.
 3. **Model data:** Entities, relationships, access patterns, and lifecycle.
-4. **Define contracts:** Internal interfaces and external API surface.
-5. **Address cross-cutting:** Error handling, logging, caching, auth, i18n, accessibility.
-6. **Enforce `max_artifact_size_lines`.**
-7. **Store path** in `state.artifacts.solution_architecture`.
+4. **Define contracts:** Internal interfaces and external API surface with design principles.
+5. **Record decisions:** Document key architectural decisions as ADRs.
+6. **Threat model:** Apply STRIDE analysis to all components and data flows.
+7. **Address cross-cutting:** Error handling, logging, caching, auth, i18n, accessibility.
+8. **Enforce `max_artifact_size_lines`.**
+9. **Store path** in `state.artifacts.solution_architecture`.
 
 ## Validation Criteria
 
 - [ ] Every UX flow has a corresponding component and data path
 - [ ] All entity relationships are defined with lifecycle
-- [ ] API contracts include request/response schemas
+- [ ] API contracts include request/response schemas and design principles
 - [ ] Error handling strategy covers business, infrastructure, and validation errors
 - [ ] Caching strategy is defined per data type
-- [ ] Auth model matches PRD requirements (Google/Facebook OAuth)
+- [ ] Auth model matches PRD requirements
 - [ ] Performance targets are quantified
 - [ ] Technology stack is justified
+- [ ] ADRs document all significant decisions
+- [ ] STRIDE threat model covers all components
 - [ ] No `[TBD]` or `[DECIDE LATER]` placeholders
 
 ## High-Confidence Rules
@@ -250,4 +299,5 @@ with cloud-architect.
 3. **No speculative features** — Only design what the work item scope requires.
 4. **Brazil context** — Portuguese locale, BRL currency, Brazilian phone formats, LGPD compliance.
 5. **MVP-scoped** — Solution matches MVP scope. Defer advanced patterns unless requirements demand them.
-6. **Traceable** — Every design decision links to a requirement section.
+6. **Traceable** — Every design decision links to a requirement section or ADR.
+7. **Security by design** — Threat model is not optional; every component needs STRIDE analysis.

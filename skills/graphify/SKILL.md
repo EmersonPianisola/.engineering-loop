@@ -1,14 +1,14 @@
 ---
 name: graphify
 id: graphify
-version: 1.0.0
+version: 2.0.0
 type: skill
-description: 'Knowledge graph skill for Engineering Loop. Query-first for architecture questions. AST-based code mapping.'
+description: 'Knowledge graph skill for Engineering Loop. Query-first for architecture questions. AST-based code mapping with data flow tracing, dead code detection, and incremental updates.'
 ---
 
 # Graphify Skill
 
-Knowledge graph layer for Engineering Loop stages. Provides structural index of codebase via Graphify.
+Knowledge graph layer for Engineering Loop stages. Provides structural index of codebase via Graphify with enhanced capabilities for data flow tracing and dead code detection.
 
 ## Invocation
 
@@ -26,6 +26,31 @@ When `config.graphify.enabled` is true and codebase exists:
 ```
 graphify update .            # Build/update graph (AST extraction, no LLM)
 ```
+
+## Incremental Update Strategy
+
+After code changes, update the graph incrementally rather than full rebuild:
+
+```
+# After impl.code completes — re-extracts only changed files
+graphify update .
+
+# Full rebuild (use only when graph health degrades)
+graphify rebuild .
+
+# Check graph health
+graphify health .
+```
+
+**When to incrementally update:**
+- After `impl.code` stage completes
+- Before `qa.*` stages that need current structure
+- When `graphify health` reports stale edges
+
+**When to full rebuild:**
+- Major refactoring (>30% files changed)
+- Graph health score < 80%
+- After dependency graph changes (new packages, removed modules)
 
 ## Query Usage (Sub-Agent Instructions)
 
@@ -55,6 +80,52 @@ graphify query "<specific question>"
 
 Returns: scoped subgraph relevant to the question.
 
+### Data Flow Tracing
+
+Trace how data moves through the system:
+
+```
+# Trace from entry point to data sink
+graphify flow <entry-point> <sink>
+
+# Trace all paths from a source
+graphify flows-from <source>
+
+# Trace all paths to a destination
+graphify flows-to <destination>
+```
+
+**Use cases:**
+- Security audit: trace user input to database writes (identify injection points)
+- Debugging: trace where a specific value is transformed
+- Impact analysis: trace what changes when a data field is modified
+
+### Dead Code Detection
+
+Walk call and reference edges from entry points to surface unreachable functions:
+
+```
+# Find unreachable functions
+graphify dead-code .
+
+# Find unused exports
+graphify unused-exports .
+
+# Find orphaned modules (no incoming edges)
+graphify orphans .
+```
+
+**Dead code categories:**
+
+| Category | Description | Action |
+|----------|-------------|--------|
+| **Unreachable function** | No call path from any entry point | Safe to remove |
+| **Unused export** | Exported but never imported | Remove export or add usage |
+| **Orphaned module** | File with no incoming edges | Review if needed |
+| **Dead import** | Imported but never used | Remove import |
+
+**Caution:** Some code is intentionally unreachable (plugins, hooks, runtime-loaded modules). Verify before removing.
+
 ## Confidence Rules
 
 | Edge Tag | Action |
@@ -72,6 +143,8 @@ Returns: scoped subgraph relevant to the question.
 | Skipping Read entirely | Graph = map, Read = terrain. Both are needed |
 | Querying stale graph | Check if code changed since last build. Run `graphify update .` if needed |
 | Over-querying | For tasks isolated to 1-2 files, Read is faster than query |
+| Ignoring dead code | Run `graphify dead-code` periodically; accumulated dead code degrades graph quality |
+| Full rebuild on every change | Use incremental updates; full rebuild is expensive and unnecessary |
 
 ## Post-Implementation
 

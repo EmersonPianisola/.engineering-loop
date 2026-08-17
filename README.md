@@ -4,7 +4,7 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v11.6
+# Engineering Loop v12.1
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
@@ -26,7 +26,7 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 | **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
 | **LLM Mode** | `ORCHESTRATOR.md` (topology-enforced, compliance gate, Python builds graph) |
 | **Stages** | 26 static + 2 meta (architect, executor) = 29 nodes |
-| **Skills** | 11 built-in + 7 self-constructed at runtime |
+| **Skills** | 14 built-in (all v2.0) + 7 self-constructed at runtime |
 | **Structured Output** | Pydantic schemas per stage, evidence gates |
 | **Dynamic Graph** | `GraphBuilder` constructs graph per work item + work type |
 | **Work Types** | `feature`, `bugfix`, `operational` — different topologies per type |
@@ -2110,6 +2110,7 @@ See [Context Optimization](#context-optimization-v113) for details.
 | v11.3.0 | 2026-08-13 | **Context optimization**: `ProjectMap` pre-computed at init eliminates 3-8 exploratory glob/read per stage (ASCII tree, configs, entry points, modules, languages, routes, components). `ToolResultCache` in micro-loop eliminates redundant read/glob/grep calls with targeted invalidation on edit/write (full invalidation on bash). Graphify prompt softened from imperative to passive. `project_map.py` (370 lines), `ToolResultCache` in `agent_runner.py`, 29 new tests |
 | v11.4.0 | 2026-08-14 | **Contract gate middleware + causal rollback**: `contract_gate.py` validates handoff contracts between stages (blueprint→code, code→verify); retries source or blocks pipeline. `qa_parallel.py` fan-out/fan-in with `qa-dispatcher` + `qa-join` for parallel QA. `rollback_to_stage` reducer resets causal chain (impl.code → verify) on verifier/QA failure. `impl.code` FIX MODE with structured `fix_tasks`. Deterministic `init-setup` node separates classification from LLM. State reducers: `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage`. Edge rules: conditional blueprint validation, blocked-aware routing. Dry-run simulator: 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) — all assertions green |
 | v11.5.0 | 2026-08-15 | **Dynamic Node Orchestration (V1.3)**: Meta-orchestration layer for runtime sub-task generation beyond the 26-stage pipeline. `dynamic-architect` node (LLM proposes `DynamicBlueprintProposal` → framework authorizes via `authorize_blueprint()` → immutable `DynamicBlueprint`). `meta-executor` node (sequential cursor-based execution, strict attempt counting, typed validation). 9 new Pydantic schemas (frozen payloads, discriminated union rules, audit entries). Policy resolver: risk keyword analysis, tool sandboxing (safe pool). Validation engine: `tests_pass` (subprocess), `files_exist` (path check), `contains_symbol` (regex). Governance: `MAX_DYNAMIC_STEPS=5`, `max_attempts` per step (1-5), `authorized_complexity` override. Topology: `__start__ → init-setup → dynamic-architect → [meta-executor loop] → init`. 54 tests, 29 total nodes |
+| v12.1.0 | 2026-08-17 | **Skills v2.0 — Comprehensive improvement across 14 skills**: persona-simulator (structured profiles, SEQ/SUS scoring from Avenir-UX), verifier (equivalent mutant filtering, mutation feedback loop from agentpatterns.ai/MUTGEN), ux-auditor (WCAG 2.2, Nielsen heuristics, SEQ/SUS), bmad-bdd-mapper (Scenario Outline, hooks, tag strategy), tester-unit (two-step prompting, boundary value analysis, mutation score), linter-agent (security analysis, maintainability index, false positive handling), cloud-architect (multi-cloud, DR/BCP, compliance mapping), requirements-refiner (INVEST/SMART scoring, risk matrix, conflict detection), solution-designer (ADR format, STRIDE threat modeling, API design principles), implementation-architect (testing strategy, CI/CD pipeline, rollback plan), bmad-ideation (Hourglass Framework, idea evaluation matrix, convergence techniques), e2e-playwright (visual regression, trace viewer, Playwright MCP), graphify (data flow tracing, dead code detection, incremental updates) |
 
 ---
 

@@ -1,11 +1,11 @@
 ---
 name: engineering-loop
-version: 11.6.0
+version: 12.1.0
 type: framework
 description: 'Dynamic graph orchestrator. Topology proposed by LLM architect, authorized by 5-layer policy firewall, compiled by deterministic builder. LLM proposes, Policy authorizes, Builder compiles, Runtime executes. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution. 5 new topology schemas (frozen, validated). Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
 ---
 
-# Engineering Loop v11.6
+# Engineering Loop v12.1
 
 **Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
 
