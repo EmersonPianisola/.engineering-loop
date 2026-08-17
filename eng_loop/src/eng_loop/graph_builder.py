@@ -378,14 +378,19 @@ class GraphBuilder:
     ) -> None:
         """Add fan-out/fan-in for QA stages using LangGraph Send.
 
-        Replaces the sequential QA chain with:
-        verify/e2e → qa-dispatcher → [Send(qa-security), Send(qa-api), ...] → qa-join → deploy
+        Supports multiple parallel groups:
+        - qa-post-e2e: security + performance (after E2E)
+        - qa-human: human.flow + human.ux (after security/performance)
 
         IMPORTANT: qa-dispatcher and qa-join are NOT in the registry.
         They are added here directly. The edge_rules parallel_qa block
         does NOT add verify→qa-dispatcher edges (those are added here).
         """
-        from eng_loop.nodes.qa_parallel import qa_dispatcher_node, qa_join_node
+        from eng_loop.nodes.qa_parallel import (
+            PARALLEL_GROUPS,
+            qa_dispatcher_node,
+            qa_join_node,
+        )
 
         qa_specs = [s for s in active_specs if s.parallel_group == "qa"]
         if len(qa_specs) < 2:
@@ -400,24 +405,20 @@ class GraphBuilder:
         active_names.add("qa-dispatcher")
         active_names.add("qa-join")
 
-        # Find upstream: verify (non-UI) or e2e-execute (UI)
+        # Find upstream: e2e-execute (preferred) or verify
         upstream_nodes = []
-        if "verify" in active_names:
-            upstream_nodes.append("verify")
         if "e2e-execute" in active_names:
             upstream_nodes.append("e2e-execute")
+        elif "verify" in active_names:
+            upstream_nodes.append("verify")
 
         if not upstream_nodes:
             logger.warning("qa parallel: no upstream node found, skipping")
             return
 
-        # Replace verify/e2e → qa edges with verify/e2e → qa-dispatcher
-        # The dispatcher uses Send API to fan-out to QA nodes
+        # Replace upstream → qa edges with upstream → qa-dispatcher
         for upstream in upstream_nodes:
             builder.add_edge(upstream, "qa-dispatcher")
-
-        # qa-dispatcher returns list[Send] which handles routing directly.
-        # No conditional edges needed — each Send targets a QA node.
 
         # Each QA node → qa-join (replaces sequential QA chain)
         for qa_name in qa_node_names:
@@ -433,6 +434,12 @@ class GraphBuilder:
                 "__end__": END,
             },
         )
+
+        # Record parallel groups in topology
+        for group_name, group_nodes in PARALLEL_GROUPS.items():
+            active_in_group = [n for n in group_nodes if n in active_names]
+            if len(active_in_group) >= 2:
+                topology.parallel_groups[group_name] = active_in_group
 
         logger.info(
             "  Parallel QA: %s → qa-dispatcher → [%s] → qa-join → deploy-prepare",

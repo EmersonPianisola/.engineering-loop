@@ -21,6 +21,9 @@ class NodeSpec:
     depends_on: list[str] = field(default_factory=list)
     model_override: dict[str, Any] | None = None
     description: str = ""
+    # QA-specific metadata
+    qa_type: str = ""  # "deterministic" or "heuristic"
+    cost_class: str = ""  # "low", "medium", "high"
 
 
 COMPLEXITY_ORDER = {"small": 0, "medium": 1, "large": 2, "complex": 3}
@@ -106,7 +109,7 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
     from eng_loop.nodes.init_setup import init_setup_node
     from eng_loop.nodes.meta_executor import meta_node_executor_node
     from eng_loop.nodes.post import post_node
-    from eng_loop.nodes.qa import QA_STAGES, qa_node
+    from eng_loop.nodes.qa import qa_node
     from eng_loop.nodes.verification import e2e_execute_node, verify_node
 
     registry = NodeRegistry()
@@ -268,12 +271,58 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
     )
 
     # --- QA phase (parallel capable) ---
-    qa_complexity = {
-        "qa.security": "medium",
-        "qa.api-contract": "medium",
-        "qa.performance": "complex",
+    qa_metadata = {
+        "qa.security": {
+            "min_complexity": "medium",
+            "qa_type": "deterministic",
+            "cost_class": "medium",
+            "description": "OWASP WSTG security audit",
+        },
+        "qa.api-contract": {
+            "min_complexity": "medium",
+            "qa_type": "deterministic",
+            "cost_class": "low",
+            "description": "API contract validation (DEPRECATED, use qa.integration)",
+        },
+        "qa.performance": {
+            "min_complexity": "complex",
+            "qa_type": "deterministic",
+            "cost_class": "high",
+            "description": "Performance metrics verification",
+        },
+        "qa.static": {
+            "min_complexity": "small",
+            "qa_type": "deterministic",
+            "cost_class": "low",
+            "description": "Static analysis: lint, type-check, cyclomatic complexity",
+        },
+        "qa.unit": {
+            "min_complexity": "small",
+            "qa_type": "deterministic",
+            "cost_class": "low",
+            "description": "Unit test generation and execution",
+        },
+        "qa.integration": {
+            "min_complexity": "medium",
+            "qa_type": "deterministic",
+            "cost_class": "medium",
+            "description": "Integration: API contracts + component communication",
+        },
+        "qa.human.flow": {
+            "min_complexity": "medium",
+            "qa_type": "heuristic",
+            "cost_class": "high",
+            "description": "Persona-based heuristic navigation simulation",
+        },
+        "qa.human.ux": {
+            "min_complexity": "medium",
+            "qa_type": "heuristic",
+            "cost_class": "high",
+            "requires_ui": True,
+            "description": "WCAG audit + cognitive walkthrough",
+        },
     }
-    for stage_id in QA_STAGES:
+    for stage_id, meta in qa_metadata.items():
         node_name = _make_node_name(stage_id)
         handler = qa_node(stage_id, parallel_mode=parallel_qa)
         registry.register(
@@ -282,9 +331,12 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
                 node_name=node_name,
                 handler=handler,
                 phase="qa",
-                min_complexity=qa_complexity.get(stage_id, "medium"),
+                min_complexity=meta["min_complexity"],
+                requires_ui=meta.get("requires_ui", False),
                 parallel_group="qa",
-                description=f"QA stage: {stage_id}",
+                qa_type=meta["qa_type"],
+                cost_class=meta["cost_class"],
+                description=meta["description"],
             )
         )
 

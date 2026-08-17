@@ -51,12 +51,18 @@ def test_make_stage_defaults():
         "essence_checked": False,
         "output": "",
         "artifact_path": "",
+        "verdict": "",
+        "status": "",
+        "findings": [],
+        "evidence": {},
+        "started_at": 0.0,
+        "completed_at": 0.0,
     }
 
 
 def test_init_stages_all_26():
     stages = init_stages()
-    assert len(stages) == 26
+    assert len(stages) == 31
     for sid in STAGE_ORDER:
         assert sid in stages
         assert stages[sid]["done"] is False

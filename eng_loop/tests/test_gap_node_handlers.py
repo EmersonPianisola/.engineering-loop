@@ -230,19 +230,19 @@ class TestQaPerformanceNode:
         mock = _mr({"verdict": "PASS", "findings": [], "critical_findings": [], "complete": True})
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
-        assert result.goto == "deploy-prepare"
+        assert result.goto == "qa-human-flow"
 
     def test_done(self):
         spec = build_registry().get("qa.performance")
         s = _st({"qa.performance": {"done": True, "attempts": 1}})
         result = spec.handler(s)
-        assert result.goto == "deploy-prepare"
+        assert result.goto == "qa-human-flow"
 
     def test_fail_loops(self):
         spec = build_registry().get("qa.performance")
         s = _st()
         s["complexity"] = "complex"
-        mock = _mr({"verdict": "FAIL", "findings": ["slow"], "critical_findings": ["timeout"], "complete": False})
+        mock = _mr({"verdict": "FAIL", "findings": ["slow"], "critical_findings": ["timeout"], "severity": "critical", "complete": False})
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert result.goto == "impl-code"

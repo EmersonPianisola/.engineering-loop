@@ -30,10 +30,15 @@ STAGE_CLASSES = {
     "impl.code": ("WARRIOR", "green"),
     "doc.update": ("CHRONICLER", "white"),
     "verify": ("INSPECTOR", "yellow"),
+    "qa.static": ("ANALYST", "bright_cyan"),
+    "qa.unit": ("ALCHMIST", "bright_magenta"),
+    "qa.integration": ("SCRIBE", "cyan"),
     "e2e.execute": ("ALCHMIST", "bright_magenta"),
     "qa.security": ("GUARD", "red"),
     "qa.api-contract": ("SCRIBE", "cyan"),
     "qa.performance": ("SPEEDSTER", "bright_yellow"),
+    "qa.human.flow": ("EMPATH", "bright_white"),
+    "qa.human.ux": ("EMPATH", "bright_white"),
     "deploy.prepare": ("PILOT", "bright_blue"),
     "smoke.test": ("ALCHMIST", "bright_magenta"),
     "doc.decisions": ("CHRONICLER", "white"),
@@ -54,6 +59,8 @@ CLASS_ICONS = {
     "SPEEDSTER": "P",
     "PILOT": "Z",
     "HERO": "H",
+    "ANALYST": "N",
+    "EMPATH": "M",
 }
 
 PHASE_ORDER = ["init", "design", "arch", "impl", "verify", "qa", "deploy", "doc", "post"]

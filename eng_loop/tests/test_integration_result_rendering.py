@@ -7,7 +7,6 @@ artifact evidence, and topology fidelity.
 """
 
 from io import StringIO
-from unittest.mock import patch
 
 from rich.console import Console
 

@@ -8,6 +8,10 @@ from eng_loop.tools.json_parse import extract_json
 
 logger = logging.getLogger(__name__)
 
+# DEPRECATED: This module is superseded by stage_gate.py (EvidenceGate, DependencyGate,
+# PolicyGate, TransitionGate). Kept for backward compatibility with existing node handlers.
+# New QA stages should use stage_gate.run_stage_gate() directly.
+
 
 MIN_OUTPUT_LENGTH = 50
 MIN_VERIFICATION_EVIDENCE = 1
@@ -37,7 +41,7 @@ def validate_stage_output(stage_id: str, result: dict[str, Any], content: str) -
 
     elif stage_id == "e2e.execute" or stage_id.startswith("qa."):
         verdict = result.get("verdict", "")
-        if verdict not in ("PASS", "FAIL"):
+        if verdict not in ("PASS", "FAIL", "BLOCKED"):
             return False, f"Invalid verdict: {verdict!r}"
 
     elif stage_id == "impl.design":

@@ -27,10 +27,15 @@ STAGE_ORDER: list[str] = [
     "impl.code",
     "doc.update",
     "verify",
+    "qa.static",
+    "qa.unit",
+    "qa.integration",
     "e2e.execute",
     "qa.security",
     "qa.api-contract",
     "qa.performance",
+    "qa.human.flow",
+    "qa.human.ux",
     "deploy.prepare",
     "smoke.test",
     "doc.decisions",
@@ -52,6 +57,11 @@ STAGE_MIN_COMPLEXITY: dict[str, Literal["small", "medium", "large", "complex"]] 
     "qa.security": "medium",
     "qa.api-contract": "medium",
     "qa.performance": "complex",
+    "qa.static": "small",
+    "qa.unit": "small",
+    "qa.integration": "medium",
+    "qa.human.flow": "medium",
+    "qa.human.ux": "medium",
     "doc.decisions": "medium",
     "doc.project": "medium",
 }
@@ -112,6 +122,10 @@ def rollback_to_stage(
     Used when a verifier/QA node fails and needs to rewind the causal
     chain back to the implementation node.
 
+    IMPORTANT: Stages with status='blocked' are NEVER reset by rollback.
+    BLOCKED means infrastructure failure, not code defect — resetting them
+    would waste tokens re-running tests that cannot succeed.
+
     Example: verify FAIL → reset impl.code, doc.update, verify.
     """
     result = copy.deepcopy(current_stages)
@@ -128,12 +142,22 @@ def rollback_to_stage(
 
     for i in range(start_idx, end_idx + 1):
         sid = STAGE_ORDER[i]
+        existing = current_stages.get(sid, {})
+        # Never rollback a BLOCKED stage — it's an infrastructure issue
+        if existing.get("status") == "blocked":
+            continue
         result[sid] = {
             "done": False,
             "attempts": 0,
             "essence_checked": False,
             "output": "",
             "artifact_path": "",
+            "verdict": "",
+            "status": "",
+            "findings": [],
+            "evidence": {},
+            "started_at": 0.0,
+            "completed_at": 0.0,
         }
 
     return result
@@ -159,6 +183,12 @@ def make_stage() -> dict[str, Any]:
         "essence_checked": False,
         "output": "",
         "artifact_path": "",
+        "verdict": "",
+        "status": "",
+        "findings": [],
+        "evidence": {},
+        "started_at": 0.0,
+        "completed_at": 0.0,
     }
 
 
@@ -209,6 +239,8 @@ class PipelineState(dict[str, Any]):
     # Dynamic node orchestration (V1.3)
     dynamic_plan: Annotated[dict[str, Any] | None, _last_write_wins] = None
     dynamic_runtime: Annotated[dict[str, Any], _merge_dict] = {}
+    # QA results — structured evidence per stage
+    qa_results: Annotated[dict[str, Any], _merge_dict] = {}
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -243,6 +275,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "explorer_evidence": [],
         "codebase_facts": {},
         "dynamic_plan": None,
+        "qa_results": {},
         "dynamic_runtime": {
             "cursor": 0,
             "attempts": {},
@@ -268,7 +301,7 @@ def is_stage_active(stage_id: str, complexity: str, ui_project: bool, work_type:
     if min_complexity and COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_complexity, 0):
         return False
 
-    if stage_id in ("e2e.execute", "smoke.test"):
+    if stage_id in ("e2e.execute", "smoke.test", "qa.human.ux"):
         return ui_project
 
     from eng_loop.tools.autosizing import DOCUMENTATION_EXCLUDED_STAGES, OPERATIONAL_EXCLUDED_STAGES
@@ -429,10 +462,15 @@ STAGE_CATALOG: dict[str, dict[str, str]] = {
     "impl.code": {"phase": "impl", "description": "TDD code implementation"},
     "doc.update": {"phase": "impl", "description": "Update existing project documentation"},
     "verify": {"phase": "verify", "description": "Independent verification with discrimination sensor"},
+    "qa.static": {"phase": "qa", "description": "Static analysis: lint, type-check, cyclomatic complexity"},
+    "qa.unit": {"phase": "qa", "description": "Unit test generation and execution"},
+    "qa.integration": {"phase": "qa", "description": "Integration: API contracts + component communication (medium+)"},
     "e2e.execute": {"phase": "verify", "description": "E2E Playwright testing (UI only)"},
     "qa.security": {"phase": "qa", "description": "Security audit (medium+)"},
-    "qa.api-contract": {"phase": "qa", "description": "API contract validation (medium+)"},
+    "qa.api-contract": {"phase": "qa", "description": "API contract validation (DEPRECATED, use qa.integration)"},
     "qa.performance": {"phase": "qa", "description": "Performance testing (complex)"},
+    "qa.human.flow": {"phase": "qa", "description": "Persona-based heuristic navigation simulation (medium+)"},
+    "qa.human.ux": {"phase": "qa", "description": "WCAG audit + cognitive walkthrough, UI only (medium+)"},
     "deploy.prepare": {"phase": "deploy", "description": "Build, lint, typecheck, env config, migration"},
     "smoke.test": {"phase": "deploy", "description": "Full user journey against production build (UI only)"},
     "doc.decisions": {"phase": "doc", "description": "Consolidate AD-NNN decisions into MADR format (medium+)"},

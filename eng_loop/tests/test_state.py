@@ -11,7 +11,7 @@ from eng_loop.state import (
 
 
 def test_stage_order():
-    assert len(STAGE_ORDER) == 26
+    assert len(STAGE_ORDER) == 31
     assert STAGE_ORDER[0] == "init"
     assert STAGE_ORDER[-1] == "post"
 
@@ -21,7 +21,7 @@ def test_initial_state():
     assert state["status"] == "running"
     assert state["iteration"] == 0
     assert state["complexity"] == "unset"
-    assert len(state["stages"]) == 26
+    assert len(state["stages"]) == 31
     for sid in STAGE_ORDER:
         assert state["stages"][sid]["done"] is False
         assert state["stages"][sid]["attempts"] == 0

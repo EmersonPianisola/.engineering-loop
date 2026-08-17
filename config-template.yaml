@@ -88,6 +88,11 @@ constraints:
   max_qa_security_attempts: 2
   max_qa_api_contract_attempts: 2
   max_qa_performance_attempts: 2
+  max_qa_static_attempts: 2
+  max_qa_unit_attempts: 2
+  max_qa_integration_attempts: 2
+  max_qa_human_flow_attempts: 2
+  max_qa_human_ux_attempts: 2
   max_deploy_prepare_attempts: 2
   max_doc_update_attempts: 2
   max_doc_decisions_attempts: 2
@@ -100,6 +105,46 @@ constraints:
   e2e_network_error_gate: true        # Zero 4xx/5xx required
   e2e_screenshot_on: true             # Always capture screenshots
   e2e_bdd_coverage_enforcement: true  # 1:1 BDD→E2E mandatory
+
+# ============================================================
+# QA POLICY — thresholds, failure routing, severity mapping
+# ============================================================
+qa_policy:
+  # Heuristic QA thresholds (human.flow, human.ux)
+  human:
+    max_friction_score: 4             # Friction > this → FAIL
+    min_confidence: 0.70              # Confidence < this → BLOCKED
+
+  # Deterministic QA thresholds
+  static:
+    max_cyclomatic_complexity: 15     # Functions above this are flagged
+    max_lint_errors: 0                # Zero lint errors required
+    max_type_errors: 0                # Zero type errors required
+
+  unit:
+    min_coverage: 70                  # Minimum coverage percentage
+    require_tests: true               # Must have at least one test
+
+  integration:
+    require_tests: true
+
+  # Failure policy: what action to take per severity
+  failure_policy:
+    critical:
+      action: rollback                # Reset impl.code, re-implement
+    high:
+      action: repair                  # Inline fix, re-verify
+    medium:
+      action: repair                  # Inline fix, re-verify
+    low:
+      action: continue                # Log warning, proceed
+    info:
+      action: continue
+
+  # Retry policy for BLOCKED stages (infrastructure failures)
+  retry_policy:
+    max_attempts: 2                   # Max retries for BLOCKED stages
+    backoff_seconds: 5                # Delay between retries
 
 # ============================================================
 # LOCAL HARDWARE MANAGEMENT

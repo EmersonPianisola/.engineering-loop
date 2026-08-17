@@ -22,7 +22,7 @@ def test_complexity_meets():
 
 def test_registry_builds():
     registry = build_registry()
-    assert len(registry) == 29
+    assert len(registry) == 34
     assert "init" in registry
     assert "impl.code" in registry
     assert "post" in registry
@@ -87,11 +87,16 @@ def test_registry_parallel_groups():
     groups = registry.get_parallel_groups()
     assert "qa" in groups
     qa_nodes = groups["qa"]
-    assert len(qa_nodes) == 3
+    assert len(qa_nodes) == 8
     qa_ids = {s.id for s in qa_nodes}
     assert "qa.security" in qa_ids
     assert "qa.api-contract" in qa_ids
     assert "qa.performance" in qa_ids
+    assert "qa.static" in qa_ids
+    assert "qa.unit" in qa_ids
+    assert "qa.integration" in qa_ids
+    assert "qa.human.flow" in qa_ids
+    assert "qa.human.ux" in qa_ids
 
 
 def test_registry_phase_grouping():
@@ -103,7 +108,7 @@ def test_registry_phase_grouping():
     assert len(design_nodes) == 6
 
     qa_nodes = registry.get_by_phase("qa")
-    assert len(qa_nodes) == 3
+    assert len(qa_nodes) == 8
 
 
 def test_edge_rules_build():

@@ -446,7 +446,13 @@ class TestQaHelpers:
         from eng_loop.nodes.qa import _resolve_next_qa
 
         state = _make_state("medium")
-        assert _resolve_next_qa("qa.security", state) == "qa-api-contract"
+        assert _resolve_next_qa("qa.security", state) == "qa-human-flow"
+
+    def test_resolve_next_qa_security_complex(self):
+        from eng_loop.nodes.qa import _resolve_next_qa
+
+        state = _make_state("complex")
+        assert _resolve_next_qa("qa.security", state) == "qa-performance"
 
     def test_resolve_next_qa_security_small(self):
         from eng_loop.nodes.qa import _resolve_next_qa
@@ -470,13 +476,33 @@ class TestQaHelpers:
         from eng_loop.nodes.qa import _resolve_next_qa
 
         state = _make_state("complex")
-        assert _resolve_next_qa("qa.performance", state) == "deploy-prepare"
+        assert _resolve_next_qa("qa.performance", state) == "qa-human-flow"
+
+    def test_resolve_next_qa_human_flow_ui(self):
+        from eng_loop.nodes.qa import _resolve_next_qa
+
+        state = _make_state("medium")
+        state["ui_project"] = True
+        assert _resolve_next_qa("qa.human.flow", state) == "qa-human-ux"
+
+    def test_resolve_next_qa_human_flow_non_ui(self):
+        from eng_loop.nodes.qa import _resolve_next_qa
+
+        state = _make_state("medium")
+        state["ui_project"] = False
+        assert _resolve_next_qa("qa.human.flow", state) == "deploy-prepare"
+
+    def test_resolve_next_qa_human_ux(self):
+        from eng_loop.nodes.qa import _resolve_next_qa
+
+        state = _make_state("medium")
+        assert _resolve_next_qa("qa.human.ux", state) == "deploy-prepare"
 
     def test_get_qa_nodes(self):
         from eng_loop.nodes.qa import get_qa_nodes
 
         nodes = get_qa_nodes()
-        assert len(nodes) == 3
+        assert len(nodes) == 8
         assert ("qa-security", "qa.security") in nodes
         assert ("qa-performance", "qa.performance") in nodes
 

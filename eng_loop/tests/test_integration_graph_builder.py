@@ -6,13 +6,9 @@ Validates that the graph builder correctly filters stages based on work type,
 while allowing the architect to override complexity-based filtering.
 """
 
-from eng_loop.edge_rules import build_edge_rules
 from eng_loop.graph_builder import GraphBuilder
-from eng_loop.node_registry import build_registry
 from eng_loop.schemas import (
-    AuthorizedGraphTopology,
     EdgeDefinition,
-    ExecutionPolicy,
     GraphTopologyProposal,
     PhaseGroup,
 )

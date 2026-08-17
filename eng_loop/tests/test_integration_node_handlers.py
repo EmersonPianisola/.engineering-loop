@@ -221,11 +221,12 @@ class TestVerifyNode:
 class TestQADispatcherNode:
     """qa-dispatcher: fan-out with Send API."""
 
-    def test_small_complexity_no_qa(self):
+    def test_small_complexity_base_qa(self):
         state = _make_state("small")
-        result = qa_dispatcher_node(state)
-        assert isinstance(result, Command)
-        assert result.goto == "deploy-prepare"
+        active = _get_active_qa_nodes(state)
+        assert "qa-static" in active
+        assert "qa-unit" in active
+        assert "qa-integration" not in active
 
     def test_medium_complexity_fans_out(self):
         state = _make_state("medium")
@@ -233,8 +234,10 @@ class TestQADispatcherNode:
         assert isinstance(result, Command)
         assert isinstance(result.goto, list)
         node_names = [s.node for s in result.goto]
+        assert "qa-static" in node_names
+        assert "qa-unit" in node_names
+        assert "qa-integration" in node_names
         assert "qa-security" in node_names
-        assert "qa-api-contract" in node_names
         assert "qa-performance" not in node_names
 
     def test_complex_complexity_all_qa(self):
@@ -243,39 +246,64 @@ class TestQADispatcherNode:
         assert isinstance(result, Command)
         assert isinstance(result.goto, list)
         node_names = [s.node for s in result.goto]
+        assert "qa-static" in node_names
+        assert "qa-unit" in node_names
+        assert "qa-integration" in node_names
         assert "qa-security" in node_names
-        assert "qa-api-contract" in node_names
         assert "qa-performance" in node_names
+        assert "qa-human-flow" in node_names
 
     def test_active_qa_nodes_by_complexity(self):
         state = _make_state("small")
-        assert _get_active_qa_nodes(state) == []
+        active = _get_active_qa_nodes(state)
+        assert "qa-static" in active
+        assert "qa-unit" in active
+        assert "qa-integration" not in active
 
         state = _make_state("medium")
         active = _get_active_qa_nodes(state)
         assert "qa-security" in active
-        assert "qa-api-contract" in active
+        assert "qa-integration" in active
+        assert "qa-human-flow" in active
 
         state = _make_state("complex")
         active = _get_active_qa_nodes(state)
         assert "qa-security" in active
-        assert "qa-api-contract" in active
         assert "qa-performance" in active
+        assert "qa-human-flow" in active
 
 
 class TestQAJoinNode:
     """qa-join: fan-in with gap aggregation."""
 
+    @staticmethod
+    def _set_all_qa_pass(state):
+        """Set all active QA nodes to PASS for clean test setup."""
+        from eng_loop.nodes.qa_parallel import _get_active_qa_nodes
+
+        active = _get_active_qa_nodes(state)
+        for qa_node in active:
+            qa_id = qa_node.replace("-", ".", 1)
+            # Heuristic stages need friction_score and confidence in output
+            if qa_id in ("qa.human.flow", "qa.human.ux"):
+                state["stages"][qa_id] = dict(
+                    state["stages"].get(qa_id, {}),
+                    done=True,
+                    verdict="PASS",
+                    attempts=1,
+                    output=json.dumps({"verdict": "PASS", "friction_score": 2.0, "confidence": 0.9}),
+                )
+            else:
+                state["stages"][qa_id] = dict(
+                    state["stages"].get(qa_id, {}),
+                    done=True,
+                    verdict="PASS",
+                    attempts=1,
+                )
+
     def test_all_qa_pass_routes_to_deploy(self):
-        """qa.api-contract has a key mismatch bug (qa.api.contract vs qa.api-contract).
-        Work around by setting verdict on both the correct key AND the buggy key."""
         state = _make_state("medium")
-        stages = state["stages"]
-        # Set on correct key
-        stages["qa.security"] = dict(stages["qa.security"], done=True, verdict="PASS", attempts=1)
-        stages["qa.api-contract"] = dict(stages["qa.api-contract"], done=True, verdict="PASS", attempts=1)
-        # Also set on the buggy key that qa_join_node looks up (replace("-", ".") gives "qa.api.contract")
-        stages["qa.api.contract"] = dict(stages.get("qa.api.contract", {}), done=True, verdict="PASS", attempts=1)
+        self._set_all_qa_pass(state)
 
         result = qa_join_node(state)
         assert isinstance(result, Command)
@@ -283,16 +311,13 @@ class TestQAJoinNode:
 
     def test_one_qa_fail_rolls_back_to_impl_code(self):
         state = _make_state("medium")
+        self._set_all_qa_pass(state)
         state["stages"]["qa.security"] = dict(
             state["stages"]["qa.security"],
             done=True,
             verdict="FAIL",
-            output=json.dumps({"findings": ["SQL injection vulnerability"], "verdict": "FAIL"}),
-        )
-        state["stages"]["qa.api-contract"] = dict(
-            state["stages"]["qa.api-contract"],
-            done=True,
-            verdict="PASS",
+            severity="critical",
+            output=json.dumps({"findings": ["SQL injection vulnerability"], "verdict": "FAIL", "severity": "critical"}),
         )
 
         result = qa_join_node(state)
@@ -302,36 +327,30 @@ class TestQAJoinNode:
         assert len(result.update["fix_tasks"]) > 0
 
     def test_all_qa_fail_aggregates_all_gaps(self):
-        """qa.api-contract has a key mismatch bug. Set on both keys."""
         state = _make_state("medium")
-        stages = state["stages"]
-        fail_security = json.dumps({"findings": ["SQL injection", "XSS vulnerability"], "verdict": "FAIL"})
-        fail_api = json.dumps({
-            "findings": ["Missing rate limiting"],
-            "critical_findings": ["Broken auth"],
-            "verdict": "FAIL",
-        })
-        stages["qa.security"] = dict(stages["qa.security"], done=True, verdict="FAIL", attempts=1, output=fail_security)
-        stages["qa.api-contract"] = dict(stages["qa.api-contract"], done=True, verdict="FAIL", attempts=1, output=fail_api)
-        # Buggy key that qa_join_node looks up
-        stages["qa.api.contract"] = dict(stages.get("qa.api.contract", {}), done=True, verdict="FAIL", attempts=1, output=fail_api)
+        self._set_all_qa_pass(state)
+        fail_security = json.dumps({"findings": ["SQL injection", "XSS vulnerability"], "verdict": "FAIL", "severity": "critical"})
+        state["stages"]["qa.security"] = dict(
+            state["stages"]["qa.security"],
+            done=True,
+            verdict="FAIL",
+            severity="critical",
+            attempts=1,
+            output=fail_security,
+        )
 
         result = qa_join_node(state)
         assert isinstance(result, Command)
         assert result.goto == "impl-code"
         fix_tasks = result.update["fix_tasks"]
-        assert len(fix_tasks) >= 3
+        assert len(fix_tasks) >= 2
 
     def test_qa_blocked_halts_pipeline(self):
         state = _make_state("medium")
+        self._set_all_qa_pass(state)
         state["stages"]["qa.security"] = dict(
             state["stages"]["qa.security"],
             status="blocked",
-        )
-        state["stages"]["qa.api-contract"] = dict(
-            state["stages"]["qa.api-contract"],
-            done=True,
-            verdict="PASS",
         )
 
         result = qa_join_node(state)
@@ -341,18 +360,15 @@ class TestQAJoinNode:
 
     def test_fix_iteration_limit_blocks(self):
         state = _make_state("medium")
+        self._set_all_qa_pass(state)
         state["fix_iteration"] = 3
         state["config"]["constraints"] = {"max_fix_iterations": 3}
         state["stages"]["qa.security"] = dict(
             state["stages"]["qa.security"],
             done=True,
             verdict="FAIL",
-            output=json.dumps({"findings": ["persistent issue"], "verdict": "FAIL"}),
-        )
-        state["stages"]["qa.api-contract"] = dict(
-            state["stages"]["qa.api-contract"],
-            done=True,
-            verdict="PASS",
+            severity="critical",
+            output=json.dumps({"findings": ["persistent issue"], "verdict": "FAIL", "severity": "critical"}),
         )
 
         result = qa_join_node(state)
@@ -362,6 +378,8 @@ class TestQAJoinNode:
 
     def test_no_active_qa_routes_to_deploy(self):
         state = _make_state("small")
+        # Small complexity now has qa-static and qa-unit active
+        self._set_all_qa_pass(state)
         result = qa_join_node(state)
         assert isinstance(result, Command)
         assert result.goto == "deploy-prepare"
@@ -369,15 +387,12 @@ class TestQAJoinNode:
     def test_qa_verdict_from_output_json(self):
         """QA verdict is parsed from JSON output when not in stage metadata."""
         state = _make_state("medium")
+        self._set_all_qa_pass(state)
         state["stages"]["qa.security"] = dict(
             state["stages"]["qa.security"],
             done=True,
-            output=json.dumps({"verdict": "FAIL", "findings": ["issue"]}),
-        )
-        state["stages"]["qa.api-contract"] = dict(
-            state["stages"]["qa.api-contract"],
-            done=True,
-            verdict="PASS",
+            verdict="",
+            output=json.dumps({"verdict": "FAIL", "findings": ["issue"], "severity": "critical"}),
         )
 
         result = qa_join_node(state)

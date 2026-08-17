@@ -2,14 +2,13 @@ from __future__ import annotations
 
 """Integration tests for post node honest status propagation."""
 
-import json
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from eng_loop.nodes.post import post_node
-from eng_loop.state import make_initial_state, make_stage
+from eng_loop.state import make_initial_state
 
 
 class TestPostNodeHonestStatus:

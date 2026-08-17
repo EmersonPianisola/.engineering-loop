@@ -404,13 +404,224 @@ class E2eOutput(BaseModel):
 
 
 # ──────────────────────────────────────────────
-# QA stages
+# QA stages — Evidence-based, trinary state (PASS/FAIL/BLOCKED)
 # ──────────────────────────────────────────────
+QA_VERDICT = Literal["PASS", "FAIL", "BLOCKED"]
+QA_SEVERITY = Literal["critical", "high", "medium", "low", "info"]
+QA_TYPE = Literal["deterministic", "heuristic"]
+
+
+class QAEvidence(BaseModel):
+    """Verifiable evidence produced by a QA stage. Prevents hallucinated PASS."""
+    model_config = ConfigDict(frozen=True)
+
+    files_analyzed: int = Field(default=0, description="Number of source files examined")
+    execution_command: str = Field(default="", description="Command that was executed (if applicable)")
+    exit_code: int = Field(default=-1, description="Exit code of execution (-1 if not applicable)")
+    artifacts: list[str] = Field(default_factory=list, description="Paths to produced artifacts")
+    metrics: dict[str, float] = Field(default_factory=dict, description="Quantitative measurements")
+
+
+class QAExecution(BaseModel):
+    """Execution metadata for observability and audit."""
+    model_config = ConfigDict(frozen=True)
+
+    started_at: float = Field(default=0.0, description="Unix timestamp of stage start")
+    completed_at: float = Field(default=0.0, description="Unix timestamp of stage end")
+    duration_ms: float = Field(default=0.0, description="Execution duration in milliseconds")
+    tool_calls: int = Field(default=0, description="Number of tool calls made")
+
+
+class QAFinding(BaseModel):
+    """A single QA finding with severity classification."""
+    model_config = ConfigDict(frozen=True)
+
+    category: str = Field(default="", description="Category, e.g. 'xss', 'wcag', 'coverage'")
+    severity: QA_SEVERITY = Field(default="info", description="Severity level")
+    description: str = Field(default="", description="What was found")
+    location: str = Field(default="", description="file:line or component reference")
+    recommendation: str = Field(default="", description="Suggested fix")
+
+
+class QAResult(BaseModel):
+    """Common envelope for all QA stage outputs.
+
+    Deterministic stages (static, unit, integration, security, performance):
+    verdict is PASS/FAIL/BLOCKED based on objective criteria.
+
+    Heuristic stages (human.flow, human.ux):
+    verdict includes confidence score and friction_score for policy evaluation.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    stage_id: str = Field(default="", description="Stage that produced this result")
+    verdict: QA_VERDICT = Field(default="PASS", description="PASS, FAIL, or BLOCKED")
+    qa_type: QA_TYPE = Field(default="deterministic", description="deterministic or heuristic")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in this verdict (0-1)")
+    severity: QA_SEVERITY = Field(default="info", description="Highest severity finding")
+    evidence: QAEvidence = Field(default_factory=QAEvidence, description="Verifiable evidence")
+    findings: list[QAFinding] = Field(default_factory=list, description="All findings")
+    execution: QAExecution = Field(default_factory=QAExecution, description="Execution metadata")
+    friction_score: float = Field(
+        default=-1.0,
+        ge=-1.0,
+        le=10.0,
+        description="Friction score 0-10 (heuristic stages only, -1 if not applicable)",
+    )
+    blocked_reason: str = Field(
+        default="",
+        description="Reason for BLOCKED verdict (infrastructure, not-applicable, etc.)",
+    )
+    complete: bool = Field(default=True, description="Whether QA stage completed processing")
+
+
+# Legacy compatibility — kept for existing stages (qa.security, qa.api-contract, qa.performance)
 class QaOutput(BaseModel):
-    verdict: str = Field(default="PASS", description="PASS or FAIL")
+    verdict: str = Field(default="PASS", description="PASS, FAIL, or BLOCKED")
     findings: list[str] = Field(default_factory=list, description="QA findings")
     critical_findings: list[str] = Field(default_factory=list, description="Critical issues")
     complete: bool = Field(default=True, description="Whether QA is complete")
+
+
+# ──────────────────────────────────────────────
+# QA: Static Analysis
+# ──────────────────────────────────────────────
+class StaticOutput(BaseModel):
+    """Static analysis: lint, type-check, cyclomatic complexity."""
+    model_config = ConfigDict(frozen=True)
+
+    verdict: QA_VERDICT = Field(default="PASS")
+    qa_type: QA_TYPE = "deterministic"
+    confidence: float = Field(default=1.0)
+    severity: QA_SEVERITY = Field(default="info")
+    lint_errors: list[str] = Field(default_factory=list, description="Linting errors found")
+    type_errors: list[str] = Field(default_factory=list, description="Type checking errors")
+    cyclomatic_score: int = Field(default=0, description="Average cyclomatic complexity")
+    hotspots: list[str] = Field(default_factory=list, description="Functions with high complexity")
+    files_analyzed: int = Field(default=0, description="Number of files analyzed")
+    execution_command: str = Field(default="", description="Lint/type-check command executed")
+    exit_code: int = Field(default=-1, description="Exit code from tool")
+    findings: list[QAFinding] = Field(default_factory=list)
+    evidence: QAEvidence = Field(default_factory=QAEvidence)
+    execution: QAExecution = Field(default_factory=QAExecution)
+    complete: bool = Field(default=True)
+
+
+# ──────────────────────────────────────────────
+# QA: Unit Testing
+# ──────────────────────────────────────────────
+class UnitOutput(BaseModel):
+    """Unit test generation and execution results."""
+    model_config = ConfigDict(frozen=True)
+
+    verdict: QA_VERDICT = Field(default="PASS")
+    qa_type: QA_TYPE = "deterministic"
+    confidence: float = Field(default=1.0)
+    severity: QA_SEVERITY = Field(default="info")
+    test_count: int = Field(default=0, description="Total number of tests defined")
+    tests_executed: int = Field(default=0, description="Number of tests actually executed")
+    passed: int = Field(default=0, description="Number of passing tests")
+    failed: int = Field(default=0, description="Number of failing tests")
+    coverage: float = Field(default=0.0, description="Code coverage percentage (0-100)")
+    failed_tests: list[str] = Field(default_factory=list, description="Names of failing tests")
+    test_files: list[str] = Field(default_factory=list, description="Test files created/modified")
+    execution_command: str = Field(default="", description="Test runner command")
+    exit_code: int = Field(default=-1, description="Exit code from test runner")
+    findings: list[QAFinding] = Field(default_factory=list)
+    evidence: QAEvidence = Field(default_factory=QAEvidence)
+    execution: QAExecution = Field(default_factory=QAExecution)
+    complete: bool = Field(default=True)
+
+    @field_validator("tests_executed")
+    @classmethod
+    def validate_execution_consistency(cls, v: int, info) -> int:
+        if "data" in info.context or hasattr(info, "data"):
+            test_count = info.data.get("test_count", 0) if hasattr(info, "data") and isinstance(info.data, dict) else 0
+            if v > test_count > 0:
+                raise ValueError(f"tests_executed ({v}) cannot exceed test_count ({test_count})")
+        return v
+
+
+# ──────────────────────────────────────────────
+# QA: Integration Testing
+# ──────────────────────────────────────────────
+class IntegrationOutput(BaseModel):
+    """Integration testing: API contracts + component communication."""
+    model_config = ConfigDict(frozen=True)
+
+    verdict: QA_VERDICT = Field(default="PASS")
+    qa_type: QA_TYPE = "deterministic"
+    confidence: float = Field(default=1.0)
+    severity: QA_SEVERITY = Field(default="info")
+    endpoints_tested: list[str] = Field(default_factory=list, description="API endpoints validated")
+    components_tested: list[str] = Field(default_factory=list, description="Component interfaces tested")
+    contract_violations: list[str] = Field(default_factory=list, description="OpenAPI/contract violations")
+    component_gaps: list[str] = Field(default_factory=list, description="Missing integration points")
+    tests_executed: int = Field(default=0, description="Number of integration tests run")
+    failed: int = Field(default=0, description="Number of failing integration tests")
+    artifacts: list[str] = Field(default_factory=list, description="Produced artifacts")
+    findings: list[QAFinding] = Field(default_factory=list)
+    evidence: QAEvidence = Field(default_factory=QAEvidence)
+    execution: QAExecution = Field(default_factory=QAExecution)
+    complete: bool = Field(default=True)
+
+
+# ──────────────────────────────────────────────
+# QA: Human Flow — Persona-based heuristic simulation
+# ──────────────────────────────────────────────
+class HumanFlowOutput(BaseModel):
+    """Persona-based heuristic navigation simulation.
+
+    The agent assumes a persona (e.g., novice user) and attempts to complete
+    tasks in the system, reporting friction points, jargon, dead ends, and
+    unexpected states.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    verdict: QA_VERDICT = Field(default="PASS")
+    qa_type: QA_TYPE = "heuristic"
+    confidence: float = Field(default=0.8, description="Confidence in friction assessment (0-1)")
+    severity: QA_SEVERITY = Field(default="info")
+    persona_name: str = Field(default="", description="Persona assumed for simulation")
+    scenario: str = Field(default="", description="Task scenario attempted")
+    friction_score: float = Field(default=0.0, ge=0.0, le=10.0, description="Friction score 0-10")
+    confusion_points: list[str] = Field(default_factory=list, description="Where user would get confused")
+    jargon_found: list[str] = Field(default_factory=list, description="Technical jargon exposed to user")
+    dead_ends: list[str] = Field(default_factory=list, description="Flows that lead nowhere")
+    unexpected_states: list[str] = Field(default_factory=list, description="Surprising system states")
+    recommendations: list[str] = Field(default_factory=list, description="UX improvement suggestions")
+    findings: list[QAFinding] = Field(default_factory=list)
+    evidence: QAEvidence = Field(default_factory=QAEvidence)
+    execution: QAExecution = Field(default_factory=QAExecution)
+    complete: bool = Field(default=True)
+
+
+# ──────────────────────────────────────────────
+# QA: Human UX — WCAG audit + cognitive walkthrough
+# ──────────────────────────────────────────────
+class HumanUxOutput(BaseModel):
+    """WCAG accessibility audit + cognitive walkthrough.
+
+    Evaluates cognitive load, step bloat, navigation consistency, and
+    accessibility compliance (WCAG 2.1 AA).
+    """
+    model_config = ConfigDict(frozen=True)
+
+    verdict: QA_VERDICT = Field(default="PASS")
+    qa_type: QA_TYPE = "heuristic"
+    confidence: float = Field(default=0.8, description="Confidence in UX assessment (0-1)")
+    severity: QA_SEVERITY = Field(default="info")
+    friction_score: float = Field(default=0.0, ge=0.0, le=10.0, description="Friction score 0-10")
+    wcag_violations: list[str] = Field(default_factory=list, description="WCAG 2.1 AA violations")
+    cognitive_load: str = Field(default="low", description="Cognitive load assessment: low/medium/high")
+    step_bloat: int = Field(default=0, description="Number of unnecessary steps in critical flows")
+    navigation_issues: list[str] = Field(default_factory=list, description="Navigation problems")
+    accessibility_issues: list[str] = Field(default_factory=list, description="Accessibility concerns")
+    recommendations: list[str] = Field(default_factory=list, description="UX improvement suggestions")
+    findings: list[QAFinding] = Field(default_factory=list)
+    evidence: QAEvidence = Field(default_factory=QAEvidence)
+    execution: QAExecution = Field(default_factory=QAExecution)
+    complete: bool = Field(default=True)
 
 
 # ──────────────────────────────────────────────
@@ -483,8 +694,13 @@ STAGE_SCHEMA: dict[str, type[BaseModel]] = {
     "verify": VerifyOutput,
     "e2e.execute": E2eOutput,
     "qa.security": QaOutput,
-    "qa.api-contract": QaOutput,
+    "qa.api-contract": QaOutput,  # DEPRECATED: alias for qa.integration
     "qa.performance": QaOutput,
+    "qa.static": StaticOutput,
+    "qa.unit": UnitOutput,
+    "qa.integration": IntegrationOutput,
+    "qa.human.flow": HumanFlowOutput,
+    "qa.human.ux": HumanUxOutput,
     "deploy.prepare": DeployPrepareOutput,
     "smoke.test": SmokeTestOutput,
     "doc.decisions": DocDecisionsOutput,

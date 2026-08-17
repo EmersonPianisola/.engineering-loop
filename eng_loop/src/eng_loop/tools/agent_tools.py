@@ -36,11 +36,16 @@ STAGE_TOOLS: dict[str, list[str]] = {
     "doc.update": ["read", "write", "edit", "glob", "grep"],
     # Verification — read code, run tests
     "verify": ["read", "bash", "glob", "grep"],
-    "e2e.execute": ["read", "write", "edit", "bash", "glob", "grep"],
     # QA — read code, run analysis
+    "qa.static": ["read", "bash", "glob", "grep"],
+    "qa.unit": ["read", "write", "edit", "bash", "glob", "grep"],
+    "qa.integration": ["read", "bash", "glob", "grep"],
+    "e2e.execute": ["read", "write", "edit", "bash", "glob", "grep"],
     "qa.security": ["read", "bash", "glob", "grep"],
     "qa.api-contract": ["read", "glob", "grep"],
     "qa.performance": ["read", "bash", "glob", "grep"],
+    "qa.human.flow": ["read", "glob", "grep"],
+    "qa.human.ux": ["read", "glob", "grep"],
     # Deploy — run build/lint commands
     "deploy.prepare": ["bash", "read", "glob"],
     "smoke.test": ["read", "write", "bash", "glob", "grep"],

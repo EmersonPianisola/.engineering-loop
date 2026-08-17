@@ -523,9 +523,9 @@ def test_dynamic_graph_complex_ui_all_nodes():
     builder = GraphBuilder()
     _, topology = builder.build(state)
 
-    assert len(topology.active_nodes) == 29
-    assert topology.nodes_included == 29
-    assert topology.total_available == 29
+    assert len(topology.active_nodes) == 34
+    assert topology.nodes_included == 34
+    assert topology.total_available == 34
 
     for sid in STAGE_ORDER:
         assert sid in topology.active_nodes, f"Missing node: {sid}"
@@ -547,8 +547,8 @@ def test_dynamic_graph_complex_ui_all_nodes():
     assert "post" in topology.active_nodes
 
     active = get_active_stages("complex", True)
-    assert len(active) == 26
+    assert len(active) == 31
 
     registry = build_registry()
     all_specs = registry.filter(complexity="complex", ui_project=True)
-    assert len(all_specs) == 29  # 26 classic + init.setup, dynamic.architect, meta.executor
+    assert len(all_specs) == 34  # 31 classic + init.setup, dynamic.architect, meta.executor

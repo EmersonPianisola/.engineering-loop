@@ -45,7 +45,7 @@ from eng_loop.tools.context_tier import (
 
 class TestStageDomainMap:
     def test_all_26_stages_present(self):
-        assert len(STAGE_DOMAIN_MAP) == 26
+        assert len(STAGE_DOMAIN_MAP) == 31
 
     def test_init_stages(self):
         assert STAGE_DOMAIN_MAP["init"] == "init"
@@ -97,7 +97,7 @@ class TestStageDomainMap:
 
 class TestStageReadDependencies:
     def test_all_26_stages_present(self):
-        assert len(STAGE_READ_DEPENDENCIES) == 26
+        assert len(STAGE_READ_DEPENDENCIES) == 31
 
     def test_init_no_dependencies(self):
         assert STAGE_READ_DEPENDENCIES["init"] == []
@@ -431,7 +431,7 @@ class TestContextTierConfigDefaults:
 
 class TestContextSliceRules:
     def test_all_26_stages(self):
-        assert len(CONTEXT_SLICE_RULES) == 26
+        assert len(CONTEXT_SLICE_RULES) == 31
 
     def test_init_empty_rules(self):
         assert CONTEXT_SLICE_RULES["init"] == {"include": [], "exclude": []}

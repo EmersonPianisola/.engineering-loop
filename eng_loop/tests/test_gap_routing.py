@@ -138,11 +138,11 @@ class TestLargeUIFlow:
         ]:
             assert _is_active(sid, s), f"{sid} should be active for complex+UI"
 
-    def test_verify_to_e2e(self):
+    def test_verify_to_qa_static(self):
         engine = build_edge_rules()
         s = _ms(complexity="large", ui=True, stages={"verify": {"done": True, "attempts": 1}})
-        r = engine.resolve({"verify", "e2e-execute", "qa-security", "deploy-prepare"}, s)
-        assert any(x.to_node == "e2e-execute" for x in r)
+        r = engine.resolve({"verify", "qa-static", "deploy-prepare"}, s)
+        assert any(x.to_node == "qa-static" for x in r)
 
     def test_e2e_to_qa(self):
         engine = build_edge_rules()

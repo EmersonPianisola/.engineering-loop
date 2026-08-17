@@ -495,37 +495,84 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         edge_type="terminal",
         description="Verify BLOCKED → terminate",
     )
-    # Verify PASS → next based on context
+    # Verify PASS → qa.static (base of QA pyramid)
     engine.add_conditional(
         "verify",
-        "e2e-execute",
-        condition=lambda s: _stage_done(s, "verify") and _is_ui_project(s) and not _is_blocked(s),
-        description="Verify PASS, UI project → E2E",
-    )
-    engine.add_conditional(
-        "verify",
-        "qa-security",
-        condition=lambda s: (
-            _stage_done(s, "verify")
-            and not _is_ui_project(s)
-            and _complexity_at_least(s, "medium")
-            and not _is_blocked(s)
-        ),
-        description="Verify PASS, medium+ → QA security",
-    )
-    engine.add_conditional(
-        "verify",
-        "deploy-prepare",
-        condition=lambda s: (
-            _stage_done(s, "verify")
-            and not _is_ui_project(s)
-            and not _complexity_at_least(s, "medium")
-            and not _is_blocked(s)
-        ),
-        description="Verify PASS, small → deploy",
+        "qa-static",
+        condition=lambda s: _stage_done(s, "verify") and not _is_blocked(s),
+        description="Verify PASS → Static Analysis (QA pyramid base)",
     )
 
-    # --- E2E ---
+    # --- QA: Static Analysis ---
+    engine.add_loopback(
+        "qa-static",
+        "impl-code",
+        condition=lambda s: not _stage_done(s, "qa.static") and not _is_blocked(s),
+        description="QA Static FAIL → retry impl.code",
+    )
+    engine.add_conditional(
+        "qa-static",
+        "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="QA Static BLOCKED → terminate",
+    )
+    engine.add_conditional(
+        "qa-static",
+        "qa-unit",
+        condition=lambda s: _stage_done(s, "qa.static") and not _is_blocked(s),
+        description="QA Static PASS → Unit Testing",
+    )
+
+    # --- QA: Unit Testing ---
+    engine.add_loopback(
+        "qa-unit",
+        "impl-code",
+        condition=lambda s: not _stage_done(s, "qa.unit") and not _is_blocked(s),
+        description="QA Unit FAIL → retry impl.code",
+    )
+    engine.add_conditional(
+        "qa-unit",
+        "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="QA Unit BLOCKED → terminate",
+    )
+    engine.add_conditional(
+        "qa-unit",
+        "qa-integration",
+        condition=lambda s: _stage_done(s, "qa.unit") and _complexity_at_least(s, "medium") and not _is_blocked(s),
+        description="QA Unit PASS, medium+ → Integration",
+    )
+    engine.add_conditional(
+        "qa-unit",
+        "e2e-execute",
+        condition=lambda s: _stage_done(s, "qa.unit") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        description="QA Unit PASS, small → E2E",
+    )
+
+    # --- QA: Integration ---
+    engine.add_loopback(
+        "qa-integration",
+        "impl-code",
+        condition=lambda s: not _stage_done(s, "qa.integration") and not _is_blocked(s),
+        description="QA Integration FAIL → retry impl.code",
+    )
+    engine.add_conditional(
+        "qa-integration",
+        "__end__",
+        condition=_is_blocked,
+        edge_type="terminal",
+        description="QA Integration BLOCKED → terminate",
+    )
+    engine.add_conditional(
+        "qa-integration",
+        "e2e-execute",
+        condition=lambda s: _stage_done(s, "qa.integration") and not _is_blocked(s),
+        description="QA Integration PASS → E2E",
+    )
+
+    # --- E2E (now after integration) ---
     engine.add_loopback(
         "e2e-execute",
         "impl-code",
@@ -547,14 +594,12 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     )
     engine.add_conditional(
         "e2e-execute",
-        "deploy-prepare",
-        condition=lambda s: (
-            _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
-        ),
-        description="E2E PASS, small → deploy",
+        "qa-human-flow",
+        condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        description="E2E PASS, small → human flow",
     )
 
-    # --- QA chain ---
+    # --- QA chain (post-E2E) ---
     if parallel_qa:
         # Parallel QA: dispatcher → [Send qa-security, Send qa-api, ...] → join
         # Edges are added by GraphBuilder._add_parallel_qa(), NOT here.
@@ -576,7 +621,7 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
             description="E2E PASS, small → deploy (parallel QA mode)",
         )
     else:
-        # Sequential QA (current behavior)
+        # Sequential QA (post-E2E)
         # QA Security
         engine.add_loopback(
             "qa-security",
@@ -593,22 +638,22 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         )
         engine.add_conditional(
             "qa-security",
-            "qa-api-contract",
+            "qa-performance",
             condition=lambda s: (
-                _stage_done(s, "qa.security") and _complexity_at_least(s, "medium") and not _is_blocked(s)
+                _stage_done(s, "qa.security") and _complexity_is(s, "complex") and not _is_blocked(s)
             ),
-            description="QA Security PASS, medium+ → API contract",
+            description="QA Security PASS, complex → performance",
         )
         engine.add_conditional(
             "qa-security",
-            "deploy-prepare",
+            "qa-human-flow",
             condition=lambda s: (
-                _stage_done(s, "qa.security") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+                _stage_done(s, "qa.security") and not _complexity_is(s, "complex") and not _is_blocked(s)
             ),
-            description="QA Security PASS, small → deploy",
+            description="QA Security PASS, not complex → human flow",
         )
 
-        # QA API Contract
+        # QA API Contract (DEPRECATED — alias for qa.integration)
         engine.add_loopback(
             "qa-api-contract",
             "impl-code",
@@ -655,9 +700,57 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         )
         engine.add_conditional(
             "qa-performance",
+            "qa-human-flow",
+            condition=lambda s: _stage_done(s, "qa.performance") and not _is_blocked(s),
+            description="QA Performance PASS → human flow",
+        )
+
+        # QA Human Flow
+        engine.add_loopback(
+            "qa-human-flow",
+            "impl-code",
+            condition=lambda s: not _stage_done(s, "qa.human.flow") and not _is_blocked(s),
+            description="QA Human Flow FAIL → retry impl.code",
+        )
+        engine.add_conditional(
+            "qa-human-flow",
+            "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description="QA Human Flow BLOCKED → terminate",
+        )
+        engine.add_conditional(
+            "qa-human-flow",
+            "qa-human-ux",
+            condition=lambda s: _stage_done(s, "qa.human.flow") and _is_ui_project(s) and not _is_blocked(s),
+            description="QA Human Flow PASS, UI → UX audit",
+        )
+        engine.add_conditional(
+            "qa-human-flow",
             "deploy-prepare",
-            condition=lambda s: not _is_blocked(s),
-            description="QA Performance → Deploy",
+            condition=lambda s: _stage_done(s, "qa.human.flow") and not _is_ui_project(s) and not _is_blocked(s),
+            description="QA Human Flow PASS, non-UI → deploy",
+        )
+
+        # QA Human UX
+        engine.add_loopback(
+            "qa-human-ux",
+            "impl-code",
+            condition=lambda s: not _stage_done(s, "qa.human.ux") and not _is_blocked(s),
+            description="QA Human UX FAIL → retry impl.code",
+        )
+        engine.add_conditional(
+            "qa-human-ux",
+            "__end__",
+            condition=_is_blocked,
+            edge_type="terminal",
+            description="QA Human UX BLOCKED → terminate",
+        )
+        engine.add_conditional(
+            "qa-human-ux",
+            "deploy-prepare",
+            condition=lambda s: _stage_done(s, "qa.human.ux") and not _is_blocked(s),
+            description="QA Human UX PASS → deploy",
         )
 
     # --- DEPLOY ---
@@ -876,6 +969,9 @@ def _inject_failure_routing(
 
     The architect proposes the happy-path topology. Failure routing is
     an operational concern handled by the framework, not the LLM.
+
+    Uses metadata-driven approach: any stage whose node name starts with
+    'qa-' or is a known verification/deploy stage gets automatic failure routing.
     """
     # Build a lookup of execution policies from the proposal
     policy_map = {}
@@ -888,22 +984,29 @@ def _inject_failure_routing(
         normalized_set.add(s)
         normalized_set.add(s.replace(".", "-").replace("_", "-"))
 
-    failure_routing_stages = {
-        "verify": {"loopback": "impl-code", "stage_key": "verify"},
-        "e2e-execute": {"loopback": "impl-code", "stage_key": "e2e.execute"},
-        "qa-security": {"loopback": "impl-code", "stage_key": "qa.security"},
-        "qa-api-contract": {"loopback": "impl-code", "stage_key": "qa.api-contract"},
-        "qa-performance": {"loopback": "impl-code", "stage_key": "qa.performance"},
-        "deploy-prepare": {"loopback": "impl-code", "stage_key": "deploy.prepare"},
-        "smoke-test": {"loopback": "impl-code", "stage_key": "smoke.test"},
+    # Core failure routing stages (always apply)
+    core_failure_stages = {
+        "verify": {"stage_key": "verify"},
+        "e2e-execute": {"stage_key": "e2e.execute"},
+        "deploy-prepare": {"stage_key": "deploy.prepare"},
+        "smoke-test": {"stage_key": "smoke.test"},
     }
 
-    for node_name, info in failure_routing_stages.items():
+    # Discover QA stages dynamically from the normalized set
+    qa_failure_stages = {}
+    for node_name in normalized_set:
+        if node_name.startswith("qa-"):
+            stage_key = node_name.replace("-", ".")
+            qa_failure_stages[node_name] = {"stage_key": stage_key}
+
+    all_failure_stages = {**core_failure_stages, **qa_failure_stages}
+
+    for node_name, info in all_failure_stages.items():
         if node_name not in normalized_set:
             continue
 
         stage_key = info["stage_key"]
-        loopback_target = info["loopback"]
+        loopback_target = "impl-code"
 
         # Check if a custom failure route was specified in the policy
         policy = policy_map.get(stage_key)

@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 from eng_loop.graph_builder import GraphBuilder
 from eng_loop.nodes.post import post_node
 from eng_loop.schemas import (
-    AuthorizedGraphTopology,
     EdgeDefinition,
     GraphTopologyProposal,
     PhaseGroup,
