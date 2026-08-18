@@ -35,6 +35,42 @@ _null_console = Console(quiet=True)
 tracker = TimingTracker()
 
 
+# ─── Shared progress bar builder ─────────────────────────────────────
+# Unified algorithm for all progress bars. Guarantees delimiters [█░] are
+# always present and percentage is accurate.
+def _stage_display_id(stage_id: str) -> str:
+    """Format stage ID for display.
+
+    Standard: lowercase with dot separator (e.g., 'init.ideate').
+    Uppercase is reserved for panel titles only.
+    """
+    return stage_id.replace("-", ".").lower()
+
+
+def _stage_title_id(stage_id: str) -> str:
+    """Format stage ID for panel titles.
+
+    Standard: uppercase with dot separator (e.g., 'INIT.IDEATE').
+    """
+    return stage_id.replace("-", ".").upper()
+
+
+def _build_progress_bar(done: int, total: int, width: int = 20) -> tuple[str, str]:
+    """Build a progress bar string and progress text.
+
+    Returns (bar_str, progress_text). Always includes [ ] delimiters.
+    When done > total (dynamic nodes), shows count instead of percentage.
+    """
+    if done > total:
+        bar = "\u2588" * width
+        return f"[{bar}]", f"{done} stages"
+
+    pct = int(100 * done / max(total, 1))
+    filled = int(width * done / max(total, 1))
+    bar = "\u2588" * filled + "\u2591" * (width - filled)
+    return f"[{bar}]", f"{done}/{total} ({pct}%)"
+
+
 # ─── Live Stage Indicator ────────────────────────────────────────────
 # In-place updating line that persists during execution. Shows current
 # stage, elapsed time, done count, and a compact topology mini-map.
@@ -82,21 +118,11 @@ class LiveStageIndicator:
         total = len(self.stage_ids)
         done = len(self.done_stages)
         elapsed = tracker.get_loop_elapsed_formatted()
-        bar_width = 20
 
         current_display = self.current_stage.replace(".", "-") if self.current_stage else "..."
+        bar_str, progress = _build_progress_bar(done, total, 20)
 
-        if done > total:
-            filled = bar_width
-            bar = "\u2588" * filled
-            progress = f"{done} stages"
-        else:
-            pct = int(100 * done / max(total, 1))
-            filled = int(bar_width * done / max(total, 1))
-            bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-            progress = f"{done}/{total} ({pct}%)"
-
-        line = f"\r[{bar}] {progress} [bold yellow]{current_display}[/] [dim][{elapsed}][/]"
+        line = f"\r{bar_str} {progress} [bold yellow]{current_display}[/] [dim][{elapsed}][/]"
 
         if finalize:
             ui.console.print(line)
@@ -155,6 +181,25 @@ class UIManager:
         self._hud = None
         self._normalizer = None
         self._tui_active = False
+        self._event_bus = None
+        self._renderer_mode = "console"  # "console" | "legacy"
+
+    def set_event_bus(self, event_bus) -> None:
+        """Set the event bus for CLI v2 event emission."""
+        self._event_bus = event_bus
+
+    def set_renderer_mode(self, mode: str) -> None:
+        """Set the renderer mode: 'console' (new) or 'legacy'."""
+        self._renderer_mode = mode
+
+    def is_legacy_mode(self) -> bool:
+        """Check if legacy renderer is active."""
+        return self._renderer_mode == "legacy"
+
+    def _emit_event(self, event) -> None:
+        """Emit an event through the event bus if available."""
+        if self._event_bus:
+            self._event_bus.emit(event)
 
     def set_hud(self, hud):
         self._hud = hud
@@ -310,12 +355,10 @@ class UIManager:
     ) -> None:
         """Render a compact progress bar with stage status.
 
-        When done > total (dynamic nodes added at runtime), displays
-        count-based progress instead of percentage to avoid 120%.
+        Uses the shared _build_progress_bar algorithm for consistency.
         """
         total = len(active_stages)
         done = len(done_stages)
-        bar_width = 30
 
         status_icon = {
             "running": "[green]▶[/]",
@@ -325,21 +368,11 @@ class UIManager:
         }.get(status, "[yellow]?[/]")
 
         elapsed_str = tracker.get_loop_elapsed_formatted()
-
-        if done > total:
-            # Dynamic nodes added — don't show misleading percentage
-            filled = bar_width
-            bar = "█" * filled
-            progress_text = f"[cyan]{done} stages[/cyan]"
-        else:
-            pct = int(100 * done / max(total, 1))
-            filled = int(bar_width * done / max(total, 1))
-            bar = "█" * filled + "░" * (bar_width - filled)
-            progress_text = f"[cyan]{done}/{total}[/cyan] [dim]{pct}%[/dim]"
+        bar_str, progress = _build_progress_bar(done, total, 30)
 
         self.console.print(
-            f"{status_icon} [dim]{bar}[/dim] "
-            f"{progress_text} "
+            f"{status_icon} [dim]{bar_str}[/dim] "
+            f"[cyan]{progress}[/cyan] "
             f"[bold yellow]{current_stage}[/bold yellow] "
             f"[dim][{elapsed_str}][/dim]"
         )
@@ -398,6 +431,27 @@ class UIManager:
                     border_style="red",
                 )
             )
+
+    # ── Unified Status Icon ────────────────────────────────────────
+    @staticmethod
+    def get_stage_icon(stage_data: dict[str, Any]) -> str:
+        """Determine the visual icon for a stage based on its state.
+
+        Invariant: done=True always yields a positive icon (green check).
+        This prevents the contradiction where a completed stage shows
+        a blocked/error icon in the summary tree.
+        """
+        is_done = stage_data.get("done", False)
+        is_cached = stage_data.get("cached", False)
+        attempts = stage_data.get("attempts", 0)
+
+        if is_done:
+            return "[green]\u2713[/green]"
+        if is_cached:
+            return "[cyan]\u21bb[/cyan]"
+        if attempts > 0:
+            return "[red]\u2717[/red]"
+        return "[dim]\u26d4[/dim]"
 
     # ── Loop Result Summary ────────────────────────────────────────
     def render_result(
@@ -501,15 +555,8 @@ class UIManager:
             for node in nodes:
                 short = node.split(".")[-1] if "." in node else node
                 stage_data = stages.get(node, {})
-                is_done = stage_data.get("done", False)
-                attempts = stage_data.get("attempts", 0)
-
-                if is_done:
-                    node_statuses.append(f"[green]\u2713 {short}[/green]")
-                elif attempts > 0:
-                    node_statuses.append(f"[red]\u2717 {short}[/red]")
-                else:
-                    node_statuses.append(f"[dim]\u26d4 {short}[/dim]")
+                icon = self.get_stage_icon(stage_data)
+                node_statuses.append(f"{icon} {short}")
 
             nodes_str = "\n  ".join(node_statuses)
             graph_rows.append(f"[bold {color}]{phase}[/bold {color}]\n  {nodes_str}")
@@ -907,6 +954,26 @@ def _set_active_stage_ctx(ctx: stage_context | None) -> None:
     _stage_ctx._ctx = ctx  # type: ignore[attr-defined]
 
 
+# ─── Panel deduplication state ───────────────────────────────────────
+# Tracks the last rendered panel per stage to prevent duplicate output
+# when stages retry. Collapses repeated executions into attempt count.
+_rendered_panels: dict[str, int] = {}  # stage_id -> last attempt count
+
+
+def _clear_line_above() -> None:
+    """Clear the line above the cursor (for in-place panel update)."""
+    try:
+        sys.stdout.write("\033[F\033[K")
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
+
+
+def _reset_rendered_panels() -> None:
+    """Clear deduplication state between pipeline runs."""
+    _rendered_panels.clear()
+
+
 # ─── Global instance ─────────────────────────────────────────────────
 ui = UIManager()
 
@@ -923,6 +990,18 @@ def store_stage_prompt(stage_id: str, prompt: str) -> None:
 
 
 def log_stage_enter(stage_id: str, iteration: int = 0) -> None:
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_started
+
+        ui._event_bus.emit(
+            node_started(
+                graph_id="",
+                node_id=stage_id,
+                attempt=iteration + 1,
+            )
+        )
+
     if ui.is_hud_active():
         ui._hud.set_current_stage(stage_id)
         ui.hud_log("INFO", f"[iter {iteration}] >> {stage_id}")
@@ -932,12 +1011,14 @@ def log_stage_enter(stage_id: str, iteration: int = 0) -> None:
         elif hasattr(ui._hud, "normalizer") and ui._hud.normalizer:
             ui._hud.normalizer.node_entered(stage_id)
             ui._hud.update()
-    else:
-        # Update live indicator with current stage before printing entry
+    elif ui._event_bus is None or ui.is_legacy_mode():
+        # No event bus (original mode) or legacy renderer: print entry
         if _live_indicator:
             _live_indicator.current_stage = stage_id.replace("-", ".")
             _live_indicator.render()
-        ui.console.print(f"[dim][iter {iteration}][/dim] [bold cyan]>> {stage_id}[/bold cyan]")
+        if iteration == 0 and not _iter_count:
+            ui.console.print(f"[bold cyan]>> {stage_id}[/bold cyan]")
+    # New console mode with event bus: silent entry (spinner handles visual feedback)
 
 
 def log_model_invoke(stage_id: str) -> None:
@@ -981,6 +1062,20 @@ def log_stage_complete(
 ) -> None:
     global _live_done_count
     _live_done_count += 1
+
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_completed
+
+        ui._event_bus.emit(
+            node_completed(
+                graph_id="",
+                node_id=stage_id,
+                duration_ms=int(duration * 1000),
+                tool_count=tool_calls,
+            )
+        )
+
     if ui.is_hud_active():
         ui.hud_log("INFO", f"done {stage_id} ({tool_calls} tools, {duration:.0f}s)")
         ui._hud.clear_current_stage()
@@ -994,8 +1089,17 @@ def log_stage_complete(
             if summary:
                 normalizer.store_output_result(stage_id, summary[:8000], output_data)
             ui._hud.update()
-    else:
+    elif ui._event_bus is None or ui.is_legacy_mode():
+        finalize_iteration_line()
         finalize_live_indicator()
+        # Deduplication: collapse retries into attempt count
+        attempts = tracker.get_stage_attempts(stage_id)
+        prev = _rendered_panels.get(stage_id)
+        if prev is not None and prev == attempts:
+            # Exact duplicate — skip entirely
+            return
+        _rendered_panels[stage_id] = attempts
+
         table = Table(show_header=False, box=None, padding=(0, 1))
         table.add_column("Key", style="bold dim", width=10)
         table.add_column("Value", style="white")
@@ -1003,14 +1107,19 @@ def log_stage_complete(
         table.add_row("Tools", f"[cyan]{tool_calls}[/cyan] calls")
         if iterations:
             table.add_row("Iterations", f"[cyan]{iterations}[/cyan]")
+        if attempts > 1:
+            table.add_row("Attempts", f"[yellow]{attempts}[/yellow]")
         if summary:
             truncated = summary[:100]
             if len(summary) > 100:
                 truncated += "\u2026"
             table.add_row("Result", f"[green]{truncated}[/green]")
-        ui.console.print(
-            Panel(table, title=f"[bold green]\u2713 {stage_id.upper()}[/bold green]", border_style="green")
-        )
+
+        title = f"[bold green]\u2713 {stage_id.upper()}[/bold green]"
+        if attempts > 1:
+            title += f" [dim]({attempts}x)[/dim]"
+        ui.console.print(Panel(table, title=title, border_style="green"))
+    # New console mode with event bus: silent (renderer consumes events)
 
 
 def log_stage_skip(stage_id: str, reason: str = "") -> None:
@@ -1025,12 +1134,26 @@ def log_stage_skip(stage_id: str, reason: str = "") -> None:
     if active_ctx:
         active_ctx.skipped = True
 
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_skipped
+
+        ui._event_bus.emit(
+            node_skipped(
+                graph_id="",
+                node_id=stage_id,
+                reason=reason,
+            )
+        )
+
     reason_text = f" — {reason}" if reason else ""
     if ui.is_hud_active():
         ui.hud_log("INFO", f"skip {stage_id}{reason_text}")
-    else:
+    elif ui._event_bus is None or ui.is_legacy_mode():
+        finalize_iteration_line()
         finalize_live_indicator()
         ui.console.print(f"[dim]  — skip   {stage_id}{reason_text}[/dim]")
+    # New console mode with event bus: silent (renderer consumes events)
 
 
 def log_stage_cached(stage_id: str, source: str = "") -> None:
@@ -1051,17 +1174,30 @@ def log_stage_cached(stage_id: str, source: str = "") -> None:
             normalizer.node_completed(stage_id, NodeStatus.COMPLETED)
             ui._hud.update()
     else:
+        finalize_iteration_line()
         finalize_live_indicator()
         ui.console.print(
             Panel(
                 f"[dim]Duration[/dim] [cyan]0s[/cyan]\n[dim]Source[/dim] [cyan]cache{source_text}[/cyan]",
-                title=f"[bold cyan]↻ {stage_id.upper()}[/bold cyan]",
+                title=f"[bold cyan]\u21bb {stage_id.upper()}[/bold cyan]",
                 border_style="cyan",
             )
         )
 
 
 def log_stage_fail(stage_id: str, reason: str) -> None:
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_failed
+
+        ui._event_bus.emit(
+            node_failed(
+                graph_id="",
+                node_id=stage_id,
+                error=reason,
+            )
+        )
+
     if ui.is_hud_active():
         ui.hud_log("ERROR", f"{stage_id}: {reason}")
         normalizer = ui._normalizer
@@ -1072,16 +1208,26 @@ def log_stage_fail(stage_id: str, reason: str) -> None:
 
             normalizer.node_completed(stage_id, NodeStatus.FAILED)
             ui._hud.update()
-    else:
+    elif ui._event_bus is None or ui.is_legacy_mode():
+        finalize_iteration_line()
         finalize_live_indicator()
-        ui.console.print(f"[dim]  [/dim][bold red]fail   [/][bold red]{stage_id}[/]: {reason}")
+        ui.console.print(
+            Panel(
+                f"[bold red]Execution failed.[/bold red]\n[dim]{reason}[/dim]",
+                title=f"[bold red]\u2717 {stage_id.upper()}[/bold red]",
+                border_style="red",
+            )
+        )
+    # New console mode with event bus: silent (renderer consumes events)
 
 
 def log_stage_retry(stage_id: str, attempt: int) -> None:
     if ui.is_hud_active():
         ui.hud_log("WARN", f"retry {stage_id} (attempt {attempt})")
     else:
-        ui.console.print(f"[dim]  [/dim][yellow]retry  [/][yellow]{stage_id}[/] [dim](attempt {attempt})[/dim]")
+        # Silent: the completion panel will show total attempts
+        # This prevents duplicate panels for each retry
+        pass
 
 
 def log_artifact(stage_id: str, path: str) -> None:
@@ -1110,7 +1256,14 @@ def log_blocked(reason: str) -> None:
     if ui.is_hud_active():
         ui.hud_log("ERROR", f"blocked: {reason}")
     else:
-        ui.console.print(f"  [bold red]blocked:[/bold red] {reason}")
+        finalize_iteration_line()
+        ui.console.print(
+            Panel(
+                f"[bold red]Execution blocked.[/bold red]\n[dim]{reason}[/dim]",
+                title="[bold red]\u26a0 BLOCKED[/bold red]",
+                border_style="red",
+            )
+        )
 
 
 def log_decision(text: str) -> None:
@@ -1120,24 +1273,70 @@ def log_decision(text: str) -> None:
         ui.console.print(f"  [bold magenta]decision:[/bold magenta] {text}")
 
 
+# ── Iteration state for in-place updates ──────────────────────────────
+_iter_line: str = ""
+_iter_count: int = 0
+_iter_stage: str = ""
+
+
 def log_iteration(iteration: int, current_stage: str) -> None:
+    """Log iteration count in-place. Max 2 physical lines regardless of iteration count.
+
+    First call prints the separator line. Subsequent calls update the counter
+    on the same line using carriage return.
+    """
+    global _iter_line, _iter_count, _iter_stage
+
     if ui.is_hud_active():
         ui.hud_log("SYS", f"Iteration {iteration}: {current_stage}")
-    else:
+        return
+
+    if _iter_count == 0:
+        # First iteration: print separator + counter
         clear_live_indicator()
         ui.console.print()
-        ui.console.print(
-            "[dim]━" * 38 + "[/dim]  "
-            f"[bold cyan]iter {iteration}[/bold cyan]  "
-            f"[bold yellow]{current_stage}[/bold yellow]"
-        )
+        ui.console.print("[dim]━" * 38 + "[/dim]")
+        _iter_count = iteration
+        _iter_stage = current_stage
+        _iter_line = f"  [bold cyan]iter {_iter_count}[/bold cyan]  [bold yellow]{_iter_stage}[/bold yellow]"
+        ui.console.print(_iter_line, end="\r")
+    elif current_stage != _iter_stage:
+        # Stage changed: update in-place
+        _iter_count = iteration
+        _iter_stage = current_stage
+        new_line = f"  [bold cyan]iter {_iter_count}[/bold cyan]  [bold yellow]{_iter_stage}[/bold yellow]"
+        ui.console.print("\r" + " " * 120 + "\r")
+        ui.console.print(new_line, end="\r")
+        _iter_line = new_line
+    else:
+        # Same stage, just increment counter in-place
+        _iter_count = iteration
+        new_line = f"  [bold cyan]iter {_iter_count}[/bold cyan]  [bold yellow]{_iter_stage}[/bold yellow]"
+        ui.console.print("\r" + new_line + "\r")
+        _iter_line = new_line
+
+
+def finalize_iteration_line() -> None:
+    """Finalize the iteration line with a newline."""
+    global _iter_line, _iter_count, _iter_stage
+    if _iter_count > 0:
+        ui.console.print("\r" + _iter_line)
+        _iter_line = ""
+        _iter_count = 0
+        _iter_stage = ""
 
 
 def log_stall_warning(stage_id: str, report_msg: str) -> None:
     if ui.is_hud_active():
         ui.hud_log("STALL", f"{stage_id}: {report_msg}")
     else:
-        ui.console.print(f"  [yellow]stall  {stage_id}: {report_msg}[/yellow]")
+        ui.console.print(
+            Panel(
+                f"[yellow]{stage_id}[/yellow]\n[dim]{report_msg}[/dim]",
+                title="[bold yellow]\u26a0 Stall Detected[/bold yellow]",
+                border_style="yellow",
+            )
+        )
 
 
 def trace_node(stage_id: str):
@@ -1198,6 +1397,7 @@ __all__ = [
     "_get_active_stage_ctx",
     "clear_live_indicator",
     "console",
+    "finalize_iteration_line",
     "finalize_live_indicator",
     "format_time",
     "init_live_indicator",

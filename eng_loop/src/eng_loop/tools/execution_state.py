@@ -12,7 +12,11 @@ from typing import Any
 
 class ExecutionStatus(Enum):
     PENDING = "pending"
+    PLANNING = "planning"
     RUNNING = "running"
+    PAUSED = "paused"
+    WAITING_FOR_INPUT = "waiting_for_input"
+    RESUMING = "resuming"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -275,6 +279,66 @@ class CommandHistoryEvent:
     timestamp: float = field(default_factory=time.monotonic)
 
 
+# ─── CLI v2 Events ──────────────────────────────────────────────────
+
+
+@dataclass
+class PlanningStartedEvent:
+    """Topology planning has begun (architect phase)."""
+
+    architect_node: str = ""
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class PlanningCompletedEvent:
+    """Topology planning completed; graph is ready."""
+
+    nodes: list[str] = field(default_factory=list)
+    phases: dict[str, list[str]] = field(default_factory=dict)
+    architect_node: str = ""
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class GateWaitingEvent:
+    """Essence Gate is waiting for user input."""
+
+    node_name: str
+    questions: list[dict[str, Any]] = field(default_factory=list)
+    reason: str = ""
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class GateResolvedEvent:
+    """Essence Gate clarifications have been applied."""
+
+    node_name: str
+    clarifications_applied: int = 0
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class CheckpointEvent:
+    """Execution checkpoint saved."""
+
+    completed_nodes: list[str] = field(default_factory=list)
+    active_node: str = ""
+    state_version: int = 0
+    timestamp: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class DiagnosticEvent:
+    """Diagnostic message with severity."""
+
+    severity: str = "INFO"  # INFO / WARN / ERROR / FATAL
+    message: str = ""
+    node_name: str = ""
+    timestamp: float = field(default_factory=time.monotonic)
+
+
 # ─── Threat Evaluator ─────────────────────────────────────────────────
 
 
@@ -355,6 +419,14 @@ class ExecutionState:
         # Total gold spent
         self._gold_spent = 0.0
 
+        # CLI v2 state
+        self._planning_node: str = ""
+        self._planning_done = False
+        self._diagnostics: list[dict[str, Any]] = []
+        self._gate_node: str = ""
+        self._gate_questions: list[dict[str, Any]] = []
+        self._checkpoint: dict[str, Any] = {}
+
         # Thread safety
         self._lock = threading.RLock()
 
@@ -395,6 +467,18 @@ class ExecutionState:
                 self._handle_token_streamed(event)
             elif isinstance(event, CommandHistoryEvent):
                 self._handle_command_history(event)
+            elif isinstance(event, PlanningStartedEvent):
+                self._handle_planning_started(event)
+            elif isinstance(event, PlanningCompletedEvent):
+                self._handle_planning_completed(event)
+            elif isinstance(event, GateWaitingEvent):
+                self._handle_gate_waiting(event)
+            elif isinstance(event, GateResolvedEvent):
+                self._handle_gate_resolved(event)
+            elif isinstance(event, CheckpointEvent):
+                self._handle_checkpoint(event)
+            elif isinstance(event, DiagnosticEvent):
+                self._handle_diagnostic(event)
 
     def _handle_node_started(self, event: NodeStartedEvent) -> None:
         if self._status == ExecutionStatus.PENDING:
@@ -553,6 +637,41 @@ class ExecutionState:
             "count": event.count,
             "is_intercepted": event.is_intercepted,
         }
+
+    def _handle_planning_started(self, event: PlanningStartedEvent) -> None:
+        self._planning_node = event.architect_node
+        self._planning_done = False
+        if self._status == ExecutionStatus.PENDING:
+            self._status = ExecutionStatus.PLANNING
+
+    def _handle_planning_completed(self, event: PlanningCompletedEvent) -> None:
+        self._planning_node = event.architect_node or self._planning_node
+        self._planning_done = True
+
+    def _handle_gate_waiting(self, event: GateWaitingEvent) -> None:
+        self._gate_node = event.node_name
+        self._gate_questions = list(event.questions)
+        self._status = ExecutionStatus.WAITING_FOR_INPUT
+
+    def _handle_gate_resolved(self, event: GateResolvedEvent) -> None:
+        self._gate_node = ""
+        self._gate_questions = []
+        self._status = ExecutionStatus.RESUMING
+
+    def _handle_checkpoint(self, event: CheckpointEvent) -> None:
+        self._checkpoint = {
+            "completed_nodes": list(event.completed_nodes),
+            "active_node": event.active_node,
+            "state_version": event.state_version,
+        }
+
+    def _handle_diagnostic(self, event: DiagnosticEvent) -> None:
+        self._diagnostics.append({
+            "severity": event.severity,
+            "message": event.message,
+            "node_name": event.node_name,
+            "timestamp": event.timestamp,
+        })
 
     # ─── Payload Management (Node Inspector X-Ray) ──────────────────
 
@@ -819,7 +938,302 @@ class ExecutionState:
                 step_mode=self._step_mode,
             )
 
-    # ─── Helpers ────────────────────────────────────────────────────
+    # ─── ViewModel (CLI v2) ─────────────────────────────────────────
+
+    def get_view_model(
+        self,
+        graph_id: str = "",
+        work_item: str = "",
+    ):
+        """Reduce internal state to a presentation-agnostic ExecutionViewModel.
+
+        This is the authoritative source for rendering. The ViewModel contains
+        no ANSI codes, terminal formatting, or layout decisions.
+        """
+        from eng_loop.tools.cli_viewmodel import (
+            CheckpointInfo,
+            DiagnosticEntry,
+            EssenceGateInfo,
+            EssenceQuestion,
+            ExecutionViewModel,
+            GraphNodeInfo,
+            NodeExecution,
+            NodeVisualStatus,
+            PipelineMetrics,
+            PipelineStatus,
+            ProgressInfo,
+        )
+
+        with self._lock:
+            now = time.monotonic()
+            total_elapsed_ms = int((self._end_time or now) - self._start_time) * 1000
+
+            # ── Determine pipeline status ──────────────────────────
+            if self._status == ExecutionStatus.WAITING_FOR_INPUT:
+                pipeline_status = PipelineStatus.WAITING_FOR_INPUT
+            elif self._status == ExecutionStatus.FAILED:
+                pipeline_status = PipelineStatus.FAILED
+            elif self._status == ExecutionStatus.CANCELLED:
+                pipeline_status = PipelineStatus.CANCELLED
+            elif self._status == ExecutionStatus.COMPLETED:
+                pipeline_status = PipelineStatus.COMPLETED
+            elif self._status == ExecutionStatus.RESUMING:
+                pipeline_status = PipelineStatus.RESUMING
+            elif self._status == ExecutionStatus.PAUSED:
+                pipeline_status = PipelineStatus.PAUSED
+            elif self._status == ExecutionStatus.PLANNING:
+                pipeline_status = PipelineStatus.PLANNING
+            elif self._status == ExecutionStatus.RUNNING:
+                pipeline_status = PipelineStatus.RUNNING
+            else:
+                # PENDING or unknown
+                pipeline_status = (
+                    PipelineStatus.PLANNING
+                    if not self._planning_done
+                    else PipelineStatus.RUNNING
+                )
+
+            # ── Build graph nodes ───────────────────────────────────
+            nodes: dict[str, GraphNodeInfo] = {}
+            phases: dict[str, list[str]] = {}
+            total_executions = 0
+            total_attempts_count = 0
+
+            for node_name in self.all_node_names:
+                phase = (
+                    node_name.split(".")[0]
+                    if "." in node_name
+                    else node_name.split("-")[0]
+                )
+                phases.setdefault(phase, []).append(node_name)
+
+                # Determine visual status
+                if node_name in self._completed:
+                    completed_status = self._completed[node_name]
+                    if completed_status == NodeStatus.COMPLETED:
+                        visual = NodeVisualStatus.SUCCESS
+                    elif completed_status == NodeStatus.FAILED:
+                        visual = NodeVisualStatus.FAILED
+                    elif completed_status == NodeStatus.SKIPPED:
+                        visual = NodeVisualStatus.CANCELLED
+                    else:
+                        visual = NodeVisualStatus.SUCCESS
+                else:
+                    execs = self._executions.get(node_name, {})
+                    has_active = any(
+                        e.status == NodeStatus.ACTIVE for e in execs.values()
+                    )
+                    if has_active:
+                        visual = NodeVisualStatus.RUNNING
+                    else:
+                        visual = NodeVisualStatus.PENDING
+
+                # Build execution records
+                execs = self._executions.get(node_name, {})
+                node_execs: list[NodeExecution] = []
+                node_total_ms = 0
+                node_tool_count = 0
+                error_msg: str | None = None
+
+                for exec_id, exec_record in execs.items():
+                    ne = NodeExecution(
+                        execution_id=exec_id,
+                        start_ms=exec_record.start_time,
+                        end_ms=exec_record.end_time,
+                        result=(
+                            "success"
+                            if exec_record.status == NodeStatus.COMPLETED
+                            else "failed"
+                        ),
+                    )
+                    ne.attempts.append(
+                        type("AttemptRecord", (), {
+                            "attempt_num": exec_record.attempt_number,
+                            "duration_ms": int(
+                                (exec_record.end_time or now - exec_record.start_time)
+                                * 1000
+                            ),
+                            "result": (
+                                "success"
+                                if exec_record.status == NodeStatus.COMPLETED
+                                else "failed"
+                            ),
+                        })()
+                    )
+                    node_execs.append(ne)
+                    total_executions += 1
+                    total_attempts_count += exec_record.attempt_number
+                    node_tool_count += exec_record.tool_count
+
+                    if exec_record.end_time:
+                        node_total_ms += int(
+                            (exec_record.end_time - exec_record.start_time) * 1000
+                        )
+
+                    if exec_record.status == NodeStatus.FAILED:
+                        error_msg = f"Node {node_name} failed"
+
+                # Detect container nodes
+                is_container = False
+                children: list[str] = []
+                for other in self.all_node_names:
+                    if other != node_name and other.startswith(node_name + "."):
+                        is_container = True
+                        children.append(other)
+
+                nodes[node_name] = GraphNodeInfo(
+                    id=node_name,
+                    phase=phase,
+                    is_container=is_container,
+                    children=children,
+                    visual_status=visual,
+                    executions=node_execs,
+                    total_duration_ms=node_total_ms,
+                    error_message=error_msg,
+                    tool_count=node_tool_count,
+                )
+
+            # ── Derive container status from children ───────────────
+            for node_id, node_info in nodes.items():
+                if node_info.is_container and node_info.visual_status == NodeVisualStatus.PENDING:
+                    # Derive from children
+                    child_statuses = [
+                        nodes[c].visual_status for c in node_info.children if c in nodes
+                    ]
+                    if any(
+                        s == NodeVisualStatus.RUNNING for s in child_statuses
+                    ):
+                        node_info.visual_status = NodeVisualStatus.RUNNING
+                    elif all(
+                        s == NodeVisualStatus.SUCCESS for s in child_statuses
+                    ):
+                        node_info.visual_status = NodeVisualStatus.SUCCESS
+
+            # ── Metrics ────────────────────────────────────────────
+            total_nodes = len(self.all_node_names)
+            completed_count = sum(
+                1 for s in self._completed.values() if s == NodeStatus.COMPLETED
+            )
+            failed_count = sum(
+                1 for s in self._completed.values() if s == NodeStatus.FAILED
+            )
+            running_count = len(self.active_party)
+            pending_count = (
+                total_nodes - completed_count - failed_count - running_count
+            )
+            retries = max(0, total_attempts_count - len(self._executions))
+
+            metrics = PipelineMetrics(
+                total_nodes=total_nodes,
+                completed_nodes=completed_count,
+                running_nodes=running_count,
+                failed_nodes=failed_count,
+                pending_nodes=pending_count,
+                total_executions=total_executions,
+                total_attempts=total_attempts_count,
+                retries=retries,
+            )
+
+            progress = ProgressInfo(
+                current=completed_count,
+                total=total_nodes,
+            )
+
+            # ── Current execution ──────────────────────────────────
+            current_node_id: str | None = None
+            current_attempt = 0
+            current_elapsed_ms = 0
+            current_tool_count = 0
+
+            for exec_record in self.active_party:
+                current_node_id = exec_record.node_name
+                current_attempt = exec_record.attempt_number
+                current_elapsed_ms = int(
+                    (now - exec_record.start_time) * 1000
+                )
+                current_tool_count = exec_record.tool_count
+
+            # ── History (completed nodes, ordered) ─────────────────
+            history: list[GraphNodeInfo] = []
+            for node_name in self.all_node_names:
+                if node_name in nodes and nodes[node_name].visual_status in (
+                    NodeVisualStatus.SUCCESS,
+                    NodeVisualStatus.FAILED,
+                    NodeVisualStatus.CANCELLED,
+                ):
+                    history.append(nodes[node_name])
+
+            # ── Planning ───────────────────────────────────────────
+            planning_node_id: str | None = self._planning_node or None
+            planning_status = (
+                NodeVisualStatus.SUCCESS
+                if self._planning_done
+                else NodeVisualStatus.RUNNING
+                if self._planning_node
+                else NodeVisualStatus.PENDING
+            )
+
+            # ── Checkpoint ─────────────────────────────────────────
+            checkpoint: CheckpointInfo | None = None
+            if self._checkpoint:
+                checkpoint = CheckpointInfo(
+                    completed_nodes=self._checkpoint.get("completed_nodes", []),
+                    active_node=self._checkpoint.get("active_node") or None,
+                    state_version=self._checkpoint.get("state_version", 0),
+                    graph_id=graph_id,
+                )
+
+            # ── Essence Gate ───────────────────────────────────────
+            essence_gate: EssenceGateInfo | None = None
+            if self._gate_questions:
+                questions = [
+                    EssenceQuestion(
+                        id=q.get("id", f"q_{i}"),
+                        severity=q.get("severity", "medium"),
+                        question=q.get("question", ""),
+                        finding_summary=q.get("finding_summary", ""),
+                        options=q.get("options", []),
+                        input_type="choice" if q.get("options") else "text",
+                    )
+                    for i, q in enumerate(self._gate_questions)
+                ]
+                essence_gate = EssenceGateInfo(
+                    stage=self._gate_node,
+                    questions=questions,
+                    clarification_count=len(questions),
+                )
+
+            # ── Diagnostics ────────────────────────────────────────
+            diagnostics = [
+                DiagnosticEntry(
+                    severity=d.get("severity", "INFO"),
+                    message=d.get("message", ""),
+                    node_id=d.get("node_name") or None,
+                    timestamp=d.get("timestamp", 0.0),
+                )
+                for d in self._diagnostics
+            ]
+
+            return ExecutionViewModel(
+                pipeline_status=pipeline_status,
+                work_item=work_item or self.title,
+                graph_id=graph_id or self.quest_id,
+                planning_node_id=planning_node_id,
+                planning_status=planning_status,
+                nodes=nodes,
+                phases=phases,
+                current_node_id=current_node_id,
+                current_attempt=current_attempt,
+                current_elapsed_ms=current_elapsed_ms,
+                current_tool_count=current_tool_count,
+                metrics=metrics,
+                progress=progress,
+                history=history,
+                checkpoint=checkpoint,
+                essence_gate=essence_gate,
+                diagnostics=diagnostics,
+                total_elapsed_ms=total_elapsed_ms,
+            )
 
     def _get_node_duration(self, node_name: str) -> float | None:
         execs = self._executions.get(node_name, {})

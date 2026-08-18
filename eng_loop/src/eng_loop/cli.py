@@ -22,6 +22,11 @@ from eng_loop.graph_builder import GraphTopology
 from eng_loop.model import DEFAULT_BASE_URL, DEFAULT_MODEL, create_model_from_config
 from eng_loop.state import STAGE_ORDER, load_state_template, make_initial_state
 from eng_loop.tools.file_ops import save_json as save_json_file
+
+# Exit codes
+EXIT_WAITING_FOR_INPUT = 42  # Pipeline waiting for user clarification
+
+
 from eng_loop.tools.progress import (
     finalize_live_indicator,
     init_live_indicator,
@@ -77,6 +82,18 @@ def main():
     )
     parser.add_argument("--interactive", action="store_true", help="Enable full-screen TUI dashboard (experimental)")
     parser.add_argument("--tui", action="store_true", help="Enable interactive Textual TUI (MAGE HUD v2.0)")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from persisted state (e.g. after essence clarification)",
+    )
+    parser.add_argument(
+        "--renderer",
+        type=str,
+        default=None,
+        choices=["console", "legacy"],
+        help="CLI renderer: 'console' (new, default) or 'legacy' (original)",
+    )
 
     # ── Surgical subcommands ─────────────────────────────────────
     subparsers = parser.add_subparsers(dest="command", help="Surgical commands")
@@ -192,12 +209,45 @@ def main():
             sys.exit(1)
 
     # ── Build state ──────────────────────────────────────────────
-    state = make_initial_state(config, paths)
-    state["work_item"] = args.work_item
+    if args.resume:
+        # Resume mode: load persisted state, re-invoke graph
+        state_file = paths.get("state_file", "state.json")
+        if not Path(state_file).exists():
+            ui.console.print(
+                Panel(
+                    "[bold red]No state file found.[/bold red]\n"
+                    f"Expected: {state_file}\n"
+                    "Run the loop first, then use --resume.",
+                    border_style="red",
+                )
+            )
+            sys.exit(1)
 
-    if args.state_file and Path(args.state_file).exists():
-        saved = load_state_template(args.state_file)
-        state.update(saved)
+        state = load_state_template(state_file)
+        state["config"] = config
+        state["paths"] = paths
+
+        # If resuming from waiting_for_input, handle clarification first
+        if state.get("status") == "waiting_for_input":
+            resumed = _handle_essence_clarification(state, paths, config)
+            if resumed:
+                state = resumed
+            else:
+                # Non-TTY or cancelled
+                _save_state(state, paths, verbose=True)
+                sys.exit(EXIT_WAITING_FOR_INPUT)
+
+        # Reset to running for graph re-invocation
+        state["status"] = "running"
+        state["blocking_condition"] = ""
+        args.work_item = state.get("work_item", "")
+    else:
+        state = make_initial_state(config, paths)
+        state["work_item"] = args.work_item
+
+        if args.state_file and Path(args.state_file).exists():
+            saved = load_state_template(args.state_file)
+            state.update(saved)
 
     # ── Pre-classify work item (before graph build) ─────────────
     # The graph must know complexity/work_type/ui_project to filter
@@ -222,6 +272,30 @@ def main():
     parallel_qa = args.parallel_qa or config.get("dynamic_graph", {}).get("parallel_qa", False)
     hud_mode = args.interactive or args.tui
 
+    # ── Initialize CLI v2 event bus (before graph compilation) ────
+    renderer_mode = args.renderer or os.environ.get(
+        "ENGINEERING_LOOP_RENDERER", "console"
+    )
+
+    from eng_loop.tools.event_bus import EventBus
+
+    event_bus = EventBus()
+    ui.set_event_bus(event_bus)
+    ui.set_renderer_mode(renderer_mode)
+
+    # Select renderer
+    if renderer_mode == "legacy":
+        from eng_loop.tools.legacy_renderer import LegacyRenderer
+
+        cli_renderer = LegacyRenderer(ui.console, event_bus)
+    else:
+        from eng_loop.tools.cli_renderer import ConsoleRenderer
+
+        cli_renderer = ConsoleRenderer(ui.console, event_bus)
+
+    # Subscribe renderer to live event updates
+    event_bus.subscribe(cli_renderer.on_event)
+
     # Convert pause-at stage IDs to node names (dots → hyphens)
     interrupt_nodes = []
     if args.pause_at:
@@ -240,6 +314,12 @@ def main():
         # ── Pre-build: Architect proposes topology ──
         authorized_topology = None
         use_proposal = False
+
+        # Emit planning started event
+        if event_bus:
+            from eng_loop.tools.cli_events import planning_started
+
+            event_bus.emit(planning_started(graph_id="", architect_node="dynamic.architect"))
 
         try:
             from eng_loop.nodes.dynamic_architect import propose_topology
@@ -291,6 +371,18 @@ def main():
         state["graph_topology"] = topology.to_dict()
         state["active_nodes"] = topology.active_nodes
 
+        # Emit planning completed event
+        if event_bus:
+            from eng_loop.tools.cli_events import planning_completed
+
+            event_bus.emit(
+                planning_completed(
+                    graph_id="",
+                    nodes=topology.active_nodes,
+                    architect_node="dynamic.architect",
+                )
+            )
+
         # Topology fidelity tracking: proposed vs compiled
         if use_proposal and authorized_topology:
             proposed_stages = set(authorized_topology.authorized_stages)
@@ -327,6 +419,24 @@ def main():
         if not hud_mode:
             ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")
         graph = compile_graph(config=config)
+
+        # For static graph, emit planning completed with known nodes
+        if event_bus:
+            from eng_loop.state import get_active_stages
+            from eng_loop.tools.cli_events import planning_completed
+
+            active = get_active_stages(
+                state.get("complexity", "unset"),
+                state.get("ui_project", False),
+                state.get("work_type", "feature"),
+            )
+            event_bus.emit(
+                planning_completed(
+                    graph_id="",
+                    nodes=active,
+                    architect_node="",
+                )
+            )
 
     thread_config = {"configurable": {"thread_id": "eng-loop-run"}}
 
@@ -407,60 +517,59 @@ def main():
 
     # ── Execute graph with interrupt support ─────────────────────
     try:
-        tracker.start_loop()
-        prev_stage = ""
-
-        # Initialize live progress indicator
         active_nodes_for_progress = state.get("active_nodes", [])
-        if not hud and not tui_controller and active_nodes_for_progress:
-            init_live_indicator(active_nodes_for_progress)
 
-        for event in _stream_with_interrupts(
-            graph,
+        final_state = _invoke_graph(
             state,
+            graph,
             thread_config,
             interrupt_nodes,
             paths,
             config,
-            exec_state=exec_state,
-            normalizer=normalizer,
-        ):
-            status = event.get("status", "running")
-            current = event.get("current_stage", "")
-            iteration = event.get("iteration", 0)
+            exec_state,
+            normalizer,
+            hud,
+            tui_controller,
+            active_nodes_for_progress,
+            event_bus=event_bus,
+        )
 
-            if current and current != prev_stage:
-                log_iteration(iteration, current)
-                _save_state(event, paths)
-                _save_snapshot(event, paths, current, config)
-
-                # Store payload for Node Inspector
-                if normalizer and current:
-                    stage_data = event.get("stages", {}).get(current, {})
-                    output = stage_data.get("output", "")
-                    if output:
-                        normalizer.store_output_result(current, str(output)[:8000])
-
-                prev_stage = current
-
-            if hud:
-                hud.update(event)
-
-            if status not in ("running",):
-                log_iteration(iteration, current or "complete")
-
-        final_state = event
-        if normalizer:
-            status = final_state.get("status", "unknown")
-            if status == "done":
-                normalizer.quest_completed()
-            elif status == "blocked":
-                normalizer.quest_failed(final_state.get("blocking_condition", ""))
         if not tui_controller:
-            if active_nodes_for_progress:
-                finalize_live_indicator()
-            _print_result(final_state)
+            _print_result(final_state, cli_renderer, exec_state, args.work_item)
         _save_state(final_state, paths, verbose=True)
+
+        # ── Handle essence clarification (waiting_for_input) ────
+        if final_state.get("status") == "waiting_for_input":
+            resumed = _handle_essence_clarification(final_state, paths, config)
+            if resumed:
+                # TTY: re-invoke graph with resumed state (NOT recursive)
+                ui.console.print(
+                    Panel(
+                        "[green]Clarifications applied. Resuming pipeline...[/green]",
+                        title="[bold green]Resuming[/bold green]",
+                        border_style="green",
+                    )
+                )
+                # Re-invoke graph with resumed state
+                final_state = _invoke_graph(
+                    resumed,
+                    graph,
+                    thread_config,
+                    interrupt_nodes,
+                    paths,
+                    config,
+                    exec_state,
+                    normalizer,
+                    hud,
+                    tui_controller,
+                    active_nodes_for_progress,
+                    event_bus=event_bus,
+                )
+                _save_state(final_state, paths, verbose=True)
+            else:
+                # Non-TTY or cancelled: persist and exit
+                _save_state(final_state, paths, verbose=True)
+                sys.exit(EXIT_WAITING_FOR_INPUT)
 
     except KeyboardInterrupt:
         state["status"] = "halted"
@@ -493,6 +602,104 @@ def main():
         if hud:
             hud.stop()
             ui.set_hud(None)
+
+
+def _invoke_graph(
+    state: dict[str, Any],
+    graph: Any,
+    thread_config: dict[str, Any],
+    interrupt_nodes: list[str],
+    paths: dict[str, Any],
+    config: dict[str, Any],
+    exec_state: Any,
+    normalizer: Any,
+    hud: Any,
+    tui_controller: Any,
+    active_nodes_for_progress: list[str],
+    event_bus: Any = None,
+) -> dict[str, Any]:
+    """Invoke the graph with the given state. Returns final state.
+
+    Used for both initial execution and clarification resume.
+    Not recursive — a fresh graph invocation, not a nested run_loop.
+    """
+    tracker.start_loop()
+    prev_stage = ""
+
+    if not hud and not tui_controller and active_nodes_for_progress:
+        init_live_indicator(active_nodes_for_progress)
+
+    final_state = state
+    for event in _stream_with_interrupts(
+        graph,
+        state,
+        thread_config,
+        interrupt_nodes,
+        paths,
+        config,
+        exec_state=exec_state,
+        normalizer=normalizer,
+    ):
+        status = event.get("status", "running")
+        current = event.get("current_stage", "")
+        iteration = event.get("iteration", 0)
+
+        if current and current != prev_stage:
+            log_iteration(iteration, current)
+            _save_state(event, paths)
+            _save_snapshot(event, paths, current, config)
+
+            if normalizer and current:
+                stage_data = event.get("stages", {}).get(current, {})
+                output = stage_data.get("output", "")
+                if output:
+                    normalizer.store_output_result(current, str(output)[:8000])
+
+            prev_stage = current
+
+        if hud:
+            hud.update(event)
+
+        if status not in ("running",):
+            log_iteration(iteration, current or "complete")
+
+        final_state = event
+
+    if normalizer:
+        status = final_state.get("status", "unknown")
+        if status == "done":
+            normalizer.quest_completed()
+        elif status == "blocked" or status == "waiting_for_input":
+            normalizer.quest_failed(final_state.get("blocking_condition", ""))
+
+    # Emit CLI v2 pipeline events
+    if event_bus:
+        from eng_loop.tools.cli_events import (
+            pipeline_completed,
+            pipeline_failed,
+        )
+
+        status = final_state.get("status", "unknown")
+        if status == "done":
+            event_bus.emit(
+                pipeline_completed(
+                    graph_id="",
+                    total_nodes=len(active_nodes_for_progress),
+                )
+            )
+        elif status in ("blocked", "failed"):
+            event_bus.emit(
+                pipeline_failed(
+                    graph_id="",
+                    reason=final_state.get("blocking_condition", ""),
+                )
+            )
+
+    if not tui_controller:
+        if active_nodes_for_progress:
+            finalize_live_indicator()
+
+    return final_state
 
 
 def _stream_with_interrupts(
@@ -793,6 +1000,8 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "topology_proposal": state.get("topology_proposal"),
         "dynamic_plan": state.get("dynamic_plan"),
         "dynamic_runtime": state.get("dynamic_runtime", {}),
+        "essence": state.get("essence", {}),
+        "essence_clarifying_questions": state.get("essence_clarifying_questions", []),
     }
 
 
@@ -1079,7 +1288,159 @@ def _check_model(config: dict[str, Any], quiet: bool = False) -> bool:
         return False
 
 
-def _print_result(state: dict) -> None:
+def _handle_essence_clarification(
+    state: dict[str, Any],
+    paths: dict[str, str],
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Handle essence clarification: collect user answers and resume state.
+
+    Returns resumed state dict, or None if no interaction needed/available.
+    The caller re-invokes the graph with the resumed state (NOT recursive run_loop).
+    """
+    if state.get("status") != "waiting_for_input":
+        return None
+    if state.get("blocking_condition") != "essence_clarification_needed":
+        return None
+
+    questions = state.get("essence_clarifying_questions", [])
+    if not questions:
+        return None
+
+    # Emit gate waiting event
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import gate_waiting
+
+        ui._event_bus.emit(
+            gate_waiting(
+                graph_id="",
+                node_id=state.get("essence", {}).get("blocked_stage", ""),
+                questions=questions,
+                reason="essence_clarification_needed",
+            )
+        )
+
+    from eng_loop.tools.interaction_handler import (
+        InteractionRequest,
+        get_interaction_handler,
+    )
+
+    blocked_stage = state.get("essence", {}).get("blocked_stage", state.get("current_stage", "init"))
+    handler = get_interaction_handler()
+
+    if not handler.is_available():
+        # Non-TTY: persist state, print guidance, exit
+        ui.console.print()
+        ui.console.print(
+            Panel(
+                f"[bold red]Essence Gate requires clarification.[/bold red]\n\n"
+                f"Stage [bold]{blocked_stage}[/bold] detected {len(questions)} ambiguity(ies).\n"
+                f"Non-interactive environment — cannot collect user input.\n\n"
+                f"Persisted state to: [bold]{paths.get('state_file', 'state.json')}[/bold]\n"
+                f"Resume with: [dim]eng-loop --resume[/dim]",
+                title=f"[bold red]Waiting for Input (exit {EXIT_WAITING_FOR_INPUT})[/bold red]",
+                border_style="red",
+            )
+        )
+        return None
+
+    # Collect answers interactively
+    request = InteractionRequest(
+        blocking_condition="essence_clarification_needed",
+        questions=questions,
+        stage_id=blocked_stage,
+    )
+    answers = handler.collect(request)
+
+    if not answers:
+        # User cancelled or handler returned empty
+        return None
+
+    # Emit gate resolved event
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import gate_resolved
+
+        ui._event_bus.emit(
+            gate_resolved(
+                graph_id="",
+                node_id=blocked_stage,
+                clarifications_applied=len(answers),
+            )
+        )
+
+    # Apply answers to work item
+    wi = state.get("work_item", {})
+    if not isinstance(wi, dict):
+        wi = {"description": str(wi) if wi else ""}
+    wi.setdefault("clarifications", {}).setdefault("answers", {}).update(answers)
+    wi["clarifications"]["history"] = wi.get("clarifications", {}).get("history", [])
+    wi["clarifications"]["history"].extend(
+        {
+            "question_id": qid,
+            "answer": ans,
+            "attempt": state.get("essence", {}).get("clarification_attempts", 1),
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+        }
+        for qid, ans in answers.items()
+    )
+    state["work_item"] = wi
+
+    # Mark findings as resolved
+    essence_state = state.setdefault("essence", {})
+    resolved = essence_state.setdefault("resolved_findings", [])
+    for q in questions:
+        fid = q.get("finding_id", "")
+        if fid and fid not in resolved:
+            resolved.append(fid)
+    essence_state["pending_questions"] = []
+    essence_state["decision"] = None
+    # NOTE: clarification_attempts is managed by essence_gate.build_essence_state.
+    # Do NOT increment here — it would double-count (gate increments on each
+    # clarification cycle, and the CLI would add another on each answer).
+
+    # Reset essence gate for re-execution
+    if blocked_stage in state.get("stages", {}):
+        state["stages"][blocked_stage]["essence_checked"] = False
+
+    state["status"] = "running"
+    state["blocking_condition"] = ""
+    state["essence_clarifying_questions"] = []
+
+    return state
+
+
+def _print_non_interactive_block(state: dict[str, Any], paths: dict[str, str]) -> None:
+    """Print guidance for non-interactive blocked state."""
+    ui.console.print()
+    ui.console.print(
+        Panel(
+            f"[bold red]Pipeline requires user input.[/bold red]\n\n"
+            f"Blocking condition: [bold]{state.get('blocking_condition', 'unknown')}[/bold]\n\n"
+            f"Persisted state to: [bold]{paths.get('state_file', 'state.json')}[/bold]\n"
+            f"Resume with: [dim]eng-loop --resume[/dim]",
+            title="[bold red]Waiting for Input[/bold red]",
+            border_style="red",
+        )
+    )
+
+
+def _print_result(
+    state: dict,
+    cli_renderer: Any = None,
+    exec_state: Any = None,
+    work_item: str = "",
+) -> None:
+    """Print final result using the active renderer."""
+    # If CLI v2 renderer is available with exec_state, use view model
+    if cli_renderer and exec_state:
+        vm = exec_state.get_view_model(
+            graph_id="",
+            work_item=work_item,
+        )
+        cli_renderer.render_final(vm)
+        return
+
+    # Fallback to legacy rendering
     status = state.get("status", "unknown")
     blocking = state.get("blocking_condition", "")
     decisions = state.get("decisions", [])
@@ -1087,7 +1448,7 @@ def _print_result(state: dict) -> None:
     stages = state.get("stages", {})
     task_outcome = state.get("task_outcome", None)
     artifact_evidence = state.get("artifact_evidence", None)
-    work_item = state.get("work_item", None)
+    wi = state.get("work_item", None)
     active_nodes = state.get("active_nodes", None)
     topology_fidelity = state.get("topology_fidelity", None)
 
@@ -1099,7 +1460,7 @@ def _print_result(state: dict) -> None:
         stages,
         task_outcome=task_outcome,
         artifact_evidence=artifact_evidence,
-        work_item=work_item,
+        work_item=wi,
         active_nodes=active_nodes,
         topology_fidelity=topology_fidelity,
     )

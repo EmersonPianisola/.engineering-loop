@@ -271,6 +271,95 @@ class EventNormalizer:
             )
         )
 
+    # ─── CLI v2 Events ─────────────────────────────────────────────
+
+    def planning_started(self, architect_node: str = "") -> None:
+        """Emit PlanningStartedEvent."""
+        from eng_loop.tools.execution_state import PlanningStartedEvent
+
+        self.execution_state.apply(
+            PlanningStartedEvent(architect_node=architect_node)
+        )
+
+    def planning_completed(
+        self,
+        nodes: list[str],
+        phases: dict[str, list[str]] | None = None,
+        architect_node: str = "",
+    ) -> None:
+        """Emit PlanningCompletedEvent."""
+        from eng_loop.tools.execution_state import PlanningCompletedEvent
+
+        self.execution_state.apply(
+            PlanningCompletedEvent(
+                nodes=nodes,
+                phases=phases or {},
+                architect_node=architect_node,
+            )
+        )
+
+    def gate_waiting(
+        self,
+        stage_id: str,
+        questions: list[dict[str, Any]],
+        reason: str = "",
+    ) -> None:
+        """Emit GateWaitingEvent."""
+        from eng_loop.tools.execution_state import GateWaitingEvent
+
+        self.execution_state.apply(
+            GateWaitingEvent(
+                node_name=stage_id,
+                questions=questions,
+                reason=reason,
+            )
+        )
+
+    def gate_resolved(self, stage_id: str, clarifications_applied: int = 0) -> None:
+        """Emit GateResolvedEvent."""
+        from eng_loop.tools.execution_state import GateResolvedEvent
+
+        self.execution_state.apply(
+            GateResolvedEvent(
+                node_name=stage_id,
+                clarifications_applied=clarifications_applied,
+            )
+        )
+
+    def checkpoint_saved(
+        self,
+        completed_nodes: list[str],
+        active_node: str = "",
+        state_version: int = 0,
+    ) -> None:
+        """Emit CheckpointEvent."""
+        from eng_loop.tools.execution_state import CheckpointEvent
+
+        self.execution_state.apply(
+            CheckpointEvent(
+                completed_nodes=completed_nodes,
+                active_node=active_node,
+                state_version=state_version,
+            )
+        )
+
+    def diagnostic(
+        self,
+        severity: str,
+        message: str,
+        node_name: str = "",
+    ) -> None:
+        """Emit DiagnosticEvent."""
+        from eng_loop.tools.execution_state import DiagnosticEvent
+
+        self.execution_state.apply(
+            DiagnosticEvent(
+                severity=severity,
+                message=message,
+                node_name=node_name,
+            )
+        )
+
     # ─── Helpers ────────────────────────────────────────────────────
 
     def _get_execution_id(self, stage_id: str) -> str:
