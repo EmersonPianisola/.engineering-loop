@@ -17,20 +17,30 @@ def load_lessons(artifact_root: str) -> dict[str, Any]:
 
     if shared_path.exists():
         with open(shared_path, "r", encoding="utf-8") as f:
-            result["shared"] = json.load(f)
+            data = json.load(f)
+            result["shared"] = data if isinstance(data, dict) else {}
     if local_path.exists():
         with open(local_path, "r", encoding="utf-8") as f:
-            result["local"] = json.load(f)
+            data = json.load(f)
+            result["local"] = data if isinstance(data, dict) else {}
     if pending_path.exists():
         with open(pending_path, "r", encoding="utf-8") as f:
-            result["pending"] = json.load(f)
+            data = json.load(f)
+            result["pending"] = data if isinstance(data, dict) else {}
 
     return result
 
 
 def merge_lessons(lessons_data: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(lessons_data.get("local", {}))
-    merged.update(lessons_data.get("shared", {}))
+    local = lessons_data.get("local", {})
+    shared = lessons_data.get("shared", {})
+    # Defend against malformed lessons files that store lists instead of dicts
+    if not isinstance(local, dict):
+        local = {}
+    if not isinstance(shared, dict):
+        shared = {}
+    merged = dict(local)
+    merged.update(shared)
     return merged
 
 
@@ -71,8 +81,10 @@ def get_confirmed_lessons(lessons_data: dict[str, Any]) -> list[dict[str, Any]]:
     return [l for l in merged.values() if isinstance(l, dict) and l.get("status") == "confirmed"]
 
 
-def promote_to_pending(lessons: dict[str, Any]) -> list[str]:
+def promote_to_pending(lessons: dict[str, Any] | list[Any]) -> list[str]:
     promoted = []
+    if isinstance(lessons, list):
+        return promoted
     for lid, ldata in lessons.items():
         if isinstance(ldata, dict) and ldata.get("status") == "confirmed":
             promoted.append(lid)

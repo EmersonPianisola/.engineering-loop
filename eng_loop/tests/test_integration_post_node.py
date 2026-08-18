@@ -17,11 +17,14 @@ class TestPostNodeHonestStatus:
         artifact_root = os.path.join(tmp, "artifacts")
         os.makedirs(artifact_root)
 
-        state = make_initial_state({}, {
-            "artifact_root": artifact_root,
-            "project_root": tmp,
-            "framework_stage_root": "stages",
-        })
+        state = make_initial_state(
+            {},
+            {
+                "artifact_root": artifact_root,
+                "project_root": tmp,
+                "framework_stage_root": "stages",
+            },
+        )
         state["complexity"] = "small"
         state["ui_project"] = False
         state["work_type"] = "documentation"
@@ -52,9 +55,8 @@ class TestPostNodeHonestStatus:
         state, tmp = self._make_state()
         mock_result = self._mock_agent_result({}, "agent_stalled: read loop detected")
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "failed"
         assert cmd.update["task_outcome"] == "failed"
@@ -63,16 +65,17 @@ class TestPostNodeHonestStatus:
     def test_post_node_returns_done_on_success(self):
         """When the post agent succeeds, status should be 'done'."""
         state, tmp = self._make_state()
-        mock_result = self._mock_agent_result({
-            "summary": "All tasks completed successfully",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "All tasks completed successfully",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "done"
         assert cmd.update["task_outcome"] == "done"
@@ -83,16 +86,17 @@ class TestPostNodeHonestStatus:
         state["stages"]["impl.code"]["done"] = False
         state["stages"]["impl.code"]["attempts"] = 3
 
-        mock_result = self._mock_agent_result({
-            "summary": "Some work completed",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Some work completed",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "partial"
 
@@ -102,16 +106,17 @@ class TestPostNodeHonestStatus:
         state["stages"]["init"]["attempts"] = 2
         state["stages"]["impl.code"]["attempts"] = 2
 
-        mock_result = self._mock_agent_result({
-            "summary": "Completed with retries",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Completed with retries",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "done_with_warnings"
 
@@ -135,16 +140,17 @@ class TestPostNodeHonestStatus:
         # Use absolute path in code_map so os.path.exists works
         state["work_item"]["code_map"] = [expected_path]
 
-        mock_result = self._mock_agent_result({
-            "summary": "Done",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Done",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})
         assert expected_path in evidence
@@ -159,16 +165,17 @@ class TestPostNodeHonestStatus:
             "code_map": ["artifacts/nonexistent.md"],
         }
 
-        mock_result = self._mock_agent_result({
-            "summary": "Done",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Done",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})
         assert "artifacts/nonexistent.md" in evidence
@@ -179,16 +186,17 @@ class TestPostNodeHonestStatus:
         state, tmp = self._make_state()
         artifact_root = state["paths"]["artifact_root"]
 
-        mock_result = self._mock_agent_result({
-            "summary": "Test summary content",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Test summary content",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            post_node(state)
 
         summary_path = os.path.join(artifact_root, "post-loop-summary.md")
         assert os.path.exists(summary_path)

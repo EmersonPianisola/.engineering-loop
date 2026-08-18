@@ -31,6 +31,7 @@ ALLOWED_CONDITIONS: set[str] = {
 
 class EdgeDefinition(BaseModel):
     """Declarative edge: source, target, and an allowed condition identifier."""
+
     model_config = ConfigDict(frozen=True)
 
     from_stage: str = Field(description="Source stage ID (e.g. 'init', 'impl.code')")
@@ -42,6 +43,7 @@ class EdgeDefinition(BaseModel):
 
 class PhaseGroup(BaseModel):
     """Logical grouping of stages for display and execution ordering."""
+
     model_config = ConfigDict(frozen=True)
 
     name: str = Field(description="Phase label, e.g. 'INIT', 'IMPL', 'QA'")
@@ -53,6 +55,7 @@ class ExecutionPolicy(BaseModel):
     Separated from topology so the architect doesn't need to redefine
     standard failure/retry behavior for every proposal.
     """
+
     model_config = ConfigDict(frozen=True)
 
     stage_id: str = Field(description="Stage this policy applies to")
@@ -71,28 +74,22 @@ class GraphTopologyProposal(BaseModel):
 
     Invariant: LLM proposes → Policy authorizes → Builder compiles → Runtime executes.
     """
+
     model_config = ConfigDict(frozen=True)
 
     plan_id: str = Field(description="Unique identifier for this proposal")
     work_type: Literal["feature", "bugfix", "documentation", "operational"] = "feature"
     complexity: Literal["small", "medium", "large", "complex"] = "small"
-    required_stages: tuple[str, ...] = Field(
-        description="Stage IDs that must be included in the graph"
-    )
-    edges: tuple[EdgeDefinition, ...] = Field(
-        description="Declarative edges between stages"
-    )
+    required_stages: tuple[str, ...] = Field(description="Stage IDs that must be included in the graph")
+    edges: tuple[EdgeDefinition, ...] = Field(description="Declarative edges between stages")
     phase_groups: tuple[PhaseGroup, ...] = Field(
         default_factory=tuple,
         description="Logical phase grouping for display",
     )
     execution_policies: tuple[ExecutionPolicy, ...] = Field(
-        default_factory=tuple,
-        description="Per-stage execution policies (retry, failure routing)"
+        default_factory=tuple, description="Per-stage execution policies (retry, failure routing)"
     )
-    rationale: str = Field(
-        description="Explanation of why this topology is optimal for the task"
-    )
+    rationale: str = Field(description="Explanation of why this topology is optimal for the task")
 
     @field_validator("required_stages")
     @classmethod
@@ -132,18 +129,12 @@ class GraphTopologyProposal(BaseModel):
 
         for edge in self.edges:
             if edge.from_stage not in stage_set and edge.from_stage not in special:
-                raise ValueError(
-                    f"Edge from_stage '{edge.from_stage}' not in required_stages"
-                )
+                raise ValueError(f"Edge from_stage '{edge.from_stage}' not in required_stages")
             if edge.to_stage not in valid_targets:
-                raise ValueError(
-                    f"Edge to_stage '{edge.to_stage}' not in required_stages or __end__"
-                )
+                raise ValueError(f"Edge to_stage '{edge.to_stage}' not in required_stages or __end__")
             # Self-loops only allowed for loopback type
             if edge.from_stage == edge.to_stage and edge.edge_type != "loopback":
-                raise ValueError(
-                    f"Self-loop on '{edge.from_stage}' requires edge_type='loopback'"
-                )
+                raise ValueError(f"Self-loop on '{edge.from_stage}' requires edge_type='loopback'")
         return self
 
     @model_validator(mode="after")
@@ -152,9 +143,7 @@ class GraphTopologyProposal(BaseModel):
         for pg in self.phase_groups:
             for s in pg.stages:
                 if s not in stage_set:
-                    raise ValueError(
-                        f"Phase group '{pg.name}' references stage '{s}' not in required_stages"
-                    )
+                    raise ValueError(f"Phase group '{pg.name}' references stage '{s}' not in required_stages")
         return self
 
     @model_validator(mode="after")
@@ -162,18 +151,15 @@ class GraphTopologyProposal(BaseModel):
         stage_set = set(self.required_stages)
         for pol in self.execution_policies:
             if pol.stage_id not in stage_set:
-                raise ValueError(
-                    f"Execution policy references stage '{pol.stage_id}' not in required_stages"
-                )
+                raise ValueError(f"Execution policy references stage '{pol.stage_id}' not in required_stages")
             if pol.failure_route and pol.failure_route not in stage_set:
-                raise ValueError(
-                    f"Execution policy failure_route '{pol.failure_route}' not in required_stages"
-                )
+                raise ValueError(f"Execution policy failure_route '{pol.failure_route}' not in required_stages")
         return self
 
 
 class AuthorizedGraphTopology(BaseModel):
     """Policy-authorized version of a topology proposal. Immutable and safe to compile."""
+
     model_config = ConfigDict(frozen=True)
 
     plan_id: str
@@ -413,6 +399,7 @@ QA_TYPE = Literal["deterministic", "heuristic"]
 
 class QAEvidence(BaseModel):
     """Verifiable evidence produced by a QA stage. Prevents hallucinated PASS."""
+
     model_config = ConfigDict(frozen=True)
 
     files_analyzed: int = Field(default=0, description="Number of source files examined")
@@ -424,6 +411,7 @@ class QAEvidence(BaseModel):
 
 class QAExecution(BaseModel):
     """Execution metadata for observability and audit."""
+
     model_config = ConfigDict(frozen=True)
 
     started_at: float = Field(default=0.0, description="Unix timestamp of stage start")
@@ -434,6 +422,7 @@ class QAExecution(BaseModel):
 
 class QAFinding(BaseModel):
     """A single QA finding with severity classification."""
+
     model_config = ConfigDict(frozen=True)
 
     category: str = Field(default="", description="Category, e.g. 'xss', 'wcag', 'coverage'")
@@ -452,6 +441,7 @@ class QAResult(BaseModel):
     Heuristic stages (human.flow, human.ux):
     verdict includes confidence score and friction_score for policy evaluation.
     """
+
     model_config = ConfigDict(frozen=True)
 
     stage_id: str = Field(default="", description="Stage that produced this result")
@@ -488,6 +478,7 @@ class QaOutput(BaseModel):
 # ──────────────────────────────────────────────
 class StaticOutput(BaseModel):
     """Static analysis: lint, type-check, cyclomatic complexity."""
+
     model_config = ConfigDict(frozen=True)
 
     verdict: QA_VERDICT = Field(default="PASS")
@@ -512,6 +503,7 @@ class StaticOutput(BaseModel):
 # ──────────────────────────────────────────────
 class UnitOutput(BaseModel):
     """Unit test generation and execution results."""
+
     model_config = ConfigDict(frozen=True)
 
     verdict: QA_VERDICT = Field(default="PASS")
@@ -547,6 +539,7 @@ class UnitOutput(BaseModel):
 # ──────────────────────────────────────────────
 class IntegrationOutput(BaseModel):
     """Integration testing: API contracts + component communication."""
+
     model_config = ConfigDict(frozen=True)
 
     verdict: QA_VERDICT = Field(default="PASS")
@@ -576,6 +569,7 @@ class HumanFlowOutput(BaseModel):
     tasks in the system, reporting friction points, jargon, dead ends, and
     unexpected states.
     """
+
     model_config = ConfigDict(frozen=True)
 
     verdict: QA_VERDICT = Field(default="PASS")
@@ -605,6 +599,7 @@ class HumanUxOutput(BaseModel):
     Evaluates cognitive load, step bloat, navigation consistency, and
     accessibility compliance (WCAG 2.1 AA).
     """
+
     model_config = ConfigDict(frozen=True)
 
     verdict: QA_VERDICT = Field(default="PASS")
@@ -659,6 +654,66 @@ class DocProjectOutput(BaseModel):
     architecture_overview: str = Field(default="", description="Architecture overview")
     user_manual: str = Field(default="", description="User manual content")
     complete: bool = Field(default=True, description="Whether documentation is complete")
+
+
+# ──────────────────────────────────────────────
+# ESSENCE SIDECAR — Four Lenses validation
+# ──────────────────────────────────────────────
+class EssenceSubjectiveTerm(BaseModel):
+    """A subjective term found by Lens 1."""
+
+    model_config = ConfigDict(frozen=True)
+
+    term: str = Field(default="", description="The subjective term")
+    context: str = Field(default="", description="Where the term appears")
+    interpretations: list[str] = Field(
+        default_factory=list, description="Proposed concrete interpretations"
+    )
+
+
+class EssenceHiddenAssumption(BaseModel):
+    """A hidden assumption found by Lens 2."""
+
+    model_config = ConfigDict(frozen=True)
+
+    assumption: str = Field(default="", description="The unstated assumption")
+    risk: str = Field(default="", description="What could go wrong if assumption is false")
+    severity: Literal["high", "medium", "low"] = Field(default="low")
+
+
+class EssenceLiteralTrap(BaseModel):
+    """A literal trap found by Lens 3."""
+
+    model_config = ConfigDict(frozen=True)
+
+    phrasing: str = Field(default="", description="The ambiguous phrasing")
+    ambiguity: str = Field(default="", description="Why it can be misinterpreted")
+    likely_misinterpretation: str = Field(default="", description="What an LLM might do wrong")
+
+
+class EssenceConflict(BaseModel):
+    """A conflicting priority found by Lens 4."""
+
+    model_config = ConfigDict(frozen=True)
+
+    goal_a: str = Field(default="", description="First competing goal")
+    goal_b: str = Field(default="", description="Second competing goal")
+    tension: str = Field(default="", description="Why they conflict")
+    requires_user_resolution: bool = Field(default=True)
+
+
+class EssenceOutput(BaseModel):
+    """Structured output from Essence Four Lenses validation."""
+
+    lens_1_subjective_terms: list[EssenceSubjectiveTerm] = Field(default_factory=list)
+    lens_2_hidden_assumptions: list[EssenceHiddenAssumption] = Field(default_factory=list)
+    lens_3_literal_traps: list[EssenceLiteralTrap] = Field(default_factory=list)
+    lens_4_conflicts: list[EssenceConflict] = Field(default_factory=list)
+    clean: bool = Field(default=False, description="True if all four lenses found nothing")
+    adjustments: list[str] = Field(
+        default_factory=list, description="Lens 1-3 adjustments applied inline"
+    )
+    summary: str = Field(default="", description="One-line summary of findings")
 
 
 # ──────────────────────────────────────────────

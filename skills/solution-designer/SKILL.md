@@ -7,7 +7,7 @@ stage: architecture > solution
 description: >
   Designs the application-level solution architecture based on refined requirements.
   Covers component design, data models, API contracts, cross-cutting concerns,
-  ADRs, threat modeling, and API design principles. Runs in parallel with cloud-architect.
+  ADRs, threat modeling, and API design principles.
 ---
 
 # Solution Designer
@@ -17,7 +17,7 @@ description: >
 Design the **application-level solution architecture**. Consumes the refined
 requirements document and produces a solution design covering components,
 data models, API contracts, cross-cutting concerns, architecture decisions,
-and threat models. Runs in parallel with cloud-architect.
+and threat models.
 
 ## Inputs
 

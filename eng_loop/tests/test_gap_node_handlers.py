@@ -242,7 +242,15 @@ class TestQaPerformanceNode:
         spec = build_registry().get("qa.performance")
         s = _st()
         s["complexity"] = "complex"
-        mock = _mr({"verdict": "FAIL", "findings": ["slow"], "critical_findings": ["timeout"], "severity": "critical", "complete": False})
+        mock = _mr(
+            {
+                "verdict": "FAIL",
+                "findings": ["slow"],
+                "critical_findings": ["timeout"],
+                "severity": "critical",
+                "complete": False,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
             result = spec.handler(s)
         assert result.goto == "impl-code"

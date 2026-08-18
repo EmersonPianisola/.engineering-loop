@@ -41,12 +41,26 @@ SAFE_INSPECTION_COMMANDS = {
 # Read-only tools that are safe to repeat (inspection/exploration)
 SAFE_READ_TOOLS = {"read", "glob", "grep"}
 
+# Idempotent bash commands — safe to repeat, shouldn't hard-kill the agent
+SAFE_IDEMPOTENT_COMMANDS = {
+    "mkdir",
+    "touch",
+    "chmod",
+    "chown",
+    "cp",
+    "mv",
+    "ln",
+    "install",
+    "tee",
+}
+
 
 def _is_safe_inspection(tool_name: str, tool_args: dict) -> bool:
-    """Determine if a tool call is a safe read-only inspection.
+    """Determine if a tool call is safe to repeat.
 
-    Returns True for read/glob/grep tools, and for bash commands that
-    are purely informational (ls, cat, grep, find, git status, etc.).
+    Returns True for read/glob/grep tools, read-only bash inspections
+    (ls, cat, grep, find, git status, etc.), and idempotent bash commands
+    (mkdir, touch, chmod, cp, mv, etc.) that won't cause harm on retry.
     """
     if tool_name in SAFE_READ_TOOLS:
         return True
@@ -60,6 +74,8 @@ def _is_safe_inspection(tool_name: str, tool_args: dict) -> bool:
         if command:
             first_token = command.split()[0].lower() if command.split() else ""
             if first_token in SAFE_INSPECTION_COMMANDS:
+                return True
+            if first_token in SAFE_IDEMPOTENT_COMMANDS:
                 return True
             norm = command.strip().lower()
             for safe_cmd in SAFE_INSPECTION_COMMANDS:

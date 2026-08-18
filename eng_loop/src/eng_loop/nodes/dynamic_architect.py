@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # This runs BEFORE graph compilation, invoked by cli.py.
 # ───────────────────────────────────────────────────────────────────
 
+
 def propose_topology(
     work_item: str,
     codebase_facts: dict[str, Any],
@@ -66,7 +67,7 @@ def propose_topology(
         f"injected by the framework. NEVER propose loopback or terminal edges.\n"
         f"Proposing a loopback edge (e.g., verify -> impl.code) creates a cycle\n"
         f"and will be REJECTED by the policy firewall.\n\n"
-  f"## CRITICAL RULES\n"
+        f"## CRITICAL RULES\n"
         f"1. Include 'init' (entry) and 'post' (exit) — they are MANDATORY.\n"
         f"2. All stages in required_stages must exist in the catalog above.\n"
         f"3. All edges must connect stages in required_stages (or __start__/__end__).\n"
@@ -210,6 +211,7 @@ def _build_allowed_conditions_context() -> str:
 # Handles micro-augmentation decisions during execution.
 # Cannot alter the structural topology — only proposes runtime steps.
 # ───────────────────────────────────────────────────────────────────
+
 
 def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
     """Runtime intercept node: evaluates if micro-augmentation is needed.

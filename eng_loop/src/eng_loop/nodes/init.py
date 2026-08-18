@@ -6,6 +6,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import InitBddOutput, InitIdeateOutput, InitOutput, InitRefineOutput
+from eng_loop.tools.essence_gate import run_essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.file_ops import read_file
 from eng_loop.tools.next_active import resolve_next
@@ -49,6 +50,21 @@ def init_node(state: dict[str, Any]) -> Command[str]:
     config = state.get("config", {})
     paths = state.get("paths", {})
     stages = dict(state.get("stages", {}))
+
+    # Essence gate — validate inputs before stage execution
+    essence = run_essence_gate(stage_id, state, paths, config)
+    if essence.blocked:
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
+                "stages": stages,
+                "essence_tension": essence.tension,
+            },
+            goto="__end__",
+        )
+    if essence.updated_state and essence.updated_state.get("stages"):
+        stages = essence.updated_state["stages"]
 
     work_item = _resolve_work_item(state.get("work_item", ""))
 
@@ -159,14 +175,28 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
     stages = dict(state.get("stages", {}))
     stage_id = "init.ideate"
+    config = state.get("config", {})
+    paths = state.get("paths", {})
+
+    # Essence gate
+    essence = run_essence_gate(stage_id, state, paths, config)
+    if essence.blocked:
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
+                "stages": stages,
+                "essence_tension": essence.tension,
+            },
+            goto="__end__",
+        )
+    if essence.updated_state and essence.updated_state.get("stages"):
+        stages = essence.updated_state["stages"]
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
         _n = resolve_next("init-bdd", state)
         return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
-
-    config = state.get("config", {})
-    paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_ideate_attempts", 3)
     current_attempts = stages[stage_id].get("attempts", 0)
     _dbg.debug(
@@ -284,14 +314,28 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     stages = dict(state.get("stages", {}))
     stage_id = "init.bdd"
+    config = state.get("config", {})
+    paths = state.get("paths", {})
+
+    # Essence gate
+    essence = run_essence_gate(stage_id, state, paths, config)
+    if essence.blocked:
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
+                "stages": stages,
+                "essence_tension": essence.tension,
+            },
+            goto="__end__",
+        )
+    if essence.updated_state and essence.updated_state.get("stages"):
+        stages = essence.updated_state["stages"]
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
         _n = resolve_next("init-refine", state)
         return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
-
-    config = state.get("config", {})
-    paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_bdd_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
@@ -377,14 +421,28 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 
     stages = dict(state.get("stages", {}))
     stage_id = "init.refine"
+    config = state.get("config", {})
+    paths = state.get("paths", {})
+
+    # Essence gate
+    essence = run_essence_gate(stage_id, state, paths, config)
+    if essence.blocked:
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
+                "stages": stages,
+                "essence_tension": essence.tension,
+            },
+            goto="__end__",
+        )
+    if essence.updated_state and essence.updated_state.get("stages"):
+        stages = essence.updated_state["stages"]
 
     if stages.get(stage_id, {}).get("done", False):
         log_stage_skip(stage_id)
         next_node = _next_phase_node(state)
         return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
-
-    config = state.get("config", {})
-    paths = state.get("paths", {})
     max_attempts = config.get("constraints", {}).get("max_init_refine_attempts", 5)
     current_attempts = stages[stage_id].get("attempts", 0)
     _dbg.debug(

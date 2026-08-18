@@ -98,6 +98,7 @@ class TestWriteToolAliases:
         with tempfile.TemporaryDirectory() as tmp:
             rel_path = "a/b/c/test.txt"
             import os as _os
+
             old_cwd = _os.getcwd()
             _os.chdir(tmp)
             try:

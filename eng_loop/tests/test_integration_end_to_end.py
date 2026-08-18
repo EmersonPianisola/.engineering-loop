@@ -26,11 +26,14 @@ class TestEndToEndDocumentationPipeline:
         artifact_root = os.path.join(tmp, "artifacts")
         os.makedirs(artifact_root)
 
-        state = make_initial_state({}, {
-            "artifact_root": artifact_root,
-            "project_root": tmp,
-            "framework_stage_root": "stages",
-        })
+        state = make_initial_state(
+            {},
+            {
+                "artifact_root": artifact_root,
+                "project_root": tmp,
+                "framework_stage_root": "stages",
+            },
+        )
         state["complexity"] = "small"
         state["ui_project"] = False
         state["work_type"] = "documentation"
@@ -102,16 +105,17 @@ class TestEndToEndDocumentationPipeline:
         assert "impl.design" not in topology.active_nodes
 
         # Step 5: Simulate post node with success
-        mock_result = self._mock_agent_result({
-            "summary": "Pipeline completed successfully",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Pipeline completed successfully",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "done"
         assert cmd.update["task_outcome"] == "done"
@@ -122,9 +126,8 @@ class TestEndToEndDocumentationPipeline:
 
         mock_result = self._mock_agent_result({}, "agent_stalled: read loop detected")
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         assert cmd.update["status"] == "failed"
         assert cmd.update["task_outcome"] == "failed"
@@ -140,16 +143,17 @@ class TestEndToEndDocumentationPipeline:
         # Use absolute path in code_map
         state["work_item"]["code_map"] = [artifact_path]
 
-        mock_result = self._mock_agent_result({
-            "summary": "Artifact created and verified",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 0,
-        })
+        mock_result = self._mock_agent_result(
+            {
+                "summary": "Artifact created and verified",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 0,
+            }
+        )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
-            with patch("eng_loop.nodes.post.create_model_from_config"):
-                cmd = post_node(state)
+        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+            cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})
         assert artifact_path in evidence
@@ -163,11 +167,14 @@ class TestEndToEndOperationalPipeline:
         artifact_root = os.path.join(tmp, "artifacts")
         os.makedirs(artifact_root)
 
-        state = make_initial_state({}, {
-            "artifact_root": artifact_root,
-            "project_root": tmp,
-            "framework_stage_root": "stages",
-        })
+        state = make_initial_state(
+            {},
+            {
+                "artifact_root": artifact_root,
+                "project_root": tmp,
+                "framework_stage_root": "stages",
+            },
+        )
         state["complexity"] = "small"
         state["ui_project"] = False
         state["work_type"] = "operational"
@@ -206,11 +213,14 @@ class TestEndToEndFeaturePipeline:
         artifact_root = os.path.join(tmp, "artifacts")
         os.makedirs(artifact_root)
 
-        state = make_initial_state({}, {
-            "artifact_root": artifact_root,
-            "project_root": tmp,
-            "framework_stage_root": "stages",
-        })
+        state = make_initial_state(
+            {},
+            {
+                "artifact_root": artifact_root,
+                "project_root": tmp,
+                "framework_stage_root": "stages",
+            },
+        )
         state["complexity"] = "medium"
         state["ui_project"] = False
         state["work_type"] = "feature"
@@ -221,8 +231,13 @@ class TestEndToEndFeaturePipeline:
             work_type="feature",
             complexity="medium",
             required_stages=(
-                "init", "arch.requirements", "impl.design",
-                "impl.code", "doc.update", "verify", "post",
+                "init",
+                "arch.requirements",
+                "impl.design",
+                "impl.code",
+                "doc.update",
+                "verify",
+                "post",
             ),
             edges=(
                 EdgeDefinition(from_stage="init", to_stage="arch.requirements", edge_type="fixed"),
@@ -258,16 +273,20 @@ class TestEndToEndStatusIntegrity:
     def test_status_cannot_be_done_when_post_failed(self):
         """DONE is impossible when post stage failed."""
         stages = {
-            "init": make_stage(), "impl.code": make_stage(),
-            "verify": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "impl.code": make_stage(),
+            "verify": make_stage(),
+            "post": make_stage(),
         }
-        for sid in stages:
+        for sid in stages:  # noqa: PLC0206
             stages[sid]["done"] = True
             stages[sid]["attempts"] = 1
-        stages["post"]["output"] = json.dumps({
-            "summary": "Artifact missing",
-            "final_status": "failed",
-        })
+        stages["post"]["output"] = json.dumps(
+            {
+                "summary": "Artifact missing",
+                "final_status": "failed",
+            }
+        )
 
         outcome = compute_task_outcome(stages, "failed")
         assert outcome == "failed"
@@ -275,7 +294,9 @@ class TestEndToEndStatusIntegrity:
     def test_status_cannot_be_done_when_stages_incomplete(self):
         """DONE is impossible when active stages are incomplete."""
         stages = {
-            "init": make_stage(), "impl.code": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "impl.code": make_stage(),
+            "post": make_stage(),
         }
         stages["init"]["done"] = True
         stages["init"]["attempts"] = 1
@@ -290,10 +311,12 @@ class TestEndToEndStatusIntegrity:
     def test_status_done_with_warnings_on_retries(self):
         """Warnings are reported when stages retried."""
         stages = {
-            "init": make_stage(), "impl.code": make_stage(),
-            "verify": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "impl.code": make_stage(),
+            "verify": make_stage(),
+            "post": make_stage(),
         }
-        for sid in stages:
+        for sid in stages:  # noqa: PLC0206
             stages[sid]["done"] = True
         stages["init"]["attempts"] = 1
         stages["impl.code"]["attempts"] = 3
@@ -306,9 +329,11 @@ class TestEndToEndStatusIntegrity:
     def test_clean_done_when_all_succeed_first_attempt(self):
         """Clean DONE when everything succeeds on first attempt."""
         stages = {
-            "init": make_stage(), "impl.code": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "impl.code": make_stage(),
+            "post": make_stage(),
         }
-        for sid in stages:
+        for sid in stages:  # noqa: PLC0206
             stages[sid]["done"] = True
             stages[sid]["attempts"] = 1
 

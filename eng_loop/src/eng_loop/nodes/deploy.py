@@ -6,6 +6,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DeployPrepareOutput, SmokeTestOutput
+from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
@@ -16,6 +17,7 @@ from eng_loop.tools.progress import (
 )
 
 
+@essence_gate("deploy.prepare")
 def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
@@ -146,6 +148,7 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
     )
 
 
+@essence_gate("smoke.test")
 def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage

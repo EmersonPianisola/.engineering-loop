@@ -184,8 +184,12 @@ class GraphBuilder:
             excluded_for_work_type = set(OPERATIONAL_EXCLUDED_STAGES)
         elif work_type == "bugfix":
             excluded_for_work_type = {
-                "design.user-research", "design.personas", "design.info-arch",
-                "design.interaction", "design.design-system", "design.visual-design",
+                "design.user-research",
+                "design.personas",
+                "design.info-arch",
+                "design.interaction",
+                "design.design-system",
+                "design.visual-design",
             }
 
         filtered_stages = []
@@ -193,7 +197,8 @@ class GraphBuilder:
             if stage_id in excluded_for_work_type:
                 logger.warning(
                     "  [proposal] Skipping stage '%s': excluded for work_type=%s",
-                    stage_id, work_type,
+                    stage_id,
+                    work_type,
                 )
             else:
                 filtered_stages.append(stage_id)

@@ -22,7 +22,6 @@ description: 'How the loop finds or creates skills for each stage.'
 | Stage | Design Skill | Execution Skill |
 |-------|-------------|-----------------|
 | arch.requirements | `requirements-refiner` | — |
-| arch.cloud | `cloud-architect` | — |
 | arch.solution | `solution-designer` | — |
 | arch.review | `architecture-reviewer` | — |
 | impl | `implementation-architect` | Domain-specific |

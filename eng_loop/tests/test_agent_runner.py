@@ -16,11 +16,13 @@ from eng_loop.tools.agent_runner import (
     ToolResultCache,
     _build_agent_prompt,
     _compact_messages,
+    _compact_skill,
     _execute_tool,
     _execute_tool_cached,
     _extract_best_effort_from_messages,
     _extract_from_text,
     _get_allowed_tools,
+    _inject_compact_skill,
     _is_error_output,
     _last_ai_message,
     _summarize_error,
@@ -437,3 +439,161 @@ class TestExtractFromText:
         data = _extract_from_text("Just plain text", None)
         assert "raw_output" in data
         assert "complete" in data
+
+
+# ============================================================
+# COMPACT SKILL
+# ============================================================
+
+
+class TestCompactSkill:
+    def test_empty_input(self):
+        assert _compact_skill("") == ""
+        assert _compact_skill("   ") == ""
+        assert _compact_skill("\n\n") == ""
+
+    def test_short_skill_passthrough(self):
+        short = "---\nname: test-skill\nversion: 1.0.0\n---\n\n# Test Skill\n\n## Rules\n- Never skip\n"
+        result = _compact_skill(short, max_lines=50)
+        assert "name: test-skill" in result
+        assert "Never skip" in result
+
+    def test_preserves_frontmatter_metadata(self):
+        skill = (
+            "---\n"
+            "name: verifier\n"
+            "version: 2.0.0\n"
+            "type: skill\n"
+            "description: Independent verification\n"
+            "stage: verify\n"
+            "---\n\n"
+            "# Verifier Skill\n"
+        )
+        result = _compact_skill(skill, max_lines=50)
+        assert "name: verifier" in result
+        assert "version: 2.0.0" in result
+        assert "type: skill" in result
+
+    def test_preserves_section_headers(self):
+        skill = (
+            "## Purpose\nSome purpose text\n\n"
+            "## Execution Protocol\nDo the thing\n\n"
+            "## Rules\n- Rule one\n- Rule two\n\n"
+            "## Anti-Patterns\n- Don't do this\n"
+        )
+        result = _compact_skill(skill, max_lines=50)
+        assert "## Purpose" in result
+        assert "## Execution Protocol" in result
+        assert "## Rules" in result
+        assert "## Anti-Patterns" in result
+
+    def test_compacts_long_skill(self):
+        lines = ["---\nname: long-skill\n---\n"]
+        for i in range(100):
+            lines.append(f"## Section {i}\n")
+            lines.append(f"Some content for section {i}\n")
+        skill = "".join(lines)
+        result = _compact_skill(skill, max_lines=30)
+        result_lines = result.split("\n")
+        assert len(result_lines) <= 35  # 30 + compacted notice
+
+    def test_skips_long_code_blocks(self):
+        skill = (
+            "## Protocol\n```\n" + "\n".join([f"line {i}" for i in range(20)]) + "\n```\n## Rules\n- Important rule\n"
+        )
+        result = _compact_skill(skill, max_lines=50)
+        for i in range(20):
+            assert f"line {i}" not in result
+
+    def test_keeps_short_code_blocks(self):
+        skill = "## Output\n```\nkey: value\nstatus: true\n```\n## Rules\n- Do this\n"
+        result = _compact_skill(skill, max_lines=50)
+        assert "key: value" in result
+
+    def test_compacts_tables(self):
+        skill = (
+            "## Classification\n"
+            "| Level | Criteria |\n"
+            "|-------|----------|\n"
+            + "".join([f"| Level {i} | Criteria {i} |\n" for i in range(15)])
+            + "\n## Rules\n- Rule\n"
+        )
+        result = _compact_skill(skill, max_lines=50)
+        assert "| Level | Criteria |" in result
+        data_rows = [
+            l
+            for l in result.split("\n")
+            if l.startswith("| Level") and "Criteria" not in l or ("Level" in l and "Criteria" not in l and "|" in l)
+        ]
+        assert len(data_rows) <= 2
+
+    def test_adds_compaction_notice(self):
+        lines = ["---\nname: big\n---\n"]
+        for i in range(80):
+            lines.append(f"## Section {i}\nContent {i}\n")
+        skill = "".join(lines)
+        result = _compact_skill(skill, max_lines=30)
+        assert "compacted from" in result
+
+    def test_preserves_bullet_points(self):
+        skill = "## Rules\n- Never skip\n- Always verify\n- Bound to 3 rounds\n"
+        result = _compact_skill(skill, max_lines=50)
+        assert "Never skip" in result
+        assert "Always verify" in result
+        assert "Bound to 3 rounds" in result
+
+    def test_preserves_numbered_lists(self):
+        skill = "## Protocol\n1. First step\n2. Second step\n3. Third step\n"
+        result = _compact_skill(skill, max_lines=50)
+        assert "First step" in result
+        assert "Second step" in result
+
+    def test_filters_frontmatter_keys(self):
+        skill = (
+            "---\n"
+            "name: test\n"
+            "version: 1.0\n"
+            "custom_key: should_be_filtered\n"
+            "description: test skill\n"
+            "---\n\n"
+            "## Rules\n- Do this\n"
+        )
+        result = _compact_skill(skill, max_lines=50)
+        assert "name: test" in result
+        assert "custom_key" not in result
+        assert "## Rules" in result
+
+
+class TestInjectCompactSkill:
+    def test_no_skill_section(self):
+        prompt = "## WORK ITEM\nDo something\n\n## PROCEDURE\nSteps here\n"
+        result = _inject_compact_skill(prompt)
+        assert result == prompt
+
+    def test_compacts_skill_in_prompt(self):
+        skill_lines = ["## SKILL\n"]
+        skill_lines.append("---\nname: test-skill\n---\n")
+        for i in range(60):
+            skill_lines.append(f"## Section {i}\nContent {i}\n")
+        skill_block = "".join(skill_lines)
+        prompt = f"## WORK ITEM\nDo something\n\n{skill_block}\n\n## PROCEDURE\nSteps\n"
+        result = _inject_compact_skill(prompt, max_skill_lines=30)
+        assert "## SKILL" in result
+        assert "name: test-skill" in result
+        skill_section = result.split("## SKILL\n")[1].split("\n\n## ")[0]
+        assert len(skill_section.split("\n")) <= 40
+
+    def test_preserves_other_sections(self):
+        prompt = (
+            "## WORK ITEM\nDo something\n\n"
+            "## SKILL\n---\nname: test\n---\nLong skill content here with many lines.\n"
+            + "\n".join([f"  - Item {i}" for i in range(100)])
+            + "\n\n## PROCEDURE\nStep 1\nStep 2\n\n"
+            "## DECISIONS\nDecision A\n"
+        )
+        result = _inject_compact_skill(prompt, max_skill_lines=20)
+        assert "## WORK ITEM" in result
+        assert "## SKILL" in result
+        assert "## PROCEDURE" in result
+        assert "Step 1" in result
+        assert "## DECISIONS" in result

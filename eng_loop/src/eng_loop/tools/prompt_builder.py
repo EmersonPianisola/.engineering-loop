@@ -56,6 +56,7 @@ def load_cached_markdown(file_path: str | Path) -> str:
 
     p = Path(file_path)
     if not p.exists():
+        logger.warning("Missing markdown file: %s", p)
         return ""
 
     content = p.read_text(encoding="utf-8")

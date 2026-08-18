@@ -1,0 +1,560 @@
+{
+  "iteration": 5,
+  "status": "partial",
+  "blocking_condition": "",
+  "complexity": "small",
+  "work_type": "feature",
+  "work_item": {
+    "title": "Write a cake recipe in folder Cake/receipt",
+    "intent": "Create a cake recipe document in the Cake/receipt directory with ingredients, instructions, and metadata.",
+    "acceptance_criteria": [
+      "A recipe file exists in the Cake/receipt folder",
+      "The recipe includes a complete list of ingredients with measurements",
+      "The recipe includes step-by-step baking instructions",
+      "The recipe includes metadata (servings, prep time, bake time)"
+    ],
+    "code_map": [
+      "Cake/receipt/recipe.md"
+    ],
+    "edge_cases": [
+      "Folder Cake/receipt may not exist and needs to be created",
+      "File may already exist and should be updated rather than overwritten"
+    ],
+    "non_goals": [],
+    "success_metrics": [
+      "Recipe file created at Cake/receipt/recipe.md",
+      "All 4 acceptance criteria met"
+    ],
+    "impact_classification": "Low"
+  },
+  "ideation": {
+    "early_exit": true,
+    "reason": "Work item already structured: complexity=small, has title, intent, 4 acceptance criteria (≥3), and non-empty code_map. Per procedure early exit condition #2 and #3, minimal ideation needed.",
+    "work_item": {
+      "title": "Write a cake recipe in folder Cake/receipt",
+      "intent": "Create a cake recipe document in the Cake/receipt directory with ingredients, instructions, and metadata.",
+      "acceptance_criteria": [
+        "A recipe file exists in the Cake/receipt folder",
+        "The recipe includes a complete list of ingredients with measurements",
+        "The recipe includes step-by-step baking instructions",
+        "The recipe includes metadata (servings, prep time, bake time)"
+      ],
+      "code_map": [
+        "Cake/receipt/recipe.md"
+      ],
+      "edge_cases": [
+        "Folder Cake/receipt may not exist and needs to be created",
+        "File may already exist and should be updated rather than overwritten"
+      ],
+      "non_goals": [],
+      "success_metrics": [
+        "Recipe file created at Cake/receipt/recipe.md",
+        "All 4 acceptance criteria met"
+      ],
+      "impact_classification": "Low"
+    }
+  },
+  "ui_project": false,
+  "stages": {
+    "init": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "init.ideate": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "{'ideation_results': {'early_exit': True, 'reason': 'Work item already structured: complexity=small, has title, intent, 4 acceptance criteria (≥3), and non-empty code_map. Per procedure early exit condition #2 and #3, minimal ideation needed.', 'work_item': {'title': 'Write a cake recipe in folder Cake/receipt', 'intent': 'Create a cake recipe document in the Cake/receipt directory with ingredients, instructions, and metadata.', 'acceptance_criteria': ['A recipe file exists in the Cake/receipt folder', 'The recipe includes a complete list of ingredients with measurements', 'The recipe includes step-by-step baking instructions', 'The recipe includes metadata (servings, prep time, bake time)'], 'code_map': ['Cake/receipt/recipe.md'], 'edge_cases': ['Folder Cake/receipt may not exist and needs to be created', 'File may already exist and should be updated rather than overwritten'], 'non_goals': [], 'success_metrics': ['Recipe file created at Cake/receipt/recipe.md', 'All 4 acceptance criteria met'], 'impact_classification': 'Low'}}, 'decomposed_tasks': [{'id': 'T-001', 'description': 'Create Cake/receipt directory and recipe.md file', 'acceptance_criteria': ['Given the Cake/receipt folder does not exist, when the directory is created, then Cake/receipt exists', 'Given the directory exists, when recipe.md is created inside it, then Cake/receipt/recipe.md exists'], 'files': ['new: Cake/receipt/recipe.md'], 'dependencies': 'None', 'impact': 'Low', 'rationale': 'Single file creation in a new directory, known domain, no external integrations'}, {'id': 'T-002', 'description': 'Write recipe metadata (servings, prep time, bake time)', 'acceptance_criteria': ['Given recipe.md exists, when metadata section is added, then servings, prep time, and bake time are documented'], 'files': ['Cake/receipt/recipe.md'], 'dependencies': 'T-001', 'impact': 'Low', 'rationale': 'Simple content addition to existing file'}, {'id': 'T-003', 'description': 'Write ingredients list with measurements', 'acceptance_criteria': ['Given recipe.md exists, when ingredients section is added, then all ingredients include specific measurements'], 'files': ['Cake/receipt/recipe.md'], 'dependencies': 'T-001', 'impact': 'Low', 'rationale': 'Simple content addition to existing file'}, {'id': 'T-004', 'description': 'Write step-by-step baking instructions', 'acceptance_criteria': ['Given recipe.md exists, when instructions section is added, then steps are numbered and sequential'], 'files': ['Cake/receipt/recipe.md'], 'dependencies': 'T-001', 'impact': 'Low', 'rationale': 'Simple content addition to existing file'}], 'ready_for_next': True}",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "init.bdd": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "init.refine": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "{'refined_work_item': {'title': 'Write a cake recipe in folder Cake/receipt', 'intent': 'Create a cake recipe document in the Cake/receipt directory with ingredients, instructions, and metadata.', 'acceptance_criteria': ['A recipe file exists in the Cake/receipt folder', 'The recipe includes a complete list of ingredients with measurements', 'The recipe includes step-by-step baking instructions', 'The recipe includes metadata (servings, prep time, bake time)'], 'code_map': ['Cake/receipt/recipe.md'], 'edge_cases': ['Folder Cake/receipt may not exist and needs to be created', 'File may already exist and should be updated rather than overwritten'], 'non_goals': [], 'success_metrics': ['Recipe file created at Cake/receipt/recipe.md', 'All 4 acceptance criteria met'], 'impact_classification': 'Low'}, 'ready_for_architecture': True}",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.user-research": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.personas": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.info-arch": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.interaction": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.design-system": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "design.visual-design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "arch.requirements": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "arch.solution": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "arch.review": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "impl.design": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "impl.code": {
+      "done": true,
+      "attempts": 3,
+      "essence_checked": false,
+      "output": "{'implementation_summary': 'The recipe file at Cake/receipt/recipe.md already exists and fully satisfies all 4 acceptance criteria: (1) file exists in Cake/receipt folder, (2) complete ingredient list with measurements (dry + wet ingredients with grams/ml/cups), (3) 8 step-by-step baking instructions, (4) metadata table with servings (8-10 slices), prep time (20 min), bake time (30 min), and total time (50 min). No changes were required.', 'files_created': [], 'tests_passed': True, 'complete': True, 'decisions': [], 'diff': ''}",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "doc.update": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "verify": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.static": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.unit": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.integration": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "e2e.execute": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.security": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.api-contract": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.performance": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.human.flow": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "qa.human.ux": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "deploy.prepare": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "smoke.test": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "doc.decisions": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "doc.project": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    },
+    "post": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "{'stage': 'post', 'status': 'done', 'artifact': 'artifacts/post-loop-summary.md'}",
+      "artifact_path": "",
+      "verdict": "",
+      "status": "",
+      "findings": [],
+      "evidence": {},
+      "started_at": 0.0,
+      "completed_at": 0.0
+    }
+  },
+  "decisions": [],
+  "stage_artifacts": {},
+  "lessons": [],
+  "errors": [
+    "Contract impl-code→doc-update: No files created — nothing to verify",
+    "Contract impl-code→doc-update: No files created — nothing to verify"
+  ],
+  "handoffs": {
+    "init": "Stage: init",
+    "init.ideate": "Stage: init.ideate",
+    "init.refine": "Stage: init.refine",
+    "impl.code": "Stage: impl.code\nOutput: The recipe file Cake/receipt/recipe.md already exists and fully satisfies all 4 acceptance criteria: (1) file exists in Cake/receipt folder, (2) complete ingredients list with measurements, (3) step-b..."
+  },
+  "context_tiers": {},
+  "tags": [],
+  "active_nodes": [
+    "init",
+    "init.ideate",
+    "init.refine",
+    "impl.code",
+    "post"
+  ],
+  "graph_topology": {
+    "active_nodes": [
+      "init",
+      "init.ideate",
+      "init.refine",
+      "impl.code",
+      "post"
+    ],
+    "edges": [
+      {
+        "from": "__start__",
+        "to": "init-setup",
+        "type": "fixed"
+      },
+      {
+        "from": "init",
+        "to": "init-ideate",
+        "type": "fixed"
+      },
+      {
+        "from": "init-ideate",
+        "to": "init-refine",
+        "type": "fixed"
+      },
+      {
+        "from": "init-refine",
+        "to": "impl-code",
+        "type": "fixed"
+      },
+      {
+        "from": "impl-code",
+        "to": "post",
+        "type": "fixed"
+      }
+    ],
+    "parallel_groups": {},
+    "complexity": "small",
+    "ui_project": false,
+    "total_available": 34,
+    "nodes_included": 5
+  },
+  "parallel_groups": {},
+  "timing": {},
+  "current_stage": "impl-code",
+  "fix_tasks": [],
+  "fix_iteration": 0,
+  "rollback_target": "",
+  "explorer_evidence": [],
+  "codebase_facts": {
+    "computed_at": 1786988781.5654933,
+    "complexity": "small",
+    "work_type": "feature",
+    "ui_project": false,
+    "graphify": {
+      "built": false,
+      "stats": null,
+      "skipped": false,
+      "error": null
+    }
+  },
+  "dynamic_plan": {
+    "plan_id": "none",
+    "trigger": "none",
+    "authorized_complexity": "standard",
+    "steps": [],
+    "rationale": "No augmentation needed."
+  },
+  "dynamic_runtime": {
+    "cursor": 0,
+    "attempts": {},
+    "completed": [],
+    "failed": [],
+    "status": "completed",
+    "step_audit": []
+  }
+}

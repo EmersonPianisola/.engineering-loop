@@ -22,7 +22,13 @@ from eng_loop.graph_builder import GraphTopology
 from eng_loop.model import DEFAULT_BASE_URL, DEFAULT_MODEL, create_model_from_config
 from eng_loop.state import STAGE_ORDER, load_state_template, make_initial_state
 from eng_loop.tools.file_ops import save_json as save_json_file
-from eng_loop.tools.progress import log_iteration, tracker, ui
+from eng_loop.tools.progress import (
+    finalize_live_indicator,
+    init_live_indicator,
+    log_iteration,
+    tracker,
+    ui,
+)
 
 
 def main():
@@ -257,23 +263,17 @@ def main():
                         f"({len(authorized_topology.authorized_stages)} stages)"
                     )
                     if authorized_topology.policy_notes:
-                        ui.console.print(
-                            f"[dim]  Policy notes: {authorized_topology.policy_notes}[/dim]"
-                        )
+                        ui.console.print(f"[dim]  Policy notes: {authorized_topology.policy_notes}[/dim]")
 
                 # Store proposal in state for runtime reference
                 state["topology_proposal"] = proposal.model_dump()
 
         except TopologyValidationError as e:
             if not hud_mode:
-                ui.console.print(
-                    f"[bold yellow]Architect rejected:[/bold yellow] [{e.layer}] {e.message}"
-                )
+                ui.console.print(f"[bold yellow]Architect rejected:[/bold yellow] [{e.layer}] {e.message}")
         except Exception as e:
             if not hud_mode:
-                ui.console.print(
-                    f"[bold yellow]Architect error:[/bold yellow] {e} — falling back to deterministic"
-                )
+                ui.console.print(f"[bold yellow]Architect error:[/bold yellow] {e} — falling back to deterministic")
 
         if not use_proposal:
             if not hud_mode:
@@ -410,6 +410,11 @@ def main():
         tracker.start_loop()
         prev_stage = ""
 
+        # Initialize live progress indicator
+        active_nodes_for_progress = state.get("active_nodes", [])
+        if not hud and not tui_controller and active_nodes_for_progress:
+            init_live_indicator(active_nodes_for_progress)
+
         for event in _stream_with_interrupts(
             graph,
             state,
@@ -426,8 +431,6 @@ def main():
 
             if current and current != prev_stage:
                 log_iteration(iteration, current)
-                if not hud and not tui_controller:
-                    _print_progress_bar(event)
                 _save_state(event, paths)
                 _save_snapshot(event, paths, current, config)
 
@@ -454,6 +457,8 @@ def main():
             elif status == "blocked":
                 normalizer.quest_failed(final_state.get("blocking_condition", ""))
         if not tui_controller:
+            if active_nodes_for_progress:
+                finalize_live_indicator()
             _print_result(final_state)
         _save_state(final_state, paths, verbose=True)
 
@@ -1032,8 +1037,13 @@ def _topology_to_markdown(
 
 def _print_progress_bar(state: dict) -> None:
     stages = state.get("stages", {})
-    complexity = state.get("complexity", "unset")
-    active = [s for s in STAGE_ORDER if _is_active(s, complexity, state.get("ui_project", False))]
+    # Prefer active_nodes from dynamic topology; fall back to computed list
+    active_nodes = state.get("active_nodes")
+    if active_nodes:
+        active = list(active_nodes)
+    else:
+        complexity = state.get("complexity", "unset")
+        active = [s for s in STAGE_ORDER if _is_active(s, complexity, state.get("ui_project", False))]
     done_set = {s for s in active if stages.get(s, {}).get("done", False)}
     current = state.get("current_stage", "").replace("-", ".", 99)
     status = state.get("status", "running")
@@ -1082,7 +1092,11 @@ def _print_result(state: dict) -> None:
     topology_fidelity = state.get("topology_fidelity", None)
 
     ui.render_result(
-        status, blocking, iteration, decisions, stages,
+        status,
+        blocking,
+        iteration,
+        decisions,
+        stages,
         task_outcome=task_outcome,
         artifact_evidence=artifact_evidence,
         work_item=work_item,

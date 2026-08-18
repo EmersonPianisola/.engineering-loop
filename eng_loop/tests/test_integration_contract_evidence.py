@@ -120,11 +120,7 @@ class TestContractGateImplementationArtifactsExist:
 
     def test_artifacts_in_stage_artifacts_passes(self):
         source_output = {}
-        state = {
-            "stage_artifacts": {
-                "impl.code": "Implementation output with sufficient detail for verification"
-            }
-        }
+        state = {"stage_artifacts": {"impl.code": "Implementation output with sufficient detail for verification"}}
         valid, msg = implementation_artifacts_exist(source_output, state)
         assert valid is True
 
@@ -132,31 +128,21 @@ class TestContractGateImplementationArtifactsExist:
         source_output = {}
         state = {
             "stage_artifacts": {},
-            "stages": {
-                "impl.code": {"done": True, "output": "Implementation output with sufficient detail"}
-            }
+            "stages": {"impl.code": {"done": True, "output": "Implementation output with sufficient detail"}},
         }
         valid, msg = implementation_artifacts_exist(source_output, state)
         assert valid is True
 
     def test_impl_code_not_done_fails(self):
         source_output = {}
-        state = {
-            "stage_artifacts": {},
-            "stages": {
-                "impl.code": {"done": False}
-            }
-        }
+        state = {"stage_artifacts": {}, "stages": {"impl.code": {"done": False}}}
         valid, msg = implementation_artifacts_exist(source_output, state)
         assert valid is False
         assert "not completed" in msg
 
     def test_empty_artifacts_fails(self):
         source_output = {}
-        state = {
-            "stage_artifacts": {"impl.code": ""},
-            "stages": {"impl.code": {"done": False}}
-        }
+        state = {"stage_artifacts": {"impl.code": ""}, "stages": {"impl.code": {"done": False}}}
         valid, msg = implementation_artifacts_exist(source_output, state)
         assert valid is False
 

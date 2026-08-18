@@ -23,6 +23,8 @@ class NodeStatus(Enum):
     AVAILABLE = "available"
     ACTIVE = "active"
     COMPLETED = "completed"
+    CACHED = "cached"
+    SKIPPED = "skipped"
     FAILED = "failed"
 
 
@@ -138,6 +140,16 @@ class NarrativeEvent:
 
 
 @dataclass(frozen=True)
+class CommandHistoryEntry:
+    """Single command history entry for HUD display."""
+
+    tool_name: str
+    target: str
+    count: int
+    is_intercepted: bool = False
+
+
+@dataclass(frozen=True)
 class HUDSnapshot:
     quest_id: str
     quest_title: str
@@ -147,6 +159,7 @@ class HUDSnapshot:
     topology: list[TopologyNode]
     party: list[PartyMemberSnapshot]
     narrative: list[NarrativeEvent]
+    command_history: list[CommandHistoryEntry] = ()
     quest_summary: QuestSummary | None = None
     wall_clock_ref: float = 0.0
     monotonic_ref: float = 0.0
@@ -249,6 +262,19 @@ class TokenStreamEvent:
     timestamp: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class CommandHistoryEvent:
+    """Command history update from agent_runner for HUD visibility."""
+
+    node_name: str
+    execution_id: str
+    tool_name: str
+    target: str
+    count: int
+    is_intercepted: bool = False
+    timestamp: float = field(default_factory=time.monotonic)
+
+
 # ─── Threat Evaluator ─────────────────────────────────────────────────
 
 
@@ -323,6 +349,9 @@ class ExecutionState:
         # Narrative event log
         self._narrative: list[NarrativeEvent] = []
 
+        # Command history per node (for HUD panel)
+        self._command_history: dict[str, dict[str, int]] = {}
+
         # Total gold spent
         self._gold_spent = 0.0
 
@@ -364,6 +393,8 @@ class ExecutionState:
                 self._handle_resource_consumed(event)
             elif isinstance(event, TokenStreamEvent):
                 self._handle_token_streamed(event)
+            elif isinstance(event, CommandHistoryEvent):
+                self._handle_command_history(event)
 
     def _handle_node_started(self, event: NodeStartedEvent) -> None:
         if self._status == ExecutionStatus.PENDING:
@@ -512,6 +543,16 @@ class ExecutionState:
                 thinking_buffer=new_buffer,
                 action_type="thinking",
             )
+
+    def _handle_command_history(self, event: CommandHistoryEvent) -> None:
+        node_history = self._command_history.setdefault(event.node_name, {})
+        key = f"{event.tool_name}:{event.target}"
+        node_history[key] = {
+            "tool_name": event.tool_name,
+            "target": event.target,
+            "count": event.count,
+            "is_intercepted": event.is_intercepted,
+        }
 
     # ─── Payload Management (Node Inspector X-Ray) ──────────────────
 
@@ -741,6 +782,22 @@ class ExecutionState:
 
             narrative_events = list(self._narrative[-12:])
 
+            # Build command history entries from active nodes
+            cmd_history_entries = []
+            for node_name, entries in self._command_history.items():
+                for key, data in entries.items():
+                    cmd_history_entries.append(
+                        CommandHistoryEntry(
+                            tool_name=data["tool_name"],
+                            target=data["target"],
+                            count=data["count"],
+                            is_intercepted=data["is_intercepted"],
+                        )
+                    )
+            # Sort by count descending, take last 8 for HUD display
+            cmd_history_entries.sort(key=lambda e: e.count, reverse=True)
+            cmd_history_entries = cmd_history_entries[:8]
+
             summary = None
             if self._status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED):
                 summary = self.get_quest_summary()
@@ -754,6 +811,7 @@ class ExecutionState:
                 topology=self.get_topology(),
                 party=party,
                 narrative=narrative_events,
+                command_history=cmd_history_entries,
                 quest_summary=summary,
                 wall_clock_ref=self._wall_clock_start,
                 monotonic_ref=self._monotonic_start,

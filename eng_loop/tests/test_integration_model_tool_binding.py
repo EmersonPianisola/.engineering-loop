@@ -286,9 +286,7 @@ class TestAgentLoopIntegration:
                 )
                 read_msg = AIMessage(
                     content="",
-                    tool_calls=[
-                        {"name": "read", "args": {"file_path": "output.txt"}, "id": "tc2"}
-                    ],
+                    tool_calls=[{"name": "read", "args": {"file_path": "output.txt"}, "id": "tc2"}],
                 )
                 final_msg = AIMessage(content='{"complete": true, "verified": true}')
 
@@ -328,9 +326,7 @@ class TestAgentLoopIntegration:
         # Request to read nonexistent file
         tool_call_msg = AIMessage(
             content="",
-            tool_calls=[
-                {"name": "read", "args": {"file_path": "/nonexistent.txt"}, "id": "tc1"}
-            ],
+            tool_calls=[{"name": "read", "args": {"file_path": "/nonexistent.txt"}, "id": "tc1"}],
         )
         final_msg = AIMessage(content='{"complete": true, "error_handled": true}')
 
@@ -355,6 +351,7 @@ class TestAgentLoopIntegration:
 
     def test_structured_output_extraction_with_schema(self):
         """Agent output can be validated against a Pydantic schema."""
+
         class VerifyOutput(BaseModel):
             verdict: str
             gaps: list[str]
@@ -362,11 +359,13 @@ class TestAgentLoopIntegration:
 
         messages = [
             AIMessage(
-                content=json.dumps({
-                    "verdict": "PASS",
-                    "gaps": [],
-                    "tests_passed": True,
-                })
+                content=json.dumps(
+                    {
+                        "verdict": "PASS",
+                        "gaps": [],
+                        "tests_passed": True,
+                    }
+                )
             )
         ]
 
@@ -376,9 +375,7 @@ class TestAgentLoopIntegration:
 
     def test_structured_output_extraction_fallback(self):
         """When schema validation fails, JSON extraction still works."""
-        messages = [
-            AIMessage(content='{"complete": true, "extra_field": "unexpected"}')
-        ]
+        messages = [AIMessage(content='{"complete": true, "extra_field": "unexpected"}')]
 
         class StrictSchema(BaseModel):
             complete: bool
@@ -395,7 +392,7 @@ class TestAgentLoopIntegration:
 
     def test_json_extraction_brace_matching(self):
         """JSON can be extracted using brace matching from prose."""
-        text = "The analysis is complete. Here are the findings: {\"complete\": true, \"findings\": []}"
+        text = 'The analysis is complete. Here are the findings: {"complete": true, "findings": []}'
         data = _extract_from_text(text, None)
         assert data["complete"] is True
 

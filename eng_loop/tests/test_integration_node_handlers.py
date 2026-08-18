@@ -81,12 +81,14 @@ class TestImplCodeNode:
     """impl.code node: code generation, fix-mode, test execution."""
 
     def test_impl_code_success_routes_to_doc_update(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "implementation_summary": "Implemented the feature with comprehensive test coverage and full documentation",
-            "files_created": ["src/main.py", "tests/test_main.py"],
-            "tests_passed": True,
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "implementation_summary": "Implemented the feature with comprehensive test coverage and full documentation",
+                "files_created": ["src/main.py", "tests/test_main.py"],
+                "tests_passed": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.implementation import impl_code_node
 
@@ -96,12 +98,14 @@ class TestImplCodeNode:
             assert result.goto == "doc-update"
 
     def test_impl_code_fail_routes_to_retry(self):
-        mock_result = AgentResult(data={
-            "complete": False,
-            "implementation_summary": "Short",
-            "files_created": [],
-            "tests_passed": False,
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": False,
+                "implementation_summary": "Short",
+                "files_created": [],
+                "tests_passed": False,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.implementation import impl_code_node
 
@@ -111,11 +115,13 @@ class TestImplCodeNode:
             assert result.goto == "impl-code"
 
     def test_impl_code_max_attempts_blocks(self):
-        mock_result = AgentResult(data={
-            "complete": False,
-            "implementation_summary": "Short",
-            "files_created": [],
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": False,
+                "implementation_summary": "Short",
+                "files_created": [],
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.implementation import impl_code_node
 
@@ -131,19 +137,19 @@ class TestImplCodeNode:
 
     def test_impl_code_fix_mode_with_qa_gaps(self):
         """impl.code receives fix_tasks from qa-join rollback."""
-        mock_result = AgentResult(data={
-            "complete": True,
-            "implementation_summary": "Fixed the QA issues with comprehensive test coverage and documentation",
-            "files_created": ["src/fix.py"],
-            "tests_passed": True,
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "implementation_summary": "Fixed the QA issues with comprehensive test coverage and documentation",
+                "files_created": ["src/fix.py"],
+                "tests_passed": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.implementation import impl_code_node
 
             state = _make_state("medium")
-            state["fix_tasks"] = [
-                {"source": "qa.security", "gap": "SQL injection", "severity": "critical"}
-            ]
+            state["fix_tasks"] = [{"source": "qa.security", "gap": "SQL injection", "severity": "critical"}]
             state["fix_iteration"] = 1
             result = impl_code_node(state)
             assert isinstance(result, Command)
@@ -154,14 +160,16 @@ class TestVerifyNode:
     """verify node: PASS/FAIL verdict routing."""
 
     def test_verify_pass_routes_to_qa_or_deploy(self):
-        mock_result = AgentResult(data={
-            "verdict": "PASS",
-            "tests_passed": True,
-            "per_ac_evidence": ["AC1 -> file.py:10", "AC2 -> file.py:20"],
-            "gaps": [],
-            "discrimination_sensor": "pass",
-            "coverage_audit": "pass",
-        })
+        mock_result = AgentResult(
+            data={
+                "verdict": "PASS",
+                "tests_passed": True,
+                "per_ac_evidence": ["AC1 -> file.py:10", "AC2 -> file.py:20"],
+                "gaps": [],
+                "discrimination_sensor": "pass",
+                "coverage_audit": "pass",
+            }
+        )
         with (
             patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
             patch("eng_loop.tools.file_ops.write_file"),
@@ -176,14 +184,16 @@ class TestVerifyNode:
             assert result.goto == "deploy-prepare"
 
     def test_verify_fail_routes_to_impl_code(self):
-        mock_result = AgentResult(data={
-            "verdict": "FAIL",
-            "tests_passed": False,
-            "per_ac_evidence": [],
-            "gaps": ["missing test coverage for edge case"],
-            "discrimination_sensor": "pass",
-            "coverage_audit": "fail",
-        })
+        mock_result = AgentResult(
+            data={
+                "verdict": "FAIL",
+                "tests_passed": False,
+                "per_ac_evidence": [],
+                "gaps": ["missing test coverage for edge case"],
+                "discrimination_sensor": "pass",
+                "coverage_audit": "fail",
+            }
+        )
         with (
             patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
             patch("eng_loop.tools.file_ops.write_file"),
@@ -197,10 +207,12 @@ class TestVerifyNode:
             assert result.goto == "impl-code"
 
     def test_verify_max_attempts_blocks(self):
-        mock_result = AgentResult(data={
-            "verdict": "FAIL",
-            "gaps": ["persistent issue"],
-        })
+        mock_result = AgentResult(
+            data={
+                "verdict": "FAIL",
+                "gaps": ["persistent issue"],
+            }
+        )
         with (
             patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
             patch("eng_loop.tools.file_ops.write_file"),
@@ -329,7 +341,9 @@ class TestQAJoinNode:
     def test_all_qa_fail_aggregates_all_gaps(self):
         state = _make_state("medium")
         self._set_all_qa_pass(state)
-        fail_security = json.dumps({"findings": ["SQL injection", "XSS vulnerability"], "verdict": "FAIL", "severity": "critical"})
+        fail_security = json.dumps(
+            {"findings": ["SQL injection", "XSS vulnerability"], "verdict": "FAIL", "severity": "critical"}
+        )
         state["stages"]["qa.security"] = dict(
             state["stages"]["qa.security"],
             done=True,
@@ -428,11 +442,13 @@ class TestInitNodes:
     """Init phase nodes: work item validation, ideation, refinement."""
 
     def test_init_node_success(self):
-        mock_result = AgentResult(data={
-            "valid": True,
-            "complete": True,
-            "work_item_refined": "Refined work item",
-        })
+        mock_result = AgentResult(
+            data={
+                "valid": True,
+                "complete": True,
+                "work_item_refined": "Refined work item",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.init import init_node
 
@@ -442,11 +458,13 @@ class TestInitNodes:
             assert result.goto == "init-ideate"
 
     def test_init_ideate_node_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "ideation_results": "Comprehensive ideation covering all requirements and approaches",
-            "decomposed_tasks": ["task1", "task2"],
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "ideation_results": "Comprehensive ideation covering all requirements and approaches",
+                "decomposed_tasks": ["task1", "task2"],
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.init import init_ideate_node
 
@@ -456,11 +474,13 @@ class TestInitNodes:
             assert isinstance(result, Command)
 
     def test_init_refine_node_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "refined_work_item": "Refined specification",
-            "ready_for_architecture": True,
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "refined_work_item": "Refined specification",
+                "ready_for_architecture": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.init import init_refine_node
 
@@ -475,12 +495,14 @@ class TestDeployNode:
     """deploy.prepare node: deployment preparation."""
 
     def test_deploy_prepare_success(self):
-        mock_result = AgentResult(data={
-            "verdict": "PASS",
-            "build_status": "pass",
-            "lint_status": "pass",
-            "complete": True,
-        })
+        mock_result = AgentResult(
+            data={
+                "verdict": "PASS",
+                "build_status": "pass",
+                "lint_status": "pass",
+                "complete": True,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.deploy import deploy_prepare_node
 
@@ -493,12 +515,14 @@ class TestPostNode:
     """post node: loop completion, lessons, summary."""
 
     def test_post_node_success(self):
-        mock_result = AgentResult(data={
-            "summary": "Loop completed successfully",
-            "final_status": "done",
-            "complete": True,
-            "lessons_to_share": 2,
-        })
+        mock_result = AgentResult(
+            data={
+                "summary": "Loop completed successfully",
+                "final_status": "done",
+                "complete": True,
+                "lessons_to_share": 2,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.post import post_node
 
@@ -523,10 +547,12 @@ class TestArchitectureNodes:
     """Architecture phase nodes."""
 
     def test_arch_requirements_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "architecture_output": "Architecture requirements documented with key decisions and constraints",
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "architecture_output": "Architecture requirements documented with key decisions and constraints",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.architecture import arch_node
 
@@ -536,10 +562,12 @@ class TestArchitectureNodes:
             assert isinstance(result, Command)
 
     def test_arch_solution_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "architecture_output": "Architecture solution with technology choices and design patterns",
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "architecture_output": "Architecture solution with technology choices and design patterns",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.architecture import arch_node
 
@@ -556,11 +584,13 @@ class TestDocumentationNodes:
     """Documentation phase nodes."""
 
     def test_doc_decisions_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "decision_log": "Decisions consolidated",
-            "decisions_count": 3,
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "decision_log": "Decisions consolidated",
+                "decisions_count": 3,
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.documentation import doc_decisions_node
 
@@ -569,10 +599,12 @@ class TestDocumentationNodes:
             assert isinstance(result, Command)
 
     def test_doc_project_success(self):
-        mock_result = AgentResult(data={
-            "complete": True,
-            "readme": "README content",
-        })
+        mock_result = AgentResult(
+            data={
+                "complete": True,
+                "readme": "README content",
+            }
+        )
         with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result):
             from eng_loop.nodes.documentation import doc_project_node
 

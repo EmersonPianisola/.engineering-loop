@@ -34,6 +34,7 @@ from eng_loop.tools.policy_resolver import (
 # Helper: build a valid minimal proposal
 # ───────────────────────────────────────────────────────────────────
 
+
 def _make_minimal_proposal() -> GraphTopologyProposal:
     """Build a valid minimal topology: init → init-ideate → init-refine → impl-code → post."""
     return GraphTopologyProposal(
@@ -87,8 +88,12 @@ def _make_feature_proposal() -> GraphTopologyProposal:
         edges=(
             EdgeDefinition(from_stage="init", to_stage="init.ideate", edge_type="fixed", condition="always"),
             EdgeDefinition(from_stage="init.ideate", to_stage="init.refine", edge_type="fixed", condition="always"),
-            EdgeDefinition(from_stage="init.refine", to_stage="arch.requirements", edge_type="fixed", condition="always"),
-            EdgeDefinition(from_stage="arch.requirements", to_stage="arch.solution", edge_type="fixed", condition="always"),
+            EdgeDefinition(
+                from_stage="init.refine", to_stage="arch.requirements", edge_type="fixed", condition="always"
+            ),
+            EdgeDefinition(
+                from_stage="arch.requirements", to_stage="arch.solution", edge_type="fixed", condition="always"
+            ),
             EdgeDefinition(from_stage="arch.solution", to_stage="impl.design", edge_type="fixed", condition="always"),
             EdgeDefinition(from_stage="impl.design", to_stage="impl.code", edge_type="fixed", condition="always"),
             EdgeDefinition(from_stage="impl.code", to_stage="doc.update", edge_type="fixed", condition="always"),
@@ -126,6 +131,7 @@ def _make_state(complexity: str = "small", ui_project: bool = False, work_type: 
 # ───────────────────────────────────────────────────────────────────
 # SCHEMA VALIDATION
 # ───────────────────────────────────────────────────────────────────
+
 
 class TestTopologyProposalSchema:
     def test_valid_minimal_proposal(self):
@@ -263,6 +269,7 @@ class TestTopologyProposalSchema:
 # POLICY FIREWALL — 5 LAYERS
 # ───────────────────────────────────────────────────────────────────
 
+
 class TestTopologyPolicyFirewall:
     def test_valid_proposal_authorizes(self):
         proposal = _make_minimal_proposal()
@@ -329,9 +336,7 @@ class TestTopologyPolicyFirewall:
         proposal = GraphTopologyProposal(
             plan_id="no-exit",
             required_stages=("init", "impl.code"),
-            edges=(
-                EdgeDefinition(from_stage="init", to_stage="impl.code", edge_type="fixed"),
-            ),
+            edges=(EdgeDefinition(from_stage="init", to_stage="impl.code", edge_type="fixed"),),
             rationale="test",
         )
         with pytest.raises(TopologyValidationError) as exc_info:
@@ -403,6 +408,7 @@ class TestTopologyPolicyFirewall:
 # EDGE RULES FROM PROPOSAL
 # ───────────────────────────────────────────────────────────────────
 
+
 class TestBuildRulesFromProposal:
     def test_minimal_proposal_produces_rules(self):
         proposal = _make_minimal_proposal()
@@ -429,6 +435,7 @@ class TestBuildRulesFromProposal:
 # ───────────────────────────────────────────────────────────────────
 # GRAPH BUILDER DUAL-PATH
 # ───────────────────────────────────────────────────────────────────
+
 
 class TestGraphBuilderDualPath:
     def test_deterministic_path_small(self):
@@ -515,6 +522,7 @@ class TestGraphBuilderDualPath:
 # FALLBACK RESILIENCE
 # ───────────────────────────────────────────────────────────────────
 
+
 class TestFallbackResilience:
     def test_invalid_proposal_falls_back_to_deterministic(self):
         """When proposal is invalid, deterministic builder should produce a functional graph."""
@@ -555,6 +563,7 @@ class TestFallbackResilience:
 # ───────────────────────────────────────────────────────────────────
 # INVARIANT MATRIX
 # ───────────────────────────────────────────────────────────────────
+
 
 class TestInvariantMatrix:
     """Tests for the invariant matrix defined in the architecture plan."""
@@ -598,9 +607,7 @@ class TestInvariantMatrix:
         proposal = GraphTopologyProposal(
             plan_id="no-exit",
             required_stages=("init", "impl.code"),
-            edges=(
-                EdgeDefinition(from_stage="init", to_stage="impl.code"),
-            ),
+            edges=(EdgeDefinition(from_stage="init", to_stage="impl.code"),),
             rationale="test",
         )
         with pytest.raises(TopologyValidationError):

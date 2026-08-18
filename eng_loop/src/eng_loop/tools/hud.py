@@ -322,9 +322,11 @@ class HUDRenderer:
         footer_content = Layout()
         footer_content.split_row(
             Layout(name="narrative"),
+            Layout(name="cmdhistory"),
             Layout(name="actionlog"),
         )
         footer_content["narrative"].update(self._render_narrative_log(snapshot))
+        footer_content["cmdhistory"].update(self._render_command_history(snapshot))
         footer_content["actionlog"].update(self.action_log.render())
         layout["footer"].update(footer_content)
         return layout
@@ -389,11 +391,15 @@ class HUDRenderer:
         icon = CLASS_ICONS.get(role, "?")
         if status == "completed":
             return f"[bold green][\u2713]{icon}[/bold green]"
+        elif status == "cached":
+            return f"[bold cyan][\u21bb]{icon}[/bold cyan]"
         elif status == "active":
             suffix = f" ({action_label})" if action_label else ""
             return f"[bold cyan blink][>{icon}[/bold cyan blink]{suffix}"
         elif status == "failed":
             return f"[bold red][!]{icon}[/bold red]"
+        elif status == "skipped":
+            return f"[dim][—]{icon}[/dim]"
         elif status == "locked":
             return f"[dim][\U0001f512]{icon}[/dim]"
         else:
@@ -504,6 +510,47 @@ class HUDRenderer:
         return Panel(
             "\n".join(lines),
             title="[grey15] NARRATIVE LOG[/grey15]",
+            title_align="left",
+            box=box.SQUARE,
+            border_style="grey50",
+        )
+
+    def _render_command_history(self, snapshot: Any) -> Panel:
+        """Render COMMAND HISTORY panel — CommandHistoryBuffer visibility."""
+        entries = getattr(snapshot, "command_history", [])
+        lines = []
+        if not entries:
+            lines.append("[dim]No commands yet...[/dim]")
+        else:
+            tool_icons = {
+                "read": "[blue]R[/blue]",
+                "write": "[green]W[/green]",
+                "edit": "[yellow]E[/yellow]",
+                "bash": "[bold]$[/bold]",
+                "glob": "[dim]G[/dim]",
+                "grep": "[dim]S[/dim]",
+            }
+            for entry in entries:
+                icon = tool_icons.get(entry.tool_name, "[dim].[/dim]")
+                count = entry.count
+                if entry.is_intercepted:
+                    status = "[bold red blink]![/bold red blink]"
+                    count_str = f"[bold red]{count}x[/bold red]"
+                elif count >= 3:
+                    status = "[bold yellow]![/bold yellow]"
+                    count_str = f"[bold yellow]{count}x[/bold yellow]"
+                elif count >= 2:
+                    status = "[dim].[/dim]"
+                    count_str = f"[dim]{count}x[/dim]"
+                else:
+                    status = "[dim].[/dim]"
+                    count_str = "[dim]1x[/dim]"
+                target = entry.target[:30] if entry.target else ""
+                lines.append(f"  {icon} {status} [{entry.tool_name}] {count_str} {target}")
+
+        return Panel(
+            "\n".join(lines),
+            title="[grey15] COMMAND HISTORY[/grey15]",
             title_align="left",
             box=box.SQUARE,
             border_style="grey50",

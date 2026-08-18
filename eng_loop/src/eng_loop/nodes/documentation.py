@@ -6,6 +6,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DocDecisionsOutput, DocProjectOutput
+from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
@@ -15,6 +16,7 @@ from eng_loop.tools.progress import (
 )
 
 
+@essence_gate("doc.decisions")
 def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
@@ -116,6 +118,7 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     )
 
 
+@essence_gate("doc.project")
 def doc_project_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage

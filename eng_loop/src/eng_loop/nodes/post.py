@@ -9,6 +9,7 @@ from eng_loop.model import create_model_from_config
 from eng_loop.schemas import PostOutput
 from eng_loop.state import compute_task_outcome
 from eng_loop.templates import get_stage_file, load_stage_procedure
+from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.progress import (
     log_artifact,
     log_stage_done,
@@ -16,6 +17,7 @@ from eng_loop.tools.progress import (
 )
 
 
+@essence_gate("post")
 def post_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
@@ -65,8 +67,11 @@ def post_node(state: dict[str, Any]) -> Command[str]:
         for fname in os.listdir(artifact_root):
             fpath = os.path.join(artifact_root, fname)
             if os.path.isfile(fpath) and fname not in (
-                "post-loop-summary.md", "lessons.json", "lessons-shared.json",
-                "lessons-pending.json", "LESSONS.md",
+                "post-loop-summary.md",
+                "lessons.json",
+                "lessons-shared.json",
+                "lessons-pending.json",
+                "LESSONS.md",
             ):
                 canonical = f"artifacts/{fname}"
                 if canonical not in artifact_evidence:
@@ -147,7 +152,9 @@ Set final_status to "failed" if artifacts are missing or work item was not compl
         write_file(f"{artifact_root}/post-loop-summary.md", summary)
         log_artifact(stage_id, f"{artifact_root}/post-loop-summary.md")
 
-    post_final_status = result.get("final_status", "failed") if agent_result.error else result.get("final_status", "done")
+    post_final_status = (
+        result.get("final_status", "failed") if agent_result.error else result.get("final_status", "done")
+    )
     log_stage_done(stage_id, post_final_status)
 
     # Compute honest task outcome — post failure means task failure

@@ -154,13 +154,15 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                 verdict = "FAIL"
                 all_passed = False
                 any_critical_fail = True
-                all_fix_tasks.append({
-                    "source": qa_stage_id,
-                    "gap": f"Friction score {friction} exceeds threshold {max_friction}",
-                    "evidence": json.dumps(output_data, default=str),
-                    "severity": "critical",
-                    "suggested_fix": "",
-                })
+                all_fix_tasks.append(
+                    {
+                        "source": qa_stage_id,
+                        "gap": f"Friction score {friction} exceeds threshold {max_friction}",
+                        "evidence": json.dumps(output_data, default=str),
+                        "severity": "critical",
+                        "suggested_fix": "",
+                    }
+                )
 
         if verdict == "FAIL":
             all_passed = False
@@ -176,13 +178,15 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
 
             gaps = output_data.get("findings", []) + output_data.get("critical_findings", [])
             for gap in gaps:
-                all_fix_tasks.append({
-                    "source": qa_stage_id,
-                    "gap": gap,
-                    "evidence": output_data.get("evidence", ""),
-                    "severity": severity,
-                    "suggested_fix": "",
-                })
+                all_fix_tasks.append(
+                    {
+                        "source": qa_stage_id,
+                        "gap": gap,
+                        "evidence": output_data.get("evidence", ""),
+                        "severity": severity,
+                        "suggested_fix": "",
+                    }
+                )
 
     # BLOCKED takes priority — halt, don't rollback
     if any_blocked:
@@ -237,13 +241,16 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                     "stages": reset_stages,
                     "current_stage": "impl-code",
                     "rollback_target": "impl.code",
-                    "fix_tasks": all_fix_tasks or [{
-                        "source": "qa.join",
-                        "gap": "QA failure detected",
-                        "evidence": "",
-                        "severity": "critical",
-                        "suggested_fix": "",
-                    }],
+                    "fix_tasks": all_fix_tasks
+                    or [
+                        {
+                            "source": "qa.join",
+                            "gap": "QA failure detected",
+                            "evidence": "",
+                            "severity": "critical",
+                            "suggested_fix": "",
+                        }
+                    ],
                     "fix_iteration": fix_iteration,
                     "errors": [f"QA join: {len(all_fix_tasks)} issues from parallel QA"],
                     "iteration": state.get("iteration", 0) + 1,

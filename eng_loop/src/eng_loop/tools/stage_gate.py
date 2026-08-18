@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Evidence Contract — declarative per-stage requirements
 # ──────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class EvidenceContract:
     """Declarative contract: what evidence a stage MUST produce."""
@@ -78,6 +79,7 @@ DEFAULT_FAILURE_POLICY = {
 # Gate Result
 # ──────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class GateResult:
     """Result of running all gates for a stage."""
@@ -90,6 +92,7 @@ class GateResult:
 # ──────────────────────────────────────────────
 # EvidenceGate — validates verifiable evidence
 # ──────────────────────────────────────────────
+
 
 class EvidenceGate:
     """Validates that a stage's output has sufficient, consistent evidence.
@@ -116,9 +119,9 @@ class EvidenceGate:
 
         # 1. Required fields
         missing = []
-        for field in contract.required_fields:
-            if field not in result or result[field] is None:
-                missing.append(field)
+        for f in contract.required_fields:
+            if f not in result or result[f] is None:
+                missing.append(f)
 
         if missing:
             return GateResult(
@@ -132,8 +135,8 @@ class EvidenceGate:
             )
 
         # 2. Minimum values
-        for field, min_val in contract.min_values.items():
-            actual = result.get(field, 0)
+        for f, min_val in contract.min_values.items():
+            actual = result.get(f, 0)
             if actual < min_val:
                 return GateResult(
                     action="block",
@@ -256,6 +259,7 @@ class EvidenceGate:
 # DependencyGate — validates upstream dependencies
 # ──────────────────────────────────────────────
 
+
 class DependencyGate:
     """Validates that a stage's dependencies are satisfied before execution.
 
@@ -317,6 +321,7 @@ class DependencyGate:
 # ──────────────────────────────────────────────
 # PolicyGate — applies failure policy based on severity
 # ──────────────────────────────────────────────
+
 
 class PolicyGate:
     """Applies the configured failure policy to a stage's verdict.
@@ -413,6 +418,7 @@ class PolicyGate:
 # TransitionGate — validates stage handoffs
 # ──────────────────────────────────────────────
 
+
 class TransitionGate:
     """Validates handoff between stages.
 
@@ -445,6 +451,7 @@ class TransitionGate:
 # ──────────────────────────────────────────────
 # Unified Stage Gate — runs all gates in sequence
 # ──────────────────────────────────────────────
+
 
 def run_stage_gate(
     stage_id: str,

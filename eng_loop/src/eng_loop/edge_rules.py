@@ -595,7 +595,9 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
     engine.add_conditional(
         "e2e-execute",
         "qa-human-flow",
-        condition=lambda s: _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s),
+        condition=lambda s: (
+            _stage_done(s, "e2e.execute") and not _complexity_at_least(s, "medium") and not _is_blocked(s)
+        ),
         description="E2E PASS, small → human flow",
     )
 
@@ -639,9 +641,7 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
         engine.add_conditional(
             "qa-security",
             "qa-performance",
-            condition=lambda s: (
-                _stage_done(s, "qa.security") and _complexity_is(s, "complex") and not _is_blocked(s)
-            ),
+            condition=lambda s: _stage_done(s, "qa.security") and _complexity_is(s, "complex") and not _is_blocked(s),
             description="QA Security PASS, complex → performance",
         )
         engine.add_conditional(
@@ -840,6 +840,7 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 # These are the ONLY conditions the LLM can reference in edge definitions.
 # ───────────────────────────────────────────────────────────────────
 
+
 def _get_condition_predicate(condition: str) -> Callable[[dict[str, Any]], bool]:
     """Translate an allowed condition identifier into a state predicate function."""
 
@@ -897,8 +898,7 @@ def build_rules_from_proposal(
         "dynamic-architect",
         "meta-executor",
         condition=lambda s: (
-            (s.get("dynamic_plan") or {}).get("trigger") == "augment"
-            and (s.get("dynamic_plan") or {}).get("steps")
+            (s.get("dynamic_plan") or {}).get("trigger") == "augment" and (s.get("dynamic_plan") or {}).get("steps")
         ),
         description="Augment → meta executor",
     )
@@ -940,7 +940,8 @@ def build_rules_from_proposal(
         elif edge.edge_type == "terminal":
             predicate = _get_condition_predicate(edge.condition)
             engine.add_conditional(
-                from_name, to_name,
+                from_name,
+                to_name,
                 condition=predicate,
                 edge_type="terminal",
                 description=edge.description,
@@ -948,7 +949,8 @@ def build_rules_from_proposal(
         else:  # conditional
             predicate = _get_condition_predicate(edge.condition)
             engine.add_conditional(
-                from_name, to_name,
+                from_name,
+                to_name,
                 condition=predicate,
                 description=edge.description,
             )

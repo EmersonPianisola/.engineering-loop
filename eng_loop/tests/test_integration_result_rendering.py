@@ -26,9 +26,13 @@ class TestResultRenderingStatusStyles:
         """DONE status renders correctly."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3,
-            decisions=[], stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="done", active_nodes=["init", "post"],
+            status="done",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
+            stages={"init": make_stage(), "post": make_stage()},
+            task_outcome="done",
+            active_nodes=["init", "post"],
         )
         text = output.getvalue()
         assert "Engineering Loop Complete" in text
@@ -37,9 +41,13 @@ class TestResultRenderingStatusStyles:
         """FAILED status renders correctly."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="failed", blocking_condition="", iterations=3,
-            decisions=[], stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="failed", active_nodes=["init", "post"],
+            status="failed",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
+            stages={"init": make_stage(), "post": make_stage()},
+            task_outcome="failed",
+            active_nodes=["init", "post"],
         )
         text = output.getvalue()
         assert "FAILED" in text
@@ -48,9 +56,13 @@ class TestResultRenderingStatusStyles:
         """PARTIAL status renders correctly."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="partial", blocking_condition="", iterations=3,
-            decisions=[], stages={"init": make_stage(), "impl.code": make_stage()},
-            task_outcome="partial", active_nodes=["init", "impl.code"],
+            status="partial",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
+            stages={"init": make_stage(), "impl.code": make_stage()},
+            task_outcome="partial",
+            active_nodes=["init", "impl.code"],
         )
         text = output.getvalue()
         assert "PARTIAL" in text
@@ -59,9 +71,13 @@ class TestResultRenderingStatusStyles:
         """DONE with warnings renders correctly."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done_with_warnings", blocking_condition="", iterations=5,
-            decisions=[], stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="done_with_warnings", active_nodes=["init", "post"],
+            status="done_with_warnings",
+            blocking_condition="",
+            iterations=5,
+            decisions=[],
+            stages={"init": make_stage(), "post": make_stage()},
+            task_outcome="done_with_warnings",
+            active_nodes=["init", "post"],
         )
         text = output.getvalue()
         assert "Warnings" in text
@@ -70,8 +86,11 @@ class TestResultRenderingStatusStyles:
         """BLOCKED status renders correctly."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="blocked", blocking_condition="missing dependency", iterations=2,
-            decisions=[], stages={"init": make_stage()},
+            status="blocked",
+            blocking_condition="missing dependency",
+            iterations=2,
+            decisions=[],
+            stages={"init": make_stage()},
             task_outcome="blocked",
         )
         text = output.getvalue()
@@ -90,7 +109,10 @@ class TestResultRenderingArtifactEvidence:
         """Artifact evidence should be displayed in result."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3, decisions=[],
+            status="done",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
             stages={"init": make_stage(), "post": make_stage()},
             task_outcome="done",
             artifact_evidence={
@@ -107,7 +129,10 @@ class TestResultRenderingArtifactEvidence:
         """Missing artifacts should be shown."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="failed", blocking_condition="", iterations=3, decisions=[],
+            status="failed",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
             stages={"post": make_stage()},
             task_outcome="failed",
             artifact_evidence={
@@ -129,24 +154,38 @@ class TestResultRenderingActiveStages:
 
     def test_active_stages_counted_not_all(self):
         """Only active stages should be counted, not all 26."""
+        # Create noise stages that shouldn't appear in the result
         stages = {}
         for i in range(26):
             stages[f"stage-{i}"] = make_stage()
-        stages["stage-0"]["done"] = True
-        stages["stage-0"]["attempts"] = 1
-        stages["stage-1"]["done"] = True
-        stages["stage-1"]["attempts"] = 1
-        stages["stage-2"]["done"] = True
-        stages["stage-2"]["attempts"] = 1
+        # Add the actual active stages
+        stages["init"] = make_stage()
+        stages["init"]["done"] = True
+        stages["init"]["attempts"] = 1
+        stages["impl.code"] = make_stage()
+        stages["impl.code"]["done"] = True
+        stages["impl.code"]["attempts"] = 1
+        stages["post"] = make_stage()
+        stages["post"]["done"] = True
+        stages["post"]["attempts"] = 1
 
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3, decisions=[],
-            stages=stages, task_outcome="done",
-            active_nodes=["stage-0", "stage-1", "stage-2"],
+            status="done",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
+            stages=stages,
+            task_outcome="done",
+            active_nodes=["init", "impl.code", "post"],
         )
         text = output.getvalue()
-        assert "Active Stages" in text
+        # New design: pipeline panel shows active stages grouped by phase
+        assert "Pipeline" in text
+        # Active stages should appear as completed in their phases
+        assert "INIT" in text
+        assert "IMPL" in text
+        assert "POST" in text
 
 
 class TestResultRenderingPostFailure:
@@ -168,8 +207,12 @@ class TestResultRenderingPostFailure:
 
         ui, output = self._make_ui()
         ui.render_result(
-            status="failed", blocking_condition="", iterations=3, decisions=[],
-            stages=stages, task_outcome="failed",
+            status="failed",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
+            stages=stages,
+            task_outcome="failed",
             active_nodes=["init", "post"],
         )
         text = output.getvalue()
@@ -188,9 +231,13 @@ class TestResultRenderingTopologyFidelity:
         """Topology fidelity warnings should be displayed."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3, decisions=[],
+            status="done",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
             stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="done", active_nodes=["init", "post"],
+            task_outcome="done",
+            active_nodes=["init", "post"],
             topology_fidelity={
                 "proposed": ["init", "impl.code", "verify", "post"],
                 "compiled": ["init", "impl.code", "post"],
@@ -207,9 +254,13 @@ class TestResultRenderingTopologyFidelity:
         """Clean topology fidelity should not show warning."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3, decisions=[],
+            status="done",
+            blocking_condition="",
+            iterations=3,
+            decisions=[],
             stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="done", active_nodes=["init", "post"],
+            task_outcome="done",
+            active_nodes=["init", "post"],
             topology_fidelity={
                 "proposed": ["init", "post"],
                 "compiled": ["init", "post"],
@@ -233,7 +284,9 @@ class TestResultRenderingTroubledStages:
     def test_troubled_stages_shown_for_failed(self):
         """Troubled stages should be shown for failed outcome."""
         stages = {
-            "init": make_stage(), "impl.code": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "impl.code": make_stage(),
+            "post": make_stage(),
         }
         stages["init"]["done"] = True
         stages["init"]["attempts"] = 1
@@ -244,8 +297,12 @@ class TestResultRenderingTroubledStages:
 
         ui, output = self._make_ui()
         ui.render_result(
-            status="failed", blocking_condition="", iterations=5, decisions=[],
-            stages=stages, task_outcome="failed",
+            status="failed",
+            blocking_condition="",
+            iterations=5,
+            decisions=[],
+            stages=stages,
+            task_outcome="failed",
             active_nodes=["init", "impl.code", "post"],
         )
         text = output.getvalue()
@@ -254,7 +311,8 @@ class TestResultRenderingTroubledStages:
     def test_troubled_stages_not_shown_for_clean_done(self):
         """Troubled stages should NOT be shown for clean done."""
         stages = {
-            "init": make_stage(), "post": make_stage(),
+            "init": make_stage(),
+            "post": make_stage(),
         }
         stages["init"]["done"] = True
         stages["init"]["attempts"] = 1
@@ -263,8 +321,12 @@ class TestResultRenderingTroubledStages:
 
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=2, decisions=[],
-            stages=stages, task_outcome="done",
+            status="done",
+            blocking_condition="",
+            iterations=2,
+            decisions=[],
+            stages=stages,
+            task_outcome="done",
             active_nodes=["init", "post"],
         )
         text = output.getvalue()
@@ -283,10 +345,13 @@ class TestResultRenderingDecisions:
         """Decisions should be displayed in result."""
         ui, output = self._make_ui()
         ui.render_result(
-            status="done", blocking_condition="", iterations=3,
+            status="done",
+            blocking_condition="",
+            iterations=3,
             decisions=["AD-001: Use React", "AD-002: Use Firebase"],
             stages={"init": make_stage(), "post": make_stage()},
-            task_outcome="done", active_nodes=["init", "post"],
+            task_outcome="done",
+            active_nodes=["init", "post"],
         )
         text = output.getvalue()
         assert "Decisions" in text
@@ -306,7 +371,9 @@ class TestResultRenderingBlocking:
         ui.render_result(
             status="blocked",
             blocking_condition="missing dependency: npm not installed",
-            iterations=2, decisions=[], stages={"init": make_stage()},
+            iterations=2,
+            decisions=[],
+            stages={"init": make_stage()},
             task_outcome="blocked",
         )
         text = output.getvalue()

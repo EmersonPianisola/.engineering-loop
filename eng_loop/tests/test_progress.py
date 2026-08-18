@@ -911,3 +911,27 @@ class TestTraceNode:
             mock_ui.is_hud_active.return_value = False
             result = my_fn({"iteration": 1}, extra="hello", flag=True)
             assert result == ("hello", True)
+
+    def test_trace_node_skip_renders_cached_panel(self):
+        """When handler calls log_stage_skip, trace_node renders cached panel."""
+        self._reset_ui()
+        mock_console = MagicMock()
+        mock_status = MagicMock()
+        mock_console.status.return_value = mock_status
+
+        @trace_node("skip.stage")
+        def my_fn(state):
+            log_stage_skip("skip.stage", "already done")
+            return "skipped"
+
+        with patch("eng_loop.tools.progress.ui") as mock_ui:
+            mock_ui.console = mock_console
+            mock_ui.is_hud_active.return_value = False
+            result = my_fn({"iteration": 1})
+            assert result == "skipped"
+            # Should render a Panel (cached), not a Table-based completion panel
+            panel_calls = [c[0][0] for c in mock_console.print.call_args_list if type(c[0][0]).__name__ == "Panel"]
+            assert len(panel_calls) >= 1
+            # The panel title should contain the cached marker
+            panel = panel_calls[0]
+            assert "\u21bb" in str(panel.title) or "SKIP.STAGE" in str(panel.title)

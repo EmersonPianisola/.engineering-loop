@@ -374,10 +374,7 @@ def compute_task_outcome(stages: dict[str, dict], post_final_status: str) -> str
         return "partial"
 
     # Check for retried stages (warnings)
-    retried = [
-        sid for sid, s in stages.items()
-        if s.get("done") and s.get("attempts", 0) >= 2
-    ]
+    retried = [sid for sid, s in stages.items() if s.get("done") and s.get("attempts", 0) >= 2]
 
     return "done_with_warnings" if retried else "done"
 

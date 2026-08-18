@@ -114,6 +114,7 @@ def authorize_blueprint(
 # LLM proposes → Policy authorizes → Builder compiles → Runtime executes
 # ───────────────────────────────────────────────────────────────────
 
+
 class TopologyValidationError(Exception):
     """Raised when a topology proposal fails policy validation."""
 
@@ -309,9 +310,7 @@ def _validate_semantic_policy(
         min_c = STAGE_MIN_COMPLEXITY.get(stage_id)
         if min_c:
             if COMPLEXITY_ORDER.get(complexity, 0) < COMPLEXITY_ORDER.get(min_c, 0):
-                notes.append(
-                    f"Stage '{stage_id}' requires min_complexity={min_c}, current={complexity}"
-                )
+                notes.append(f"Stage '{stage_id}' requires min_complexity={min_c}, current={complexity}")
 
     return "; ".join(notes)
 

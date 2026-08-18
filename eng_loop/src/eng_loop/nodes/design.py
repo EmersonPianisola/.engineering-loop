@@ -6,6 +6,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DesignOutput
+from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
@@ -34,6 +35,7 @@ DESIGN_NEXT_MAP = {
 
 
 def design_node(stage_id: str):
+    @essence_gate(stage_id)
     def node_fn(state: dict[str, Any]) -> Command[str]:
         from eng_loop.tools.agent_runner import AgentResult, run_agent
         from eng_loop.tools.agent_tools import get_tools_for_stage

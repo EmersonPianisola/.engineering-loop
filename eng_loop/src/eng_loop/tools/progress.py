@@ -35,6 +35,115 @@ _null_console = Console(quiet=True)
 tracker = TimingTracker()
 
 
+# ─── Live Stage Indicator ────────────────────────────────────────────
+# In-place updating line that persists during execution. Shows current
+# stage, elapsed time, done count, and a compact topology mini-map.
+# Updates via \r so it occupies a single terminal line.
+
+
+class LiveStageIndicator:
+    """In-place progress indicator that updates between stage transitions.
+
+    Unlike the StageSpinner (which runs during agent execution), this
+    indicator provides a persistent view of overall progress that survives
+    across stages. Uses \r for in-place updates.
+    """
+
+    def __init__(self, stage_ids: list[str]) -> None:
+        self.stage_ids = [s.replace("-", ".") for s in stage_ids]
+        self.done_stages: set[str] = set()
+        self.current_stage: str = ""
+        self._started = time.monotonic()
+        self._rendered = False
+
+    def _mini_map(self) -> str:
+        """Build compact topology status: 'init(init,init-ideate,init-refine,impl-code,post)'."""
+        parts = []
+        for sid in self.stage_ids:
+            short = sid.split(".")[-1] if "." in sid else sid
+            if sid in self.done_stages:
+                parts.append(f"[32m\u2713{short}[0m]")
+            elif sid == self.current_stage:
+                parts.append(f"[1;36m>{short}[0m]")
+            else:
+                parts.append(f"[37;2m {short} [0m]")
+        return "".join(parts)
+
+    def render(self, finalize: bool = False) -> None:
+        """Update the indicator line in-place.
+
+        When done > total (dynamic nodes), shows count instead of
+        percentage to avoid displaying 120%.
+        """
+        if not self.stage_ids:
+            return
+        # Refresh done count from tracker for accuracy
+        self.done_stages = set(tracker.get_stage_ids())
+        total = len(self.stage_ids)
+        done = len(self.done_stages)
+        elapsed = tracker.get_loop_elapsed_formatted()
+        bar_width = 20
+
+        current_display = self.current_stage.replace(".", "-") if self.current_stage else "..."
+
+        if done > total:
+            filled = bar_width
+            bar = "\u2588" * filled
+            progress = f"{done} stages"
+        else:
+            pct = int(100 * done / max(total, 1))
+            filled = int(bar_width * done / max(total, 1))
+            bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
+            progress = f"{done}/{total} ({pct}%)"
+
+        line = f"\r[{bar}] {progress} [bold yellow]{current_display}[/] [dim][{elapsed}][/]"
+
+        if finalize:
+            ui.console.print(line)
+        else:
+            ui.console.print(line, end="\r")
+        self._rendered = True
+
+    def clear(self) -> None:
+        """Clear the indicator line."""
+        if self._rendered:
+            try:
+                sys.stdout.write("\r" + " " * 120 + "\r")
+                sys.stdout.flush()
+            except (OSError, ValueError):
+                pass
+
+
+_live_indicator: LiveStageIndicator | None = None
+_live_done_count: int = 0
+
+
+def init_live_indicator(stage_ids: list[str]) -> None:
+    """Initialize the live stage indicator with the list of active stages."""
+    global _live_indicator, _live_done_count
+    _live_done_count = 0
+    _live_indicator = LiveStageIndicator(stage_ids)
+
+
+def update_live_indicator(current_stage: str, done_stages: set[str] | None = None) -> None:
+    """Update the live indicator with current stage and done set."""
+    if _live_indicator:
+        _live_indicator.current_stage = current_stage.replace("-", ".")
+        _live_indicator.render()
+
+
+def finalize_live_indicator() -> None:
+    """Finalize the live indicator with a newline."""
+    if _live_indicator:
+        _live_indicator.render(finalize=True)
+
+
+def clear_live_indicator() -> None:
+    """Clear the live indicator line."""
+    if _live_indicator:
+        _live_indicator.clear()
+
+
 # ─── UIManager ────────────────────────────────────────────────────────
 class UIManager:
     """Centralized terminal UI controller. All rendering flows through here."""
@@ -80,16 +189,52 @@ class UIManager:
     ) -> None:
         """Render execution plan as a rich tree grouped by phase.
 
-        Header shows structured classification (work_type, complexity, scope)
-        instead of the raw work item prompt.
+        Strategy label is derived from actual active nodes so the visual
+        representation matches the conceptual promise.
         """
-        work_type_labels = {
-            "feature": "[green]FEATURE[/green] — Full loop (design → impl → verify → QA → deploy)",
-            "bugfix": "[yellow]BUGFIX[/yellow] — Skips design, keeps implementation + verification",
-            "operational": "[cyan]OPERATIONAL[/cyan] — Runs existing code, skips impl/design/arch",
-            "documentation": "[magenta]DOCUMENTATION[/magenta] — Init → impl.code → post (no design/verify/deploy)",
+        # Determine which lifecycle phases are actually present
+        active_prefixes = set()
+        for node in active_nodes:
+            prefix = node.split(".")[0].upper()
+            active_prefixes.add(prefix)
+
+        # Build strategy description from actual phases, not work_type assumption
+        lifecycle_phases = ["INIT", "DESIGN", "ARCH", "IMPL", "VERIFY", "QA", "DEPLOY", "DOC", "POST"]
+        present_phases = [p for p in lifecycle_phases if p in active_prefixes]
+
+        # Map phase presence to human-readable lifecycle
+        has_design = "DESIGN" in active_prefixes or "ARCH" in active_prefixes
+        has_impl = "IMPL" in active_prefixes
+        has_verify = "VERIFY" in active_prefixes or "QA" in active_prefixes
+        has_deploy = "DEPLOY" in active_prefixes
+
+        if has_design and has_impl and has_verify and has_deploy:
+            lifecycle_desc = "design → impl → verify → QA → deploy"
+        elif has_design and has_impl and has_verify:
+            lifecycle_desc = "design → impl → verify"
+        elif has_design and has_impl:
+            lifecycle_desc = "design → impl"
+        elif has_impl and has_verify:
+            lifecycle_desc = "impl → verify"
+        elif has_impl:
+            lifecycle_desc = "impl"
+        else:
+            lifecycle_desc = "init only"
+
+        # Add init/post bookends
+        if "INIT" in active_prefixes:
+            lifecycle_desc = f"init → {lifecycle_desc}"
+        if "POST" in active_prefixes:
+            lifecycle_desc = f"{lifecycle_desc} → post"
+
+        work_type_colors = {
+            "feature": "green",
+            "bugfix": "yellow",
+            "operational": "cyan",
+            "documentation": "magenta",
         }
-        strategy_line = work_type_labels.get(work_type, f"[white]{work_type}[/white]")
+        type_color = work_type_colors.get(work_type, "white")
+        strategy_line = f"[{type_color}]{work_type.upper()}[/] — {lifecycle_desc}"
 
         complexity_colors = {
             "small": "green",
@@ -99,19 +244,24 @@ class UIManager:
         }
         comp_color = complexity_colors.get(complexity, "white")
 
-        bypassed = []
-        if work_type == "documentation":
-            bypassed.append("Design/Arch/Verify/Deploy")
-        elif work_type == "operational":
-            bypassed.append("Design/Arch/Impl")
-        elif work_type == "bugfix":
-            bypassed.append("Design stages")
+        # Compute bypassed phases from what's missing
+        all_lifecycle = {"DESIGN", "ARCH", "VERIFY", "QA", "DEPLOY"}
+        missing = all_lifecycle - active_prefixes
+        bypass_labels = []
+        if missing & {"DESIGN", "ARCH"}:
+            bypass_labels.append("Design/Arch")
+        if missing & {"VERIFY", "QA"}:
+            bypass_labels.append("Verify/QA")
+        if "DEPLOY" in missing:
+            bypass_labels.append("Deploy")
+        if "IMPL" not in active_prefixes:
+            bypass_labels.append("Impl")
         if not ui_project:
-            bypassed.append("E2E/Smoke")
+            bypass_labels.append("E2E/Smoke")
 
         bypass_line = ""
-        if bypassed:
-            bypass_line = f" [dim](bypassing {', '.join(bypassed)})[/dim]"
+        if bypass_labels:
+            bypass_line = f" [dim](bypassing {', '.join(bypass_labels)})[/dim]"
 
         classification = (
             f"[bold]Strategy:[/bold] {strategy_line}\n"
@@ -146,7 +296,6 @@ class UIManager:
             for n in nodes:
                 branch.add(f"[dim]⚙[/dim] {n}")
 
-        f"[bold]{len(active_nodes)}[/bold]{f' / {total_available}' if total_available else ''} active"
         subtitle = f"[dim]{work_item}[/dim]"
         self.console.print(Panel(tree, title="Graph Topology", subtitle=subtitle, border_style="blue"))
         self.console.print(Panel(classification, border_style="blue", padding=(0, 1)))
@@ -159,15 +308,14 @@ class UIManager:
         current_stage: str,
         status: str = "running",
     ) -> None:
-        """Render a compact progress bar with stage status."""
+        """Render a compact progress bar with stage status.
+
+        When done > total (dynamic nodes added at runtime), displays
+        count-based progress instead of percentage to avoid 120%.
+        """
         total = len(active_stages)
         done = len(done_stages)
-        pct = int(100 * done / max(total, 1))
-
-        # Build a text-based progress bar using block characters
         bar_width = 30
-        filled = int(bar_width * done / max(total, 1))
-        bar = "█" * filled + "░" * (bar_width - filled)
 
         status_icon = {
             "running": "[green]▶[/]",
@@ -177,11 +325,23 @@ class UIManager:
         }.get(status, "[yellow]?[/]")
 
         elapsed_str = tracker.get_loop_elapsed_formatted()
+
+        if done > total:
+            # Dynamic nodes added — don't show misleading percentage
+            filled = bar_width
+            bar = "█" * filled
+            progress_text = f"[cyan]{done} stages[/cyan]"
+        else:
+            pct = int(100 * done / max(total, 1))
+            filled = int(bar_width * done / max(total, 1))
+            bar = "█" * filled + "░" * (bar_width - filled)
+            progress_text = f"[cyan]{done}/{total}[/cyan] [dim]{pct}%[/dim]"
+
         self.console.print(
             f"{status_icon} [dim]{bar}[/dim] "
-            f"[cyan]{done}/{total}[/cyan] "
+            f"{progress_text} "
             f"[bold yellow]{current_stage}[/bold yellow] "
-            f"[dim]{pct}% [{elapsed_str}][/dim]"
+            f"[dim][{elapsed_str}][/dim]"
         )
 
     # ── Evidence Gate Table ────────────────────────────────────────
@@ -254,116 +414,13 @@ class UIManager:
         active_nodes: list[str] | None = None,
         topology_fidelity: dict[str, Any] | None = None,
     ) -> None:
-        """Render final loop result as an evidence-based summary panel."""
+        """Render final loop result with three-layer visual hierarchy.
+
+        Layer 1: Work item and outcome (what was requested, did it succeed?)
+        Layer 2: Pipeline graph (where each stage stands)
+        Layer 3: Execution details (timing, metrics, contract violations)
+        """
         outcome = task_outcome or status
-        status_style = {
-            "done": "[bold green]DONE[/]",
-            "failed": "[bold red]FAILED[/]",
-            "partial": "[bold red]PARTIAL[/]",
-            "done_with_warnings": "[bold yellow]DONE (with warnings)[/]",
-            "blocked": "[bold red]BLOCKED[/]",
-            "halted": "[bold yellow]HALTED[/]",
-        }.get(outcome, f"[white]{outcome}[/]")
-
-        # Count only active stages, not all 26
-        if active_nodes:
-            active_set = set(active_nodes)
-            active_done = sum(1 for s in active_set if stages.get(s, {}).get("done"))
-            active_total = len(active_set)
-        else:
-            active_done = sum(1 for s in stages.values() if s.get("done") and s.get("attempts", 0) > 0)
-            active_total = sum(1 for s in stages.values() if s.get("attempts", 0) > 0 or s.get("done"))
-            if active_total == 0:
-                active_done = sum(1 for s in stages.values() if s.get("done"))
-                active_total = len(stages)
-
-        lines = [
-            f"[bold]Status:[/bold] {status_style}",
-            f"[bold]Iterations:[/bold] {iterations}",
-            (
-                f"[bold]Active Stages:[/bold] "
-                f"[green]{active_done}[/green]"
-                f"/{active_total} complete"
-            ),
-            f"[bold]Total Time:[/bold] [cyan]{tracker.get_loop_elapsed_formatted()}[/cyan]",
-        ]
-
-        # Artifact evidence section
-        if artifact_evidence:
-            lines.append("")
-            lines.append("[bold]Artifact Delivery:[/bold]")
-            for artifact_path, evidence in artifact_evidence.items():
-                exists = evidence.get("exists", False)
-                icon = "[green]\u2713[/]" if exists else "[red]\u2717[/]"
-                lines.append(f"  {icon} {artifact_path}")
-
-        # Acceptance criteria check
-        if isinstance(work_item, dict):
-            ac = work_item.get("acceptance_criteria", [])
-            if ac:
-                lines.append("")
-                lines.append(f"[bold]Acceptance Criteria:[/bold] {len(ac)} defined")
-
-        # Post stage failure details
-        post_stage = stages.get("post", {})
-        if post_stage.get("done") and "failed" in str(post_stage.get("output", "")).lower():
-            lines.append("")
-            lines.append("[bold red]Post Stage Failed:[/bold red]")
-            output_str = str(post_stage.get("output", ""))
-            if "summary" in output_str:
-                import json as _json
-                try:
-                    parsed = _json.loads(output_str)
-                    summary = parsed.get("summary", output_str[:200])
-                except Exception:
-                    summary = output_str[:200]
-            else:
-                summary = output_str[:200]
-            lines.append(f"  {summary}")
-
-        # Show troubled stages for any non-clean outcome
-        if outcome not in ("done",):
-            troubled = [
-                sid
-                for sid, s in stages.items()
-                if s.get("attempts", 0) > 0 and (not s.get("done") or s.get("attempts", 0) >= 2)
-            ]
-            if troubled:
-                lines.append("")
-                lines.append("[bold red]Troubled Stages:[/bold red]")
-                for sid in troubled:
-                    s = stages[sid]
-                    done_str = "[green]done[/]" if s.get("done") else "[red]not done[/]"
-                    lines.append(f"  \u2022 [bold]{sid}[/bold]: {s.get('attempts', 0)} attempts, {done_str}")
-
-        if blocking_condition:
-            lines.append(f"[bold red]Blocking:[/bold red] {blocking_condition}")
-
-        # Topology fidelity warning
-        if topology_fidelity and topology_fidelity.get("integrity") == "warning":
-            lines.append("")
-            lines.append("[bold yellow]Topology Fidelity Warning:[/bold yellow]")
-            dropped = topology_fidelity.get("dropped", [])
-            added = topology_fidelity.get("added", [])
-            if dropped:
-                lines.append(f"  Stages dropped during compilation: {', '.join(dropped)}")
-            if added:
-                lines.append(f"  Stages added during compilation: {', '.join(added)}")
-
-        if decisions:
-            lines.append(f"[bold]Decisions:[/bold] {len(decisions)}")
-            for d in decisions:
-                lines.append(f"  \u2022 {d}")
-
-        panel_title = {
-            "done": "[bold]Engineering Loop Complete[/bold]",
-            "failed": "[bold red]Engineering Loop FAILED[/bold red]",
-            "partial": "[bold red]Engineering Loop PARTIAL[/bold red]",
-            "done_with_warnings": "[bold yellow]Engineering Loop Complete (Warnings)[/bold yellow]",
-            "blocked": "[bold red]Engineering Loop BLOCKED[/bold red]",
-            "halted": "[bold yellow]Engineering Loop HALTED[/bold yellow]",
-        }.get(outcome, "[bold]Engineering Loop Complete[/bold]")
-
         panel_style = {
             "done": "green",
             "failed": "red",
@@ -373,26 +430,232 @@ class UIManager:
             "halted": "yellow",
         }.get(outcome, "blue")
 
-        self.console.print(Rule(panel_title, style=panel_style))
-        self.console.print(Panel("\n".join(lines), border_style=panel_style))
+        # ── Layer 1: Work Item + Outcome ──────────────────────────
+        outcome_icons = {
+            "done": "[bold green]\u2713 COMPLETED[/bold green]",
+            "failed": "[bold red]\u2717 FAILED[/bold red]",
+            "partial": "[bold red]\u2717 PARTIAL[/bold red]",
+            "done_with_warnings": "[bold yellow]\u2713 COMPLETED (warnings)[/bold yellow]",
+            "blocked": "[bold red]\u26a0 BLOCKED[/bold red]",
+            "halted": "[bold yellow]\u23f8 HALTED[/bold yellow]",
+        }
+        outcome_display = outcome_icons.get(outcome, f"[white]{outcome}[/]")
+
+        # Extract work item description
+        if isinstance(work_item, dict):
+            work_desc = work_item.get("description", work_item.get("prompt", str(work_item)))
+        elif isinstance(work_item, str):
+            work_desc = work_item
+        else:
+            work_desc = ""
+
+        # Build reason for failure/block
+        failure_reason = ""
+        if blocking_condition:
+            failure_reason = f"\n[dim]Reason:[/dim] {blocking_condition}"
+        elif outcome in ("failed", "blocked", "partial"):
+            # Find the first failed stage for context
+            for node_id in active_nodes or []:
+                stage_data = stages.get(node_id, {})
+                if not stage_data.get("done") and stage_data.get("attempts", 0) > 0:
+                    failure_reason = f"\n[dim]Stopped at:[/dim] [bold]{node_id}[/bold]"
+                    break
+
+        layer1_lines = [outcome_display]
+        if work_desc:
+            layer1_lines.insert(0, f"[bold]Work Item:[/bold] {work_desc}")
+        if failure_reason:
+            layer1_lines.append(failure_reason)
+
+        # ── Layer 2: Pipeline Graph ───────────────────────────────
+        # Group nodes by phase, show status for each
+        phase_order = ["INIT", "DESIGN", "ARCH", "IMPL", "VERIFY", "QA", "DEPLOY", "DOC", "POST"]
+        phase_colors = {
+            "INIT": "blue",
+            "DESIGN": "cyan",
+            "ARCH": "magenta",
+            "IMPL": "green",
+            "VERIFY": "yellow",
+            "QA": "red",
+            "DEPLOY": "bright_blue",
+            "DOC": "bright_cyan",
+            "POST": "white",
+        }
+
+        phase_nodes = {p: [] for p in phase_order}
+        if active_nodes:
+            for node in active_nodes:
+                prefix = node.split(".")[0].upper()
+                if prefix in phase_nodes:
+                    phase_nodes[prefix].append(node)
+
+        # Build visual graph: Phase boxes with status indicators
+        graph_rows = []
+        for phase in phase_order:
+            nodes = phase_nodes.get(phase, [])
+            if not nodes:
+                continue
+
+            color = phase_colors.get(phase, "white")
+            node_statuses = []
+            for node in nodes:
+                short = node.split(".")[-1] if "." in node else node
+                stage_data = stages.get(node, {})
+                is_done = stage_data.get("done", False)
+                attempts = stage_data.get("attempts", 0)
+
+                if is_done:
+                    node_statuses.append(f"[green]\u2713 {short}[/green]")
+                elif attempts > 0:
+                    node_statuses.append(f"[red]\u2717 {short}[/red]")
+                else:
+                    node_statuses.append(f"[dim]\u26d4 {short}[/dim]")
+
+            nodes_str = "\n  ".join(node_statuses)
+            graph_rows.append(f"[bold {color}]{phase}[/bold {color}]\n  {nodes_str}")
+
+        graph_display = "\n\n".join(graph_rows) if graph_rows else "[dim]No stages executed[/dim]"
+
+        # ── Layer 3: Execution Details ────────────────────────────
+        detail_lines = []
+
+        # Artifact evidence
+        if artifact_evidence:
+            detail_lines.append("[bold]Artifact Delivery:[/bold]")
+            for artifact_path, evidence in artifact_evidence.items():
+                exists = evidence.get("exists", False)
+                icon = "[green]\u2713[/]" if exists else "[red]\u2717[/]"
+                detail_lines.append(f"  {icon} {artifact_path}")
+
+        # Contract violations and troubled stages
+        troubled = [
+            sid
+            for sid, s in stages.items()
+            if s.get("attempts", 0) > 0 and (not s.get("done") or s.get("attempts", 0) >= 2)
+        ]
+        if troubled:
+            detail_lines.append("")
+            detail_lines.append("[bold red]\u26a0 Troubled Stages:[/bold red]")
+            for sid in troubled:
+                s = stages[sid]
+                done_str = "[green]done[/]" if s.get("done") else "[red]not done[/]"
+                detail_lines.append(f"  \u2022 [bold]{sid}[/bold]: {s.get('attempts', 0)} attempts, {done_str}")
+
+        # Post stage failure
+        post_stage = stages.get("post", {})
+        if post_stage.get("done") and "failed" in str(post_stage.get("output", "")).lower():
+            detail_lines.append("")
+            detail_lines.append("[bold red]Post Stage Failed:[/bold red]")
+            output_str = str(post_stage.get("output", ""))
+            if "summary" in output_str:
+                import json as _json
+
+                try:
+                    parsed = _json.loads(output_str)
+                    summary = parsed.get("summary", output_str[:200])
+                except Exception:
+                    summary = output_str[:200]
+            else:
+                summary = output_str[:200]
+            detail_lines.append(f"  {summary}")
+
+        # Topology fidelity
+        if topology_fidelity and topology_fidelity.get("integrity") == "warning":
+            detail_lines.append("")
+            detail_lines.append("[bold yellow]Topology Fidelity Warning:[/bold yellow]")
+            dropped = topology_fidelity.get("dropped", [])
+            added = topology_fidelity.get("added", [])
+            if dropped:
+                detail_lines.append(f"  Stages dropped: {', '.join(dropped)}")
+            if added:
+                detail_lines.append(f"  Stages added: {', '.join(added)}")
+
+        # Decisions
+        if decisions:
+            detail_lines.append(f"[bold]Decisions:[/bold] {len(decisions)}")
+            for d in decisions:
+                detail_lines.append(f"  \u2022 {d}")
+
+        # Acceptance criteria
+        if isinstance(work_item, dict):
+            ac = work_item.get("acceptance_criteria", [])
+            if ac:
+                detail_lines.append(f"[bold]Acceptance Criteria:[/bold] {len(ac)} defined")
+
+        # Telemetry summary
+        elapsed = tracker.get_loop_elapsed_formatted()
+        telemetry = f"[dim]{elapsed} \u2022 {iterations} iterations[/dim]"
+
+        # ── Render Layers ─────────────────────────────────────────
+        rule_title = {
+            "done": "[bold]Engineering Loop Complete[/bold]",
+            "failed": "[bold red]Engineering Loop FAILED[/bold red]",
+            "partial": "[bold red]Engineering Loop PARTIAL[/bold red]",
+            "done_with_warnings": "[bold yellow]Engineering Loop Complete (Warnings)[/bold yellow]",
+            "blocked": "[bold red]Engineering Loop BLOCKED[/bold red]",
+            "halted": "[bold yellow]Engineering Loop HALTED[/bold yellow]",
+        }.get(outcome, "[bold]Engineering Loop Complete[/bold]")
+
+        self.console.print(Rule(rule_title, style=panel_style))
+
+        # Layer 1: Work item outcome
+        self.console.print(
+            Panel(
+                "\n".join(layer1_lines),
+                title="[bold]Result[/bold]",
+                border_style=panel_style,
+            )
+        )
+
+        # Layer 2: Pipeline graph
+        self.console.print(
+            Panel(
+                graph_display,
+                title="[bold]Pipeline[/bold]",
+                border_style="blue",
+            )
+        )
+
+        # Layer 3: Execution details (only if there's content)
+        if detail_lines:
+            self.console.print(
+                Panel(
+                    "\n".join(detail_lines) + f"\n\n{telemetry}",
+                    title="[bold]Details[/bold]",
+                    border_style="blue",
+                )
+            )
+        else:
+            self.console.print(f"  {telemetry}")
 
         # Timing table
         timing_rows = tracker.get_summary()
         if timing_rows:
             table = Table(box=None, padding=(0, 1), show_header=True)
             table.add_column("Stage", style="bold cyan", no_wrap=True)
-            table.add_column("Duration", style="cyan", justify="right")
+            table.add_column("Total", style="cyan", justify="right")
             table.add_column("Attempts", justify="center")
+            table.add_column("Per Attempt", style="dim", justify="right")
 
             for row in timing_rows:
+                durations = row.get("durations", [])
+                per_attempt = ", ".join(format_time(d) for d in durations) if durations else ""
                 table.add_row(
                     row["stage_id"],
                     row["total"],
                     str(row["attempts"]),
+                    per_attempt,
                 )
 
             # Total row
-            table.add_row("", "[bold cyan]" + format_time(tracker.get_total_seconds()) + "[/bold cyan]", "")
+            total_str = format_time(tracker.get_total_seconds())
+            loop_elapsed = tracker.get_loop_elapsed_formatted()
+            table.add_row(
+                "[bold]Total[/bold]",
+                f"[bold cyan]{total_str}[/bold cyan] [dim](wall: {loop_elapsed})[/dim]",
+                "",
+                "",
+            )
 
             self.console.print(Panel(table, title="[bold]Stage Timing[/bold]", border_style="blue"))
 
@@ -593,22 +856,31 @@ class stage_context:
             log_stage_complete(...)
 
     run_agent() checks _stage_ctx.active and uses spinner.update as progress_cb.
+    Also carries iteration/summary from inner run_agent calls so trace_node
+    can render a single enriched panel instead of duplicating output.
+    Tracks skip state so trace_node can render the correct panel.
     """
 
     def __init__(self, stage_id: str) -> None:
         self.stage_id = stage_id
         self.spinner = StageSpinner(stage_id)
+        self.iterations: int = 0
+        self.summary: str = ""
+        self.skipped: bool = False
 
     def __enter__(self) -> Self:
         self.spinner.start()
+        self.skipped = False
         _stage_ctx.active = True  # type: ignore[attr-defined]
         _stage_ctx.spinner = self.spinner  # type: ignore[attr-defined]
+        _set_active_stage_ctx(self)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.spinner.stop()
         _stage_ctx.active = False  # type: ignore[attr-defined]
         _stage_ctx.spinner = None  # type: ignore[attr-defined]
+        _set_active_stage_ctx(None)
         return False
 
 
@@ -617,6 +889,22 @@ def _get_active_spinner() -> StageSpinner | None:
     if getattr(_stage_ctx, "active", False):
         return _stage_ctx.spinner  # type: ignore[attr-defined]
     return None
+
+
+def _get_active_stage_ctx() -> stage_context | None:
+    """Get the active stage context for the current thread, if any.
+
+    Used by run_agent to store iteration/summary so trace_node can render
+    a single enriched panel.
+    """
+    if getattr(_stage_ctx, "active", False):
+        return getattr(_stage_ctx, "_ctx", None)  # type: ignore[attr-defined]
+    return None
+
+
+def _set_active_stage_ctx(ctx: stage_context | None) -> None:
+    """Set the active stage context reference."""
+    _stage_ctx._ctx = ctx  # type: ignore[attr-defined]
 
 
 # ─── Global instance ─────────────────────────────────────────────────
@@ -645,26 +933,35 @@ def log_stage_enter(stage_id: str, iteration: int = 0) -> None:
             ui._hud.normalizer.node_entered(stage_id)
             ui._hud.update()
     else:
+        # Update live indicator with current stage before printing entry
+        if _live_indicator:
+            _live_indicator.current_stage = stage_id.replace("-", ".")
+            _live_indicator.render()
         ui.console.print(f"[dim][iter {iteration}][/dim] [bold cyan]>> {stage_id}[/bold cyan]")
 
 
 def log_model_invoke(stage_id: str) -> None:
     if ui.is_hud_active():
         ui.hud_log("DEBUG", f"model -> {stage_id}...")
-    else:
+    elif not _get_active_spinner():
+        # Silent when spinner is active — it provides the visual feedback
         ui.console.print(f"[dim]  [/dim][yellow]model →[/] {stage_id} [dim]...[/dim]")
 
 
 def log_model_done(stage_id: str, elapsed: float) -> None:
     if ui.is_hud_active():
         ui.hud_log("DEBUG", f"model <- {stage_id} ({format_time(elapsed)})")
-    else:
+    elif not _get_active_spinner():
+        # Silent when spinner is active — the completion panel follows
         ui.console.print(f"[dim]  [/dim][green]model ←[/] {stage_id} [dim]({format_time(elapsed)})[/dim]")
 
 
 def log_stage_done(stage_id: str, result: str = "") -> None:
     if ui.is_hud_active():
         ui.hud_log("INFO", f"done {stage_id}")
+    elif _get_active_spinner():
+        # trace_node decorator will render the completion panel — skip duplicate
+        pass
     else:
         ui.console.print(f"[dim]  [/dim][bold green]done   [/][bold]{stage_id}[/bold]")
         if result:
@@ -682,6 +979,8 @@ def log_stage_complete(
     iterations: int = 0,
     output_data: dict | None = None,
 ) -> None:
+    global _live_done_count
+    _live_done_count += 1
     if ui.is_hud_active():
         ui.hud_log("INFO", f"done {stage_id} ({tool_calls} tools, {duration:.0f}s)")
         ui._hud.clear_current_stage()
@@ -696,6 +995,7 @@ def log_stage_complete(
                 normalizer.store_output_result(stage_id, summary[:8000], output_data)
             ui._hud.update()
     else:
+        finalize_live_indicator()
         table = Table(show_header=False, box=None, padding=(0, 1))
         table.add_column("Key", style="bold dim", width=10)
         table.add_column("Value", style="white")
@@ -713,11 +1013,52 @@ def log_stage_complete(
         )
 
 
-def log_stage_skip(stage_id: str) -> None:
+def log_stage_skip(stage_id: str, reason: str = "") -> None:
+    """Log a stage that was deliberately not executed.
+
+    Use for stages intentionally bypassed by routing decisions.
+    Visual: dim, no execution panel follows.
+    Sets thread-local skip flag so trace_node renders a skip panel.
+    """
+    # Signal trace_node that this stage was skipped
+    active_ctx = _get_active_stage_ctx()
+    if active_ctx:
+        active_ctx.skipped = True
+
+    reason_text = f" — {reason}" if reason else ""
     if ui.is_hud_active():
-        ui.hud_log("INFO", f"skip {stage_id} (already done)")
+        ui.hud_log("INFO", f"skip {stage_id}{reason_text}")
     else:
-        ui.console.print(f"[dim]  skip   {stage_id} (already done)[/dim]")
+        finalize_live_indicator()
+        ui.console.print(f"[dim]  — skip   {stage_id}{reason_text}[/dim]")
+
+
+def log_stage_cached(stage_id: str, source: str = "") -> None:
+    """Log a stage whose result was recovered from cache.
+
+    Use for stages already computed in a prior iteration or run.
+    Visual: cyan, distinct from skip and completed.
+    """
+    source_text = f" ({source})" if source else ""
+    if ui.is_hud_active():
+        ui.hud_log("INFO", f"cached {stage_id}{source_text}")
+        normalizer = ui._normalizer
+        if not normalizer and ui._hud:
+            normalizer = getattr(ui._hud, "normalizer", None)
+        if normalizer:
+            from eng_loop.tools.execution_state import NodeStatus
+
+            normalizer.node_completed(stage_id, NodeStatus.COMPLETED)
+            ui._hud.update()
+    else:
+        finalize_live_indicator()
+        ui.console.print(
+            Panel(
+                f"[dim]Duration[/dim] [cyan]0s[/cyan]\n[dim]Source[/dim] [cyan]cache{source_text}[/cyan]",
+                title=f"[bold cyan]↻ {stage_id.upper()}[/bold cyan]",
+                border_style="cyan",
+            )
+        )
 
 
 def log_stage_fail(stage_id: str, reason: str) -> None:
@@ -732,6 +1073,7 @@ def log_stage_fail(stage_id: str, reason: str) -> None:
             normalizer.node_completed(stage_id, NodeStatus.FAILED)
             ui._hud.update()
     else:
+        finalize_live_indicator()
         ui.console.print(f"[dim]  [/dim][bold red]fail   [/][bold red]{stage_id}[/]: {reason}")
 
 
@@ -782,8 +1124,13 @@ def log_iteration(iteration: int, current_stage: str) -> None:
     if ui.is_hud_active():
         ui.hud_log("SYS", f"Iteration {iteration}: {current_stage}")
     else:
+        clear_live_indicator()
         ui.console.print()
-        ui.console.print(Rule(f"[iter {iteration}] stage={current_stage}", style="cyan", align="left"))
+        ui.console.print(
+            "[dim]━" * 38 + "[/dim]  "
+            f"[bold cyan]iter {iteration}[/bold cyan]  "
+            f"[bold yellow]{current_stage}[/bold yellow]"
+        )
 
 
 def log_stall_warning(stage_id: str, report_msg: str) -> None:
@@ -794,7 +1141,11 @@ def log_stall_warning(stage_id: str, report_msg: str) -> None:
 
 
 def trace_node(stage_id: str):
-    """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel."""
+    """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel.
+
+    If the handler called log_stage_skip, renders a skip panel instead of
+    a completed panel so the visual output is consistent.
+    """
 
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
@@ -802,21 +1153,32 @@ def trace_node(stage_id: str):
             iteration = state.get("iteration", 0)
             log_stage_enter(stage_id, iteration)
             t0 = time.monotonic()
+            was_skipped = False
             try:
                 if ui.is_hud_active():
                     result = fn(state, *args, **kwargs)
                     tool_count = 0
+                    inner_iterations = 0
+                    inner_summary = ""
                 else:
                     with stage_context(stage_id) as ctx:
                         result = fn(state, *args, **kwargs)
                         tool_count = ctx.spinner.tool_count
+                        inner_iterations = ctx.iterations
+                        inner_summary = ctx.summary
+                        was_skipped = ctx.skipped
                 elapsed = time.monotonic() - t0
                 tracker.record_stage(stage_id, elapsed)
-                log_stage_complete(
-                    stage_id,
-                    duration=elapsed,
-                    tool_calls=tool_count,
-                )
+                if was_skipped:
+                    log_stage_cached(stage_id, "already done")
+                else:
+                    log_stage_complete(
+                        stage_id,
+                        duration=elapsed,
+                        tool_calls=tool_count,
+                        summary=inner_summary,
+                        iterations=inner_iterations,
+                    )
                 return result
             except Exception as e:
                 elapsed = time.monotonic() - t0
@@ -833,8 +1195,12 @@ __all__ = [
     "StageSpinner",
     "UIManager",
     "_get_active_spinner",
+    "_get_active_stage_ctx",
+    "clear_live_indicator",
     "console",
+    "finalize_live_indicator",
     "format_time",
+    "init_live_indicator",
     "log_artifact",
     "log_blocked",
     "log_complexity",
@@ -842,6 +1208,7 @@ __all__ = [
     "log_iteration",
     "log_model_done",
     "log_model_invoke",
+    "log_stage_cached",
     "log_stage_complete",
     "log_stage_done",
     "log_stage_enter",
@@ -854,4 +1221,5 @@ __all__ = [
     "trace_node",
     "tracker",
     "ui",
+    "update_live_indicator",
 ]

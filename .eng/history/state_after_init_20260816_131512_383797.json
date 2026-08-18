@@ -9,8 +9,8 @@
   "ui_project": false,
   "stages": {
     "init": {
-      "done": false,
-      "attempts": 0,
+      "done": true,
+      "attempts": 1,
       "essence_checked": false,
       "output": "",
       "artifact_path": ""
@@ -199,24 +199,14 @@
   "context_tiers": {},
   "tags": [],
   "active_nodes": [
-    "init.setup",
-    "dynamic.architect",
-    "meta.executor",
     "init",
-    "init.ideate",
-    "init.refine",
-    "impl.code",
+    "doc.update",
     "post"
   ],
   "graph_topology": {
     "active_nodes": [
-      "init.setup",
-      "dynamic.architect",
-      "meta.executor",
       "init",
-      "init.ideate",
-      "init.refine",
-      "impl.code",
+      "doc.update",
       "post"
     ],
     "edges": [
@@ -226,13 +216,13 @@
         "type": "fixed"
       },
       {
-        "from": "init-setup",
-        "to": "dynamic-architect",
+        "from": "init",
+        "to": "doc-update",
         "type": "fixed"
       },
       {
-        "from": "post",
-        "to": "__end__",
+        "from": "doc-update",
+        "to": "post",
         "type": "fixed"
       }
     ],
@@ -240,8 +230,34 @@
     "complexity": "small",
     "ui_project": false,
     "total_available": 29,
-    "nodes_included": 8
+    "nodes_included": 3
   },
   "parallel_groups": {},
-  "timing": {}
+  "timing": {},
+  "current_stage": "init",
+  "fix_tasks": [],
+  "fix_iteration": 0,
+  "rollback_target": "",
+  "explorer_evidence": [],
+  "codebase_facts": {
+    "computed_at": 1786896793.779914,
+    "complexity": "small",
+    "work_type": "documentation",
+    "ui_project": false,
+    "graphify": {
+      "built": false,
+      "stats": null,
+      "skipped": false,
+      "error": null
+    }
+  },
+  "dynamic_plan": null,
+  "dynamic_runtime": {
+    "cursor": 0,
+    "attempts": {},
+    "completed": [],
+    "failed": [],
+    "status": "pending",
+    "step_audit": []
+  }
 }

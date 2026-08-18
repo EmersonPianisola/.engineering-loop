@@ -50,10 +50,12 @@ class TestContextSliceIntegration:
 
     def test_impl_code_includes_blueprint_and_lessons(self):
         """impl.code context slice includes blueprint and lessons."""
-        state = self._make_state({
-            "impl.design": "Blueprint: create API endpoint with authentication",
-            "lessons": json.dumps({"shared": [], "local": [{"lesson": "use pytest"}]}),
-        })
+        state = self._make_state(
+            {
+                "impl.design": "Blueprint: create API endpoint with authentication",
+                "lessons": json.dumps({"shared": [], "local": [{"lesson": "use pytest"}]}),
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 
@@ -63,10 +65,12 @@ class TestContextSliceIntegration:
 
     def test_verify_includes_blueprint_and_diff(self):
         """verify context slice includes blueprint and diff."""
-        state = self._make_state({
-            "impl.design": "Blueprint content for verification",
-            "diff": "--- old\n+++ new\n@@ ...",
-        })
+        state = self._make_state(
+            {
+                "impl.design": "Blueprint content for verification",
+                "diff": "--- old\n+++ new\n@@ ...",
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 
@@ -75,9 +79,11 @@ class TestContextSliceIntegration:
 
     def test_arch_solution_includes_requirements(self):
         """arch.solution context includes arch_requirements artifact."""
-        state = self._make_state({
-            "arch.requirements": "System requirements: REST API, PostgreSQL",
-        })
+        state = self._make_state(
+            {
+                "arch.requirements": "System requirements: REST API, PostgreSQL",
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 
@@ -86,9 +92,11 @@ class TestContextSliceIntegration:
 
     def test_design_stage_includes_journey_map(self):
         """Design stages include journey_map artifact."""
-        state = self._make_state({
-            "init.bdd": "Journey map: user login flow",
-        })
+        state = self._make_state(
+            {
+                "init.bdd": "Journey map: user login flow",
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 
@@ -97,9 +105,11 @@ class TestContextSliceIntegration:
 
     def test_context_slice_references_mode(self):
         """References mode emits paths instead of inline content."""
-        state = self._make_state({
-            "impl.design": "x" * 5000,
-        })
+        state = self._make_state(
+            {
+                "impl.design": "x" * 5000,
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 
@@ -108,9 +118,11 @@ class TestContextSliceIntegration:
 
     def test_context_slice_token_limit_enforcement(self):
         """Context slice respects token limit."""
-        state = self._make_state({
-            "impl.design": "x" * 100000,
-        })
+        state = self._make_state(
+            {
+                "impl.design": "x" * 100000,
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 100}}
 
@@ -128,9 +140,11 @@ class TestContextSliceIntegration:
 
     def test_unknown_stage_gets_default_context(self):
         """Unknown stages get default context with work_item and blueprint."""
-        state = self._make_state({
-            "impl.design": "Blueprint content",
-        })
+        state = self._make_state(
+            {
+                "impl.design": "Blueprint content",
+            }
+        )
         paths = {"artifact_root": "/tmp/artifacts"}
         config = {"hardware": {"agent_context_limit": 66666}}
 

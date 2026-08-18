@@ -1,0 +1,287 @@
+{
+  "iteration": 2,
+  "status": "blocked",
+  "blocking_condition": "input not ready for engineering",
+  "complexity": "small",
+  "work_type": "documentation",
+  "work_item": {
+    "title": "Create Cake Recipe Documentation",
+    "intent": "Write a cake recipe in markdown format inside a new 'Cake' folder within the .engineering-loop project",
+    "acceptance_criteria": [
+      "Create a 'Cake' folder in the project root",
+      "Write a complete cake recipe in markdown format",
+      "Recipe should include ingredients, instructions, and basic metadata"
+    ],
+    "code_map": [
+      "Cake/recipe.md"
+    ]
+  },
+  "ideation": null,
+  "ui_project": false,
+  "stages": {
+    "init": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.ideate": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.bdd": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "init.refine": {
+      "done": false,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.user-research": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.personas": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.info-arch": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.interaction": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.design-system": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "design.visual-design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.requirements": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.solution": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "arch.review": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.design": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "impl.code": {
+      "done": true,
+      "attempts": 1,
+      "essence_checked": false,
+      "output": "{'implementation_summary': 'Created a complete vanilla cake recipe in markdown format at Cake/recipe.md. The recipe includes: (1) Metadata section with prep time, cook time, total time, servings, and difficulty level. (2) A description of the cake. (3) Ingredients organized in tables for both the cake and vanilla frosting, with measurements in both US customary and metric units. (4) Step-by-step instructions covering preparation, mixing, baking, frosting, and assembly. (5) Helpful tips for best results. (6) Approximate nutrition information per serving. All acceptance criteria are met: Cake folder created, complete recipe in markdown format, includes ingredients, instructions, and basic metadata.', 'files_created': ['Cake/recipe.md'], 'tests_passed': True, 'complete': True, 'decisions': [{'id': 'AD-001', 'description': 'Chose a classic vanilla cake recipe as it is universally recognized and serves as a good template for cake documentation.', 'rationale': 'Vanilla cake is a foundational recipe that most bakers are familiar with, making it an ideal choice for documentation purposes.'}, {'id': 'AD-002', 'description': 'Included both US customary and metric measurements for all ingredients.', 'rationale': 'This makes the recipe accessible to a wider international audience.'}, {'id': 'AD-003', 'description': 'Organized ingredients and nutrition data in markdown tables for readability.', 'rationale': 'Tables provide a clean, scannable format that is easy to reference while cooking.'}], 'diff': 'A  Cake/recipe.md\\n'}",
+      "artifact_path": ""
+    },
+    "doc.update": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "verify": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "e2e.execute": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.security": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.api-contract": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "qa.performance": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "deploy.prepare": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "smoke.test": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.decisions": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "doc.project": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "",
+      "artifact_path": ""
+    },
+    "post": {
+      "done": true,
+      "attempts": 0,
+      "essence_checked": false,
+      "output": "{'summary': \"Post-loop finalization complete for 'Create Cake Recipe Documentation'. Work item created Cake/recipe.md with a classic vanilla cake recipe including ingredients (with US customary and metric measurements), step-by-step instructions, and metadata organized in markdown tables. Three architectural decisions documented (AD-001: vanilla cake selection, AD-002: dual measurement systems, AD-003: table formatting). No errors encountered during development. No lessons to share with framework.\", 'lessons_to_share': 0, 'final_status': 'done', 'complete': True}",
+      "artifact_path": ""
+    }
+  },
+  "decisions": [
+    "AD-001: {'id': 'AD-001', 'description': 'Chose a classic vanilla cake recipe as it is universally recognized and serves as a good template for cake documentation.', 'rationale': 'Vanilla cake is a foundational recipe that most bakers are familiar with, making it an ideal choice for documentation purposes.'}",
+    "AD-002: {'id': 'AD-002', 'description': 'Included both US customary and metric measurements for all ingredients.', 'rationale': 'This makes the recipe accessible to a wider international audience.'}",
+    "AD-003: {'id': 'AD-003', 'description': 'Organized ingredients and nutrition data in markdown tables for readability.', 'rationale': 'Tables provide a clean, scannable format that is easy to reference while cooking.'}"
+  ],
+  "stage_artifacts": {},
+  "lessons": [],
+  "errors": [],
+  "handoffs": {
+    "init": "Stage: init",
+    "impl.code": "Stage: impl.code\nOutput: Created a complete vanilla cake recipe in markdown format at Cake/recipe.md. The recipe includes: (1) Metadata section with prep time, cook time, total time, servings, and difficulty level. (2) A desc...\nDecisions: 3 recorded\n  - AD-001: {'id': 'AD-001', 'description': 'Chose a classic vanilla cake recipe as it is universally re\n  - AD-002: {'id': 'AD-002', 'description': 'Included both US customary and metric measurements for all \n  - AD-003: {'id': 'AD-003', 'descripti\n... [truncated]"
+  },
+  "context_tiers": {},
+  "tags": [],
+  "active_nodes": [
+    "init",
+    "impl.code",
+    "post"
+  ],
+  "graph_topology": {
+    "active_nodes": [
+      "init",
+      "impl.code",
+      "post"
+    ],
+    "edges": [
+      {
+        "from": "__start__",
+        "to": "init-setup",
+        "type": "fixed"
+      },
+      {
+        "from": "init",
+        "to": "impl-code",
+        "type": "fixed"
+      },
+      {
+        "from": "impl-code",
+        "to": "post",
+        "type": "fixed"
+      }
+    ],
+    "parallel_groups": {},
+    "complexity": "small",
+    "ui_project": false,
+    "total_available": 29,
+    "nodes_included": 3
+  },
+  "parallel_groups": {},
+  "timing": {},
+  "current_stage": "post",
+  "fix_tasks": [],
+  "fix_iteration": 0,
+  "rollback_target": "",
+  "explorer_evidence": [],
+  "codebase_facts": {
+    "computed_at": 1786850497.0444748,
+    "complexity": "small",
+    "work_type": "documentation",
+    "ui_project": false,
+    "graphify": {
+      "built": false,
+      "stats": null,
+      "skipped": false,
+      "error": null
+    }
+  },
+  "dynamic_plan": {
+    "plan_id": "none",
+    "trigger": "none",
+    "authorized_complexity": "standard",
+    "steps": [],
+    "rationale": "No augmentation needed."
+  },
+  "dynamic_runtime": {
+    "cursor": 0,
+    "attempts": {},
+    "completed": [],
+    "failed": [],
+    "status": "completed",
+    "step_audit": []
+  }
+}

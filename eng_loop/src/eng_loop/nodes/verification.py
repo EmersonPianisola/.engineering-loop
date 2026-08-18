@@ -8,6 +8,7 @@ from langgraph.types import Command
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import E2eOutput, VerifyOutput
 from eng_loop.state import rollback_to_stage
+from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
@@ -39,6 +40,7 @@ def _build_fix_tasks(
     return fix_tasks
 
 
+@essence_gate("verify")
 def verify_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
@@ -199,6 +201,7 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
     )
 
 
+@essence_gate("e2e.execute")
 def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage

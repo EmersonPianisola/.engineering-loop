@@ -80,8 +80,11 @@ class TestArtifactEvidenceTracking:
             Path(os.path.join(artifact_root, fname)).write_text("internal")
 
         excluded = {
-            "post-loop-summary.md", "lessons.json", "lessons-shared.json",
-            "lessons-pending.json", "LESSONS.md",
+            "post-loop-summary.md",
+            "lessons.json",
+            "lessons-shared.json",
+            "lessons-pending.json",
+            "LESSONS.md",
         }
         evidence = {}
         if os.path.isdir(artifact_root):

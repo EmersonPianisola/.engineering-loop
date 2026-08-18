@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from eng_loop.tools.execution_state import (
     AgentActionEvent,
+    CommandHistoryEvent,
     NodeCompletedEvent,
     NodeStartedEvent,
     NodeStatus,
@@ -244,6 +245,31 @@ class EventNormalizer:
     def store_output_result(self, stage_id: str, result: str, data: dict[str, Any] | None = None) -> None:
         """Store the output result for a stage (for Node Inspector)."""
         self.execution_state.store_payload(stage_id, output_result=result, output_data=data)
+
+    def command_history_update(
+        self,
+        stage_id: str,
+        tool_name: str,
+        target: str,
+        count: int,
+        is_intercepted: bool = False,
+    ) -> None:
+        """Emit CommandHistoryEvent for HUD command history panel."""
+        execution_id = self._get_current_execution_id(stage_id)
+        if not execution_id:
+            return
+
+        self.execution_state.apply(
+            CommandHistoryEvent(
+                node_name=stage_id,
+                execution_id=execution_id,
+                tool_name=tool_name,
+                target=target,
+                count=count,
+                is_intercepted=is_intercepted,
+                timestamp=time.monotonic(),
+            )
+        )
 
     # ─── Helpers ────────────────────────────────────────────────────
 

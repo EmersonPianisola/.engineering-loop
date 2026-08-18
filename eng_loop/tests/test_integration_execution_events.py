@@ -85,17 +85,21 @@ class TestExecutionStateLifecycle:
 
         exec_id = normalizer.node_entered("impl.code")
 
-        state.apply(ToolStartedEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            tool_name="read",
-            args={"file_path": "test.py"},
-        ))
-        state.apply(ToolCompletedEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            tool_name="read",
-        ))
+        state.apply(
+            ToolStartedEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                tool_name="read",
+                args={"file_path": "test.py"},
+            )
+        )
+        state.apply(
+            ToolCompletedEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                tool_name="read",
+            )
+        )
 
         execs = state._executions.get("impl.code", {})
         node_exec = execs.get(exec_id)
@@ -107,12 +111,14 @@ class TestExecutionStateLifecycle:
         normalizer = EventNormalizer(state, ["impl.code"])
 
         exec_id = normalizer.node_entered("impl.code")
-        state.apply(AgentActionEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            action_type="writing",
-            description="Writing file src/main.py",
-        ))
+        state.apply(
+            AgentActionEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                action_type="writing",
+                description="Writing file src/main.py",
+            )
+        )
 
         execs = state._executions.get("impl.code", {})
         node_exec = execs.get(exec_id)
@@ -125,12 +131,14 @@ class TestExecutionStateLifecycle:
         normalizer = EventNormalizer(state, ["impl.code"])
 
         exec_id = normalizer.node_entered("impl.code")
-        state.apply(ResourceConsumedEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            input_tokens=1000,
-            output_tokens=500,
-        ))
+        state.apply(
+            ResourceConsumedEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                input_tokens=1000,
+                output_tokens=500,
+            )
+        )
 
         execs = state._executions.get("impl.code", {})
         node_exec = execs.get(exec_id)
@@ -188,16 +196,20 @@ class TestExecutionStateLifecycle:
         assert exec_id is not None
         assert len(exec_id) > 0
 
-        state.apply(ToolStartedEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            tool_name="read",
-        ))
-        state.apply(ToolCompletedEvent(
-            node_name="impl.code",
-            execution_id=exec_id,
-            tool_name="read",
-        ))
+        state.apply(
+            ToolStartedEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                tool_name="read",
+            )
+        )
+        state.apply(
+            ToolCompletedEvent(
+                node_name="impl.code",
+                execution_id=exec_id,
+                tool_name="read",
+            )
+        )
 
         execs = state._executions.get("impl.code", {})
         node_exec = execs.get(exec_id)
@@ -275,11 +287,13 @@ class TestExecutionStateDirectEvents:
     def test_apply_node_started_event(self):
         state = ExecutionState(quest_id="test", title="Test", all_node_names=["init"])
 
-        state.apply(NodeStartedEvent(
-            node_name="init",
-            execution_id="exec-1",
-            attempt_number=1,
-        ))
+        state.apply(
+            NodeStartedEvent(
+                node_name="init",
+                execution_id="exec-1",
+                attempt_number=1,
+            )
+        )
 
         assert state._status == ExecutionStatus.RUNNING
         execs = state._executions.get("init", {})
@@ -288,16 +302,20 @@ class TestExecutionStateDirectEvents:
     def test_apply_node_completed_event(self):
         state = ExecutionState(quest_id="test", title="Test", all_node_names=["init"])
 
-        state.apply(NodeStartedEvent(
-            node_name="init",
-            execution_id="exec-1",
-            attempt_number=1,
-        ))
-        state.apply(NodeCompletedEvent(
-            node_name="init",
-            execution_id="exec-1",
-            status=NodeStatus.COMPLETED,
-        ))
+        state.apply(
+            NodeStartedEvent(
+                node_name="init",
+                execution_id="exec-1",
+                attempt_number=1,
+            )
+        )
+        state.apply(
+            NodeCompletedEvent(
+                node_name="init",
+                execution_id="exec-1",
+                status=NodeStatus.COMPLETED,
+            )
+        )
 
         assert state._completed["init"] == NodeStatus.COMPLETED
 

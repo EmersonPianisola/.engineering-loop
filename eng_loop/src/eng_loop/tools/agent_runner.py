@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
     _get_active_spinner,
+    _get_active_stage_ctx,
     log_model_done,
     log_model_invoke,
     log_stage_complete,
@@ -289,9 +290,10 @@ def run_agent(
     # Command history buffer — tracks inspections, injects steering on redundant repeats
     cmd_history = CommandHistoryBuffer(has_productive_tools=has_productive)
 
-    # Steering injection counter — escalate: soft → strong → abort
+    # Steering injection counter — escalate: soft → strong → force answer
     _steering_injection_count = 0
-    _STEERING_MAX_INJECTIONS = 3  # After 3 steering attempts, abort
+    _STEERING_MAX_INJECTIONS = 3  # After 3 steering attempts, force final answer
+    _steering_forced_answer = False  # Track whether we already forced the agent to answer
 
     # Tool result cache — eliminates redundant read/glob/grep calls within a stage
     tool_cache = ToolResultCache()
@@ -400,27 +402,64 @@ def run_agent(
                             tool_name,
                             cmd_history.get_repeat_count(tool_name, tool_args),
                         )
+                        # Emit command history event for HUD visibility
+                        if ui.is_hud_active() and ui._normalizer:
+                            _cmd_target = _extract_tool_target(tool_name, tool_args)
+                            _cmd_count = cmd_history.get_repeat_count(tool_name, tool_args)
+                            ui._normalizer.command_history_update(
+                                stage_id, tool_name, _cmd_target, _cmd_count, is_intercepted=True
+                            )
                         _steering_injection_count += 1
                         if _steering_injection_count >= _STEERING_MAX_INJECTIONS:
-                            # Escalate to abort after max steering attempts
-                            elapsed = time.monotonic() - t0
-                            log_model_done(stage_id, elapsed)
-                            log_stage_fail(
+                            if _steering_forced_answer:
+                                # Agent already forced to answer but still repeating — abort
+                                elapsed = time.monotonic() - t0
+                                log_model_done(stage_id, elapsed)
+                                log_stage_fail(
+                                    stage_id,
+                                    f"agent_stalled: redundant inspection loop detected "
+                                    f"({_steering_injection_count} steering attempts exhausted)",
+                                )
+                                return AgentResult(
+                                    data={},
+                                    conversation=list(messages),
+                                    tool_calls_made=tool_calls_total,
+                                    iterations=iteration,
+                                    elapsed=elapsed,
+                                    error=(
+                                        f"agent_stalled: redundant inspection loop "
+                                        f"({_steering_injection_count} steering attempts exhausted)"
+                                    ),
+                                )
+                            # First time reaching max: force the agent to produce an answer
+                            _steering_forced_answer = True
+                            _dbg.warning(
+                                "[DEBUG] agent_runner: stage=%s FORCING final answer after %d steering attempts",
                                 stage_id,
-                                f"agent_stalled: redundant inspection loop detected "
-                                f"({_steering_injection_count} steering attempts exhausted)",
+                                _steering_injection_count,
                             )
-                            return AgentResult(
-                                data={},
-                                conversation=list(messages),
-                                tool_calls_made=tool_calls_total,
-                                iterations=iteration,
-                                elapsed=elapsed,
-                                error=(
-                                    f"agent_stalled: redundant inspection loop "
-                                    f"({_steering_injection_count} steering attempts exhausted)"
-                                ),
+                            messages.append(response)
+                            messages.append(
+                                ToolMessage(
+                                    content=cmd_history.steering_message(tool_name, tool_args),
+                                    tool_call_id=tc["id"],
+                                )
                             )
+                            messages.append(
+                                HumanMessage(
+                                    content=(
+                                        "CRITICAL: You are stuck in a redundant inspection loop. "
+                                        "STOP calling tools immediately. "
+                                        "Provide your final answer NOW as a JSON object. "
+                                        "Do NOT call any more tools. Your response must be valid JSON."
+                                    )
+                                )
+                            )
+                            tool_calls_total += 1
+                            cmd_history.reset()
+                            stall_detector.reset()
+                            _read_streak = 0
+                            continue
                         # Inject steering as ToolMessage (agent sees it as tool result)
                         messages.append(response)
                         messages.append(
@@ -436,7 +475,11 @@ def run_agent(
                         continue
 
                     # Record in command history (first time or allowed repeat)
-                    cmd_history.record(tool_name, tool_args)
+                    _recorded_count = cmd_history.record(tool_name, tool_args)
+                    # Emit command history event for HUD visibility
+                    if ui.is_hud_active() and ui._normalizer:
+                        _cmd_target = _extract_tool_target(tool_name, tool_args)
+                        ui._normalizer.command_history_update(stage_id, tool_name, _cmd_target, _recorded_count + 1)
 
                     tool_result = _execute_tool_cached(tools, tool_name, tool_args, tool_cache)
 
@@ -482,17 +525,40 @@ def run_agent(
                         )
                         _steering_injection_count += 1
                         if _steering_injection_count >= _STEERING_MAX_INJECTIONS:
-                            elapsed = time.monotonic() - t0
-                            log_model_done(stage_id, elapsed)
-                            log_stage_fail(stage_id, stall_report.message)
-                            return AgentResult(
-                                data={},
-                                conversation=list(messages),
-                                tool_calls_made=tool_calls_total,
-                                iterations=iteration,
-                                elapsed=elapsed,
-                                error=stall_report.message,
+                            if _steering_forced_answer:
+                                # Agent already forced to answer but still stalling — abort
+                                elapsed = time.monotonic() - t0
+                                log_model_done(stage_id, elapsed)
+                                log_stage_fail(stage_id, stall_report.message)
+                                return AgentResult(
+                                    data={},
+                                    conversation=list(messages),
+                                    tool_calls_made=tool_calls_total,
+                                    iterations=iteration,
+                                    elapsed=elapsed,
+                                    error=stall_report.message,
+                                )
+                            # First time reaching max: force the agent to produce an answer
+                            _steering_forced_answer = True
+                            _dbg.warning(
+                                "[DEBUG] agent_runner: stage=%s FORCING final answer after %d steering attempts",
+                                stage_id,
+                                _steering_injection_count,
                             )
+                            messages.append(
+                                HumanMessage(
+                                    content=(
+                                        "CRITICAL: You are stuck in a redundant inspection loop. "
+                                        "STOP calling tools immediately. "
+                                        "Provide your final answer NOW as a JSON object. "
+                                        "Do NOT call any more tools. Your response must be valid JSON."
+                                    )
+                                )
+                            )
+                            stall_detector.reset()
+                            cmd_history.reset()
+                            _read_streak = 0
+                            continue
                         messages.append(
                             HumanMessage(
                                 content=(
@@ -593,13 +659,25 @@ def run_agent(
                 stall_stats = stall_detector.get_stats()
                 cache_stats = tool_cache.get_stats()
                 tools_summary = ", ".join(f"{k}={v}" for k, v in stall_stats.get("tools_used", {}).items())
-                log_stage_complete(
-                    stage_id,
-                    duration=elapsed,
-                    tool_calls=tool_calls_total,
-                    summary=f"{iteration} iterations, {tools_summary}, cache: {cache_stats['hits']}h/{cache_stats['misses']}m",
-                    iterations=iteration,
-                )
+                parts = [f"{iteration} iterations"]
+                if tools_summary:
+                    parts.append(tools_summary)
+                parts.append(f"cache: {cache_stats['hits']}h/{cache_stats['misses']}m")
+                summary_text = ", ".join(parts)
+                # When trace_node spinner is active, defer rendering to the decorator
+                # to avoid duplicate panels. Store iteration/summary for trace_node.
+                active_ctx = _get_active_stage_ctx()
+                if active_ctx is not None:
+                    active_ctx.iterations = iteration
+                    active_ctx.summary = summary_text
+                else:
+                    log_stage_complete(
+                        stage_id,
+                        duration=elapsed,
+                        tool_calls=tool_calls_total,
+                        summary=summary_text,
+                        iterations=iteration,
+                    )
 
                 return AgentResult(
                     data=data,
@@ -794,12 +872,12 @@ def run_agent_via_opencode(
         work_item_text = wi_match.group(1).strip() if wi_match else ""
 
         # Compact prompt: keep WORK ITEM, instructions, and key context.
-        # Strip SKILL (too verbose for opencode) but keep PROCEDURE (contains task instructions).
+        # Compact SKILL to ~50 lines (preserves Rules, Anti-Patterns, Execution Protocol).
         # Strip ARCHITECTURE CONTEXT and CONFIRMED LESSONS (agent can read files directly).
         compact_prompt = prompt
         if work_item_text:
-            # Remove SKILL section (guidance, not task-critical)
-            compact_prompt = _re.sub(r"## SKILL\s*\n.*?(?=\n##)", "", compact_prompt, flags=_re.DOTALL)
+            # Compact SKILL section instead of stripping — preserves critical guidance
+            compact_prompt = _inject_compact_skill(compact_prompt, max_skill_lines=50)
             # Keep PROCEDURE — it contains the actual task instructions
             # Remove ARCHITECTURE CONTEXT (agent reads files directly)
             compact_prompt = _re.sub(r"## ARCHITECTURE CONTEXT\s*\n.*?(?=\n##)", "", compact_prompt, flags=_re.DOTALL)
@@ -1134,12 +1212,17 @@ def run_agent_via_opencode(
                 }
 
             log_model_done(stage_id, elapsed)
-            log_stage_complete(
-                stage_id,
-                duration=elapsed,
-                tool_calls=tool_count[0],
-                summary="opencode agent completed",
-            )
+            active_ctx = _get_active_stage_ctx()
+            if active_ctx is not None:
+                active_ctx.iterations = 1
+                active_ctx.summary = "opencode agent completed"
+            else:
+                log_stage_complete(
+                    stage_id,
+                    duration=elapsed,
+                    tool_calls=tool_count[0],
+                    summary="opencode agent completed",
+                )
 
             return AgentResult(
                 data=data,
@@ -1570,6 +1653,201 @@ def _extract_best_effort_from_messages(
     return {}
 
 
+def _compact_skill(skill_text: str, max_lines: int = 50) -> str:
+    """Compact a SKILL.md section to preserve critical instructions within a token budget.
+
+    Strategy:
+    1. Extract and condense YAML frontmatter to key metadata
+    2. Keep critical sections: Rules, Anti-Patterns, Execution Protocol
+    3. Keep section headers with brief context
+    4. Skip verbose examples, long tables, detailed explanations
+    5. Hard limit to max_lines
+    """
+    if not skill_text.strip():
+        return ""
+
+    lines = skill_text.split("\n")
+    result = []
+    in_frontmatter = False
+    frontmatter_done = False
+
+    def is_section_header(line: str) -> bool:
+        return line.startswith("## ") and not line.startswith("### ")
+
+    def is_subsection_header(line: str) -> bool:
+        return line.startswith("### ")
+
+    def is_code_fence(line: str) -> bool:
+        return line.strip().startswith("```")
+
+    def is_table_separator(line: str) -> bool:
+        return line.strip().startswith("|") and "-" in line.strip()
+
+    i = 0
+    while i < len(lines) and len(result) < max_lines:
+        line = lines[i]
+
+        # Handle YAML frontmatter
+        if line.strip() == "---":
+            if not frontmatter_done:
+                in_frontmatter = not in_frontmatter
+                frontmatter_done = in_frontmatter is False
+                if frontmatter_done:
+                    result.append("---")
+                i += 1
+                continue
+            else:
+                result.append(line)
+                i += 1
+                continue
+
+        if in_frontmatter:
+            if ":" in line and not line.startswith(" "):
+                key, _, val = line.partition(":")
+                key = key.strip().lower()
+                if key in ("name", "version", "role", "domain", "type", "description", "stage", "id"):
+                    result.append(line)
+            i += 1
+            continue
+
+        # Skip empty lines at the start
+        if not result and not line.strip():
+            i += 1
+            continue
+
+        # Main title
+        if line.startswith("# ") and not line.startswith("## "):
+            result.append(line)
+            i += 1
+            continue
+
+        # Section headers — always keep them
+        if is_section_header(line):
+            result.append(line)
+            i += 1
+            continue
+
+        # Subsection headers — keep if we haven't hit the limit
+        if is_subsection_header(line):
+            if len(result) < max_lines - 3:
+                result.append(line)
+            i += 1
+            continue
+
+        # Code blocks — skip verbose examples, keep short ones
+        if is_code_fence(line):
+            code_lines = [line]
+            i += 1
+            while i < len(lines) and not is_code_fence(lines[i]):
+                code_lines.append(lines[i])
+                i += 1
+            if i < len(lines):
+                code_lines.append(lines[i])  # closing fence
+                i += 1
+            # Keep code blocks only if short (<=8 lines) and we have room
+            if len(code_lines) <= 8 and len(result) + len(code_lines) < max_lines - 5:
+                result.extend(code_lines)
+            continue
+
+        # Table separators — skip
+        if is_table_separator(line):
+            i += 1
+            continue
+
+        # Table headers — keep first line of tables
+        if line.strip().startswith("|") and line.strip().endswith("|"):
+            if len(result) < max_lines - 5:
+                result.append(line)
+            i += 1
+            # Skip table separator line
+            if i < len(lines) and is_table_separator(lines[i]):
+                i += 1
+            # Keep one data row as example
+            if i < len(lines) and lines[i].strip().startswith("|") and len(result) < max_lines - 3:
+                result.append(lines[i])
+                i += 1
+            # Skip remaining table rows
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                i += 1
+            continue
+
+        # Bullet points — keep if in a high-priority section
+        if line.strip().startswith("- ") or line.strip().startswith("* "):
+            if len(result) < max_lines - 2:
+                result.append(line)
+            i += 1
+            continue
+
+        # Numbered lists — keep
+        stripped_check = line.strip()
+        if stripped_check and stripped_check[0].isdigit() and len(stripped_check) > 1 and stripped_check[1] == ".":
+            if len(result) < max_lines - 2:
+                result.append(line)
+            i += 1
+            continue
+
+        # Regular text — keep if brief and meaningful
+        stripped = line.strip()
+        if stripped and len(stripped) < 120:
+            if len(result) < max_lines - 2:
+                result.append(line)
+        i += 1
+        continue
+
+    compacted = "\n".join(result[:max_lines])
+    if len(lines) > max_lines:
+        original_lines = len(lines)
+        compacted += (
+            f"\n\n[Skill compacted from {original_lines} to {max_lines} lines. Full skill available at source.]"
+        )
+
+    return compacted
+
+
+def _inject_compact_skill(prompt: str, max_skill_lines: int = 50) -> str:
+    """Replace the ## SKILL section in a prompt with a compacted version.
+
+    Instead of stripping the SKILL section entirely (which loses critical
+    execution guidance), this compacts it to preserve Rules, Anti-Patterns,
+    Execution Protocol, and key metadata within a token budget.
+    """
+    import re as _re
+
+    skill_match = _re.search(r"(## SKILL\s*\n)((?:.*\n)*?)(?=\n\n##|\Z)", prompt, _re.DOTALL)
+    if not skill_match:
+        return prompt
+
+    skill_text = skill_match.group(2).strip()
+    # Strip trailing sections that leaked in (## PROCEDURE, ## DECISIONS, etc.)
+    # These are prompt-level sections, not part of the skill content.
+    LEAKED_SECTIONS = (
+        "PROCEDURE",
+        "WORK ITEM",
+        "DECISIONS",
+        "IDEATION",
+        "PROJECT ROOT",
+        "COMPLEXITY",
+        "WORK TYPE",
+        "UI PROJECT",
+        "ARCHITECTURE CONTEXT",
+        "CONFIRMED LESSONS",
+        "PRIOR STAGE HANDOFFS",
+    )
+    leaked_content = ""
+    for section in LEAKED_SECTIONS:
+        boundary = f"\n## {section}"
+        idx = skill_text.find(boundary)
+        if idx != -1:
+            leaked_content = skill_text[idx:]
+            skill_text = skill_text[:idx].rstrip()
+            break
+
+    compacted = _compact_skill(skill_text, max_skill_lines)
+    replacement = f"## SKILL\n{compacted}" + leaked_content
+
+    return prompt[: skill_match.start()] + replacement + prompt[skill_match.end() :]
+
+
 def _compact_messages(messages: list[Any]) -> list[Any]:
     """Compact a long conversation by summarizing old tool exchanges."""
     if len(messages) <= 40:
@@ -1686,6 +1964,33 @@ def _summarize_error(text: str, max_lines: int = 10) -> str:
     # Strategy 4: Generic — last N non-empty lines
     non_empty = [l for l in lines if l.strip()]
     return f"[ERROR_SUMMARY — output truncated from {len(lines)} lines]\n" + "\n".join(non_empty[-max_lines:])
+
+
+def _extract_tool_target(tool_name: str, tool_args: dict) -> str:
+    """Extract a short target identifier from tool args for HUD display."""
+    if tool_name == "bash":
+        for key in ("command", "__arg1", "cmd"):
+            if key in tool_args:
+                cmd = str(tool_args[key]).strip()
+                return cmd[:60] if len(cmd) > 60 else cmd
+        return ""
+    elif tool_name in ("read", "glob", "grep"):
+        for key in ("filePath", "path", "pattern", "file_path"):
+            if key in tool_args:
+                val = str(tool_args[key])
+                # Extract basename for file paths
+                if "/" in val or "\\" in val:
+                    return val.split("/")[-1].split("\\")[-1]
+                return val[:40]
+        return ""
+    else:
+        for key in ("filePath", "path", "pattern", "file_path", "command"):
+            if key in tool_args:
+                val = str(tool_args[key])
+                if "/" in val or "\\" in val:
+                    return val.split("/")[-1].split("\\")[-1]
+                return val[:40]
+        return ""
 
 
 def _report_token_usage(stage_id: str, response: Any) -> None:

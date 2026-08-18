@@ -193,9 +193,7 @@ class TestTopologyProposalValidation:
                 work_type="feature",
                 complexity="small",
                 required_stages=("init", "post"),
-                edges=(
-                    EdgeDefinition(from_stage="init", to_stage="nonexistent", edge_type="fixed"),
-                ),
+                edges=(EdgeDefinition(from_stage="init", to_stage="nonexistent", edge_type="fixed"),),
                 phase_groups=(),
                 rationale="Test",
             )
@@ -230,9 +228,7 @@ class TestTopologyProposalValidation:
                 work_type="feature",
                 complexity="small",
                 required_stages=(),
-                edges=(
-                    EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),
-                ),
+                edges=(EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),),
                 phase_groups=(),
                 rationale="Test",
             )
@@ -264,12 +260,8 @@ class TestTopologyProposalValidation:
                 work_type="feature",
                 complexity="small",
                 required_stages=("init", "post"),
-                edges=(
-                    EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),
-                ),
-                phase_groups=(
-                    PhaseGroup(name="INIT", stages=("init", "nonexistent")),
-                ),
+                edges=(EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),),
+                phase_groups=(PhaseGroup(name="INIT", stages=("init", "nonexistent")),),
                 rationale="Test",
             )
             assert False, "Should have raised validation error"
@@ -284,9 +276,7 @@ class TestTopologyProposalValidation:
                 work_type="feature",
                 complexity="small",
                 required_stages=("init", "init", "post"),
-                edges=(
-                    EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),
-                ),
+                edges=(EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),),
                 phase_groups=(),
                 rationale="Test",
             )
@@ -322,9 +312,7 @@ class TestAuthorizedTopology:
         auth = AuthorizedGraphTopology(
             plan_id="test",
             authorized_stages=("init", "post"),
-            authorized_edges=(
-                EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),
-            ),
+            authorized_edges=(EdgeDefinition(from_stage="init", to_stage="post", edge_type="fixed"),),
             phase_groups=(),
             execution_policies=(),
             rationale="Test",

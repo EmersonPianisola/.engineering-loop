@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v12.1.0
+**Framework:** Engineering Loop v12.2.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -91,10 +91,10 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-17 | bmad-bdd-mapper | v2.0.0 — Scenario Outline pattern for data-driven testing, hook strategy (Before/After Suite/Scenario/Step), comprehensive tag strategy for CI, traceability matrix. Source: Cucumber BDD best practices, yrkan.com |
 | 2026-08-17 | tester-unit | v2.0.0 — Two-step prompting (scenario identification → code generation for stronger assertions), boundary value analysis enforcement, mutation score threshold (80%), assertion quality rules. Source: MUTGEN, Diffblue, arXiv research |
 | 2026-08-17 | linter-agent | v2.0.0 — Security analysis (Bandit, ESLint-security, npm/pip audit), maintainability index, technical debt ratio, false positive handling with suppression protocol, dependency vulnerability scanning. Source: arXiv 2508.14419, OWASP |
-| 2026-08-17 | cloud-architect | v2.0.0 — Multi-cloud awareness (AWS/GCP/Azure/hybrid), IaC generation strategy, DR/BCP section (RTO/RPO, failover, runbook), compliance mapping (LGPD, SOC2, ISO 27001). Source: Cloud Architect AI, AWS Prescriptive Guidance |
 | 2026-08-17 | requirements-refiner | v2.0.0 — INVEST quality scoring for user stories, SMART criteria for requirements, risk matrix (likelihood × impact), conflict detection with resolution tracking. Source: Visure Solutions, Jama Software |
 | 2026-08-17 | solution-designer | v2.0.0 — ADR format (MADR) for architecture decisions, STRIDE threat modeling, API design principles (versioning, pagination, error format, idempotency). Source: arc42, OWASP Threat Dragon |
 | 2026-08-17 | implementation-architect | v2.0.0 — Testing strategy (unit/integration/E2E per component), CI/CD pipeline definition (pre-commit, PR checks, post-merge), rollback plan (triggers, steps, data migration, communication). Source: Addy Osmani methodology |
 | 2026-08-17 | bmad-ideation | v2.0.0 — Hourglass Ideation Framework (diverge→evaluate→converge), idea evaluation matrix (Value/Feasibility/Effort/Risk scoring), convergence techniques (Impact/Effort matrix, MoSCoW, dot voting). Source: arXiv 2503.00946 (LLM-Assisted Ideation Review) |
 | 2026-08-17 | e2e-playwright | v2.0.0 — Visual regression testing (toHaveScreenshot with masking), Trace Viewer debugging workflow, Playwright MCP integration for AI-assisted test generation, JSON report generation. Source: Microsoft Playwright docs, cegeka.com |
 | 2026-08-17 | graphify | v2.0.0 — Data flow tracing (flow/flows-from/flows-to), dead code detection (unreachable functions, unused exports, orphaned modules), incremental update strategy vs full rebuild. Source: CodeGraph, Code-Graph-RAG |
+| 2026-08-17 | all | v12.2.0 — **Skills recovery**: 6 design skills (bmad-user-research, bmad-personas, bmad-info-arch, bmad-interaction, bmad-design-system, bmad-visual-design), architecture-reviewer (cross-artifact review, gap analysis, ATAM), essence gate (Four Lenses pre-stage validation, Python gate in 9 node handlers), integration-tester (API contracts + component communication), opencode mode skills restored (compact_skill to ~50 lines preserving Rules/Anti-Patterns/Protocol), cloud-architect removed (no corresponding stage) |

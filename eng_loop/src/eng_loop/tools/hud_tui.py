@@ -375,10 +375,14 @@ class NavigableGraph(Static):
         icon = _get_icon(node_name)
         if status == "completed":
             return f"[bold green][\u2713]{icon}[/bold green]"
+        elif status == "cached":
+            return f"[bold cyan][\u21bb]{icon}[/bold cyan]"
         elif status == "active":
             return f"[bold cyan blink][>{icon}[/bold cyan blink]"
         elif status == "failed":
             return f"[bold red][!]{icon}[/bold red]"
+        elif status == "skipped":
+            return f"[dim][—]{icon}[/dim]"
         elif status == "locked":
             return f"[dim][\U0001f512]{icon}[/dim]"
         else:
