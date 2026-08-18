@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from eng_loop.state import STAGE_ORDER
+from eng_loop.state import STAGE_ORDER, get_work_item_text
 from eng_loop.tools.file_ops import load_json, save_json
 
 
@@ -65,7 +65,7 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "blocking_condition": state.get("blocking_condition", ""),
         "complexity": state.get("complexity", "unset"),
         "work_type": state.get("work_type", "feature"),
-        "work_item": state.get("work_item", ""),
+        "work_item": get_work_item_text(state),
         "ideation": state.get("ideation"),
         "ui_project": state.get("ui_project", False),
         "stages": state.get("stages", {}),

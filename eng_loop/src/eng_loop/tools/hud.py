@@ -12,6 +12,8 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
+from eng_loop.state import get_work_item_text
+
 STAGE_CLASSES = {
     "init": ("MAGE", "blue"),
     "init.ideate": ("MAGE", "blue"),
@@ -288,7 +290,7 @@ class HUDRenderer:
             Layout(name="map"),
             Layout(name="party"),
         )
-        work_item = state.get("work_item", self._work_item)
+        work_item = get_work_item_text(state, self._work_item)
         layout["header"].update(self._render_quest_bar_legacy(work_item))
         layout["map"].update(self._render_graph_map_legacy(state))
         layout["party"].update(self._render_party_status_legacy(state))

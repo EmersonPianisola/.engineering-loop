@@ -5,6 +5,7 @@ from eng_loop.state import (
     all_active_stages_done,
     get_active_stages,
     get_max_attempts,
+    get_work_item_text,
     make_initial_state,
     next_incomplete_stage,
 )
@@ -103,6 +104,43 @@ def test_max_attempts():
     assert get_max_attempts(config, "unknown.stage") == 2
 
 
+def test_get_work_item_text_str():
+    assert get_work_item_text({"work_item": "add login page"}) == "add login page"
+    assert get_work_item_text({"work_item": ""}) == ""
+    assert get_work_item_text({}) == ""
+    assert get_work_item_text({}, "default") == "default"
+
+
+def test_get_work_item_text_dict_description():
+    state = {"work_item": {"description": "build auth module", "priority": "high"}}
+    assert get_work_item_text(state) == "build auth module"
+
+
+def test_get_work_item_text_dict_text():
+    state = {"work_item": {"text": "fix crash on startup"}}
+    assert get_work_item_text(state) == "fix crash on startup"
+
+
+def test_get_work_item_text_dict_title():
+    state = {"work_item": {"title": "refactor DB layer"}}
+    assert get_work_item_text(state) == "refactor DB layer"
+
+
+def test_get_work_item_text_dict_fallback():
+    state = {"work_item": {"unknown_key": "value"}}
+    result = get_work_item_text(state)
+    assert "unknown_key" in result or "value" in result
+
+
+def test_get_work_item_text_safe_string_ops():
+    """Verify the returned value supports string operations that previously crashed."""
+    state = {"work_item": {"description": "add user authentication with OAuth2"}}
+    text = get_work_item_text(state)
+    assert text[:40].replace(" ", "-").lower() == "add-user-authentication-with-oauth2"
+    assert text.lower() == "add user authentication with oauth2"
+    assert text.strip() == "add user authentication with OAuth2"
+
+
 if __name__ == "__main__":
     test_stage_order()
     test_initial_state()
@@ -113,4 +151,10 @@ if __name__ == "__main__":
     test_next_incomplete_stage()
     test_all_active_done()
     test_max_attempts()
+    test_get_work_item_text_str()
+    test_get_work_item_text_dict_description()
+    test_get_work_item_text_dict_text()
+    test_get_work_item_text_dict_title()
+    test_get_work_item_text_dict_fallback()
+    test_get_work_item_text_safe_string_ops()
     print("All tests passed.")

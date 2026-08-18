@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from eng_loop.state import get_work_item_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -144,7 +146,7 @@ class SystemPrefix:
 
         parts = []
 
-        work_item = self._state.get("work_item", "")
+        work_item = get_work_item_text(self._state)
         if work_item:
             parts.append(f"## WORK ITEM\n{work_item}")
 
@@ -195,7 +197,7 @@ class SystemPrefix:
 
     def _compute_hash(self) -> str:
         hashable = (
-            self._state.get("work_item", ""),
+            get_work_item_text(self._state),
             self._state.get("complexity", ""),
             self._state.get("work_type", ""),
             self._state.get("ui_project", False),

@@ -7,7 +7,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import PostOutput
-from eng_loop.state import compute_task_outcome
+from eng_loop.state import compute_task_outcome, get_work_item_text
 from eng_loop.templates import get_stage_file, load_stage_procedure
 from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.progress import (
@@ -40,6 +40,7 @@ def post_node(state: dict[str, Any]) -> Command[str]:
     code_map = []
     if isinstance(work_item, dict):
         code_map = work_item.get("code_map", [])
+    work_item_text = get_work_item_text(state)
 
     lessons_data = {}
     confirmed = []
@@ -83,7 +84,7 @@ def post_node(state: dict[str, Any]) -> Command[str]:
 {stage_proc}
 
 ## WORK ITEM
-{work_item}
+{work_item_text}
 
 ## DECISIONS
 {decisions}

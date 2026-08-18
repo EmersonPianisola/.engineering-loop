@@ -20,7 +20,7 @@ from eng_loop.config import ensure_directories, load_config, resolve_paths
 from eng_loop.graph import compile_graph
 from eng_loop.graph_builder import GraphTopology
 from eng_loop.model import DEFAULT_BASE_URL, DEFAULT_MODEL, create_model_from_config
-from eng_loop.state import STAGE_ORDER, load_state_template, make_initial_state
+from eng_loop.state import STAGE_ORDER, get_work_item_text, load_state_template, make_initial_state
 from eng_loop.tools.file_ops import save_json as save_json_file
 
 # Exit codes
@@ -240,7 +240,7 @@ def main():
         # Reset to running for graph re-invocation
         state["status"] = "running"
         state["blocking_condition"] = ""
-        args.work_item = state.get("work_item", "")
+        args.work_item = get_work_item_text(state)
     else:
         state = make_initial_state(config, paths)
         state["work_item"] = args.work_item
@@ -254,7 +254,7 @@ def main():
     # the correct active nodes. If resuming from a saved state, these
     # values are already set; otherwise classify now.
     if not args.work_item:
-        args.work_item = state.get("work_item", "")
+        args.work_item = get_work_item_text(state)
 
     if state.get("complexity", "unset") == "unset":
         from eng_loop.tools.autosizing import (
@@ -273,9 +273,7 @@ def main():
     hud_mode = args.interactive or args.tui
 
     # ── Initialize CLI v2 event bus (before graph compilation) ────
-    renderer_mode = args.renderer or os.environ.get(
-        "ENGINEERING_LOOP_RENDERER", "console"
-    )
+    renderer_mode = args.renderer or os.environ.get("ENGINEERING_LOOP_RENDERER", "console")
 
     from eng_loop.tools.event_bus import EventBus
 
@@ -976,7 +974,7 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "blocking_condition": state.get("blocking_condition", ""),
         "complexity": state.get("complexity", "unset"),
         "work_type": state.get("work_type", "feature"),
-        "work_item": state.get("work_item", ""),
+        "work_item": get_work_item_text(state),
         "ideation": state.get("ideation"),
         "ui_project": state.get("ui_project", False),
         "stages": state.get("stages", {}),

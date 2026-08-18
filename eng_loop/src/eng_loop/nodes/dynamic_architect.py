@@ -13,6 +13,7 @@ from eng_loop.schemas import (
     DynamicRuntime,
     GraphTopologyProposal,
 )
+from eng_loop.state import get_work_item_text
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.agent_tools import get_tools_for_stage
 from eng_loop.tools.node_helpers import build_node_prompt
@@ -222,7 +223,7 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
     """
     config = state.get("config", {})
     paths = state.get("paths", {})
-    work_item = state.get("work_item", "")
+    work_item = get_work_item_text(state)
     codebase_facts = state.get("codebase_facts", {})
 
     # If we have a pre-build topology proposal, check if it was authorized

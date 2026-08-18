@@ -101,6 +101,18 @@ def _last_write_wins(current: str, update: str) -> str:
     return update if update else current
 
 
+def get_work_item_text(state: dict[str, Any], default: str = "") -> str:
+    """Normalize work_item to str, regardless of whether it's str or dict.
+
+    Central accessor — use this instead of state.get("work_item", ...)
+    whenever the result will be used as a string (slicing, .lower(), f-string, etc.).
+    """
+    wi = state.get("work_item", default)
+    if isinstance(wi, dict):
+        return wi.get("description", wi.get("text", wi.get("title", str(wi))))
+    return str(wi) if wi else default
+
+
 def _overwrite(current: Any, update: Any) -> Any:
     """Always use the new value, even if it's empty/falsy.
     Used for fields that must be explicitly cleared (e.g., fix_tasks, rollback_target)."""
@@ -122,9 +134,9 @@ def rollback_to_stage(
     Used when a verifier/QA node fails and needs to rewind the causal
     chain back to the implementation node.
 
-    IMPORTANT: Stages with status='blocked' are NEVER reset by rollback.
-    BLOCKED means infrastructure failure, not code defect — resetting them
-    would waste tokens re-running tests that cannot succeed.
+    IMPORTANT: Stages with status='blocked' or 'waiting_for_input' are
+    NEVER reset by rollback. BLOCKED means infrastructure failure.
+    WAITING_FOR_INPUT means human resolution is in progress.
 
     Example: verify FAIL → reset impl.code, doc.update, verify.
     """
@@ -143,8 +155,8 @@ def rollback_to_stage(
     for i in range(start_idx, end_idx + 1):
         sid = STAGE_ORDER[i]
         existing = current_stages.get(sid, {})
-        # Never rollback a BLOCKED stage — it's an infrastructure issue
-        if existing.get("status") == "blocked":
+        # Never rollback BLOCKED (infrastructure) or WAITING_FOR_INPUT (human pending)
+        if existing.get("status") in ("blocked", "waiting_for_input"):
             continue
         result[sid] = {
             "done": False,
@@ -241,6 +253,12 @@ class PipelineState(dict[str, Any]):
     dynamic_runtime: Annotated[dict[str, Any], _merge_dict] = {}
     # QA results — structured evidence per stage
     qa_results: Annotated[dict[str, Any], _merge_dict] = {}
+    # Essence gate operational state (separate from work_item.clarifications)
+    essence: Annotated[dict[str, Any], _last_write_wins] = {}
+    # Clarification questions pending user input
+    essence_clarifying_questions: Annotated[list[dict[str, Any]], _last_write_wins] = []
+    # Audit trail of ask_user interactions during agent execution
+    user_interactions: Annotated[list[dict[str, Any]], _overwrite] = []
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -284,6 +302,17 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
             "status": "pending",
             "step_audit": [],
         },
+        "essence": {
+            "checked": False,
+            "blocked_stage": None,
+            "decision": None,
+            "clarification_attempts": 0,
+            "auto_adjust_attempts": 0,
+            "pending_questions": [],
+            "resolved_findings": [],
+        },
+        "essence_clarifying_questions": [],
+        "user_interactions": [],
     }
 
 

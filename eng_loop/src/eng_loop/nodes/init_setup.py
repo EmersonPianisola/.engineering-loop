@@ -6,6 +6,7 @@ from typing import Any
 
 from langgraph.types import Command
 
+from eng_loop.state import get_work_item_text
 from eng_loop.tools.autosizing import (
     classify_complexity,
     classify_work_type,
@@ -41,7 +42,7 @@ def init_setup_node(state: dict[str, Any]) -> Command[str]:
             goto="init",
         )
 
-    work_item = state.get("work_item", "")
+    work_item = get_work_item_text(state)
 
     complexity = state.get("complexity", "unset")
     if complexity == "unset":

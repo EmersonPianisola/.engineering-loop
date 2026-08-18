@@ -6,7 +6,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import InitBddOutput, InitIdeateOutput, InitOutput, InitRefineOutput
-from eng_loop.tools.essence_gate import run_essence_gate
+from eng_loop.tools.essence_gate import build_essence_state, run_essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
 from eng_loop.tools.file_ops import read_file
 from eng_loop.tools.next_active import resolve_next
@@ -20,12 +20,45 @@ from eng_loop.tools.progress import (
 )
 
 
-def _resolve_work_item(work_item: str) -> str:
+def _handle_essence_result(
+    stage_id: str,
+    essence,
+    state: dict[str, Any],
+    config: dict[str, Any],
+    stages: dict[str, Any],
+) -> Command[str] | None:
+    """Handle essence gate result. Returns Command if blocked/waiting, None to continue."""
+    if essence.blocked:
+        return Command(
+            update={
+                "status": "blocked",
+                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
+                "stages": stages,
+                "essence_tension": essence.tension,
+            },
+            goto="__end__",
+        )
+    if essence.waiting_for_input:
+        essence_state = build_essence_state(stage_id, essence, state, config)
+        return Command(
+            update={
+                "status": "waiting_for_input",
+                "blocking_condition": "essence_clarification_needed",
+                "stages": stages,
+                "essence": essence_state,
+                "essence_clarifying_questions": essence.clarifying_questions,
+            },
+            goto="__end__",
+        )
+    return None
+
+
+def _resolve_work_item(work_item: Any) -> str:
     from pathlib import Path
 
-    if isinstance(work_item, dict):
-        work_item = work_item.get("description", work_item.get("text", str(work_item)))
-    cleaned = str(work_item).strip().strip("'\"")
+    from eng_loop.state import get_work_item_text
+
+    cleaned = get_work_item_text({"work_item": work_item}).strip().strip("'\"")
     p = Path(cleaned)
     if p.exists() and p.is_file():
         return read_file(cleaned)
@@ -53,16 +86,9 @@ def init_node(state: dict[str, Any]) -> Command[str]:
 
     # Essence gate — validate inputs before stage execution
     essence = run_essence_gate(stage_id, state, paths, config)
-    if essence.blocked:
-        return Command(
-            update={
-                "status": "blocked",
-                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
-                "stages": stages,
-                "essence_tension": essence.tension,
-            },
-            goto="__end__",
-        )
+    essence_cmd = _handle_essence_result(stage_id, essence, state, config, stages)
+    if essence_cmd:
+        return essence_cmd
     if essence.updated_state and essence.updated_state.get("stages"):
         stages = essence.updated_state["stages"]
 
@@ -180,16 +206,9 @@ def init_ideate_node(state: dict[str, Any]) -> Command[str]:
 
     # Essence gate
     essence = run_essence_gate(stage_id, state, paths, config)
-    if essence.blocked:
-        return Command(
-            update={
-                "status": "blocked",
-                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
-                "stages": stages,
-                "essence_tension": essence.tension,
-            },
-            goto="__end__",
-        )
+    essence_cmd = _handle_essence_result(stage_id, essence, state, config, stages)
+    if essence_cmd:
+        return essence_cmd
     if essence.updated_state and essence.updated_state.get("stages"):
         stages = essence.updated_state["stages"]
 
@@ -319,16 +338,9 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     # Essence gate
     essence = run_essence_gate(stage_id, state, paths, config)
-    if essence.blocked:
-        return Command(
-            update={
-                "status": "blocked",
-                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
-                "stages": stages,
-                "essence_tension": essence.tension,
-            },
-            goto="__end__",
-        )
+    essence_cmd = _handle_essence_result(stage_id, essence, state, config, stages)
+    if essence_cmd:
+        return essence_cmd
     if essence.updated_state and essence.updated_state.get("stages"):
         stages = essence.updated_state["stages"]
 
@@ -426,16 +438,9 @@ def init_refine_node(state: dict[str, Any]) -> Command[str]:
 
     # Essence gate
     essence = run_essence_gate(stage_id, state, paths, config)
-    if essence.blocked:
-        return Command(
-            update={
-                "status": "blocked",
-                "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
-                "stages": stages,
-                "essence_tension": essence.tension,
-            },
-            goto="__end__",
-        )
+    essence_cmd = _handle_essence_result(stage_id, essence, state, config, stages)
+    if essence_cmd:
+        return essence_cmd
     if essence.updated_state and essence.updated_state.get("stages"):
         stages = essence.updated_state["stages"]
 

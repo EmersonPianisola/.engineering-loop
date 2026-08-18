@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import EssenceDecision, EssenceOutput, Severity
+from eng_loop.state import get_work_item_text
 from eng_loop.templates import load_skill
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.agent_tools import get_essence_tools
@@ -303,9 +304,7 @@ def run_essence_gate(
                 clarifying_questions,
                 resolved_findings=essence_state.get("resolved_findings", []),
                 resolved_answers=(
-                    state.get("work_item", {})
-                    .get("clarifications", {})
-                    .get("answers", {})
+                    state.get("work_item", {}).get("clarifications", {}).get("answers", {})
                     if isinstance(state.get("work_item"), dict)
                     else {}
                 ),
@@ -594,13 +593,14 @@ def _gather_essence_inputs(
 ) -> str:
     """Gather stage-specific inputs for essence validation."""
     parts = []
-    work_item = state.get("work_item", "")
-    if work_item:
-        parts.append(f"Work Item: {work_item}")
+    work_item_text = get_work_item_text(state)
+    if work_item_text:
+        parts.append(f"Work Item: {work_item_text}")
 
     # Include existing clarifications as context
-    if isinstance(work_item, dict):
-        clarifications = work_item.get("clarifications", {})
+    raw_work_item = state.get("work_item", {})
+    if isinstance(raw_work_item, dict):
+        clarifications = raw_work_item.get("clarifications", {})
         if clarifications and clarifications.get("answers"):
             answers = clarifications.get("answers", {})
             if answers:
@@ -747,7 +747,7 @@ def _capture_lens4_decision(
     if existing:
         content = existing.rstrip() + "\n\n" + "## Decisions\n\n" + "\n\n".join(decision_entries)
     else:
-        slug = state.get("work_item", "feature")[:40].replace(" ", "-").lower()
+        slug = get_work_item_text(state, "feature")[:40].replace(" ", "-").lower()
         content = f"# Context — {slug}\n\n" + "## Decisions\n\n" + "\n\n".join(decision_entries)
 
     context_path.write_text(content, encoding="utf-8")

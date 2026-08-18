@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from typing import Any
 
+from eng_loop.state import get_work_item_text
+
 
 def get_editor_command() -> list[str]:
     """Resolve editor command with fallback chain.
@@ -46,7 +48,7 @@ def build_editable_slice(state: dict[str, Any], node_id: str) -> dict[str, Any]:
         "errors_or_findings": state.get("errors", []),
         "handoffs": state.get("handoffs", {}),
         "active_nodes": state.get("active_nodes", []),
-        "work_item_context": state.get("work_item", ""),
+        "work_item_context": get_work_item_text(state),
     }
 
 

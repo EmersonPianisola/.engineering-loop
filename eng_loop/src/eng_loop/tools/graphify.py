@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from eng_loop.state import get_work_item_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -243,7 +245,7 @@ def precompute_graph_context(
         return ""
 
     project_root = paths.get("project_root", ".")
-    work_item = state.get("work_item", "")
+    work_item = get_work_item_text(state)
     blueprint = state.get("stage_artifacts", {}).get("impl.design", "")
 
     # Combine text sources for entity extraction

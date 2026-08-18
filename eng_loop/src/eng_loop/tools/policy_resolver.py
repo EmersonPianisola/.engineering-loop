@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import Tool
 
+from eng_loop.state import get_work_item_text
+
 if TYPE_CHECKING:
     from eng_loop.schemas import (
         AuthorizedGraphTopology,
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
     )
 
 
-SAFE_TOOL_POOL: set[str] = {"read", "glob", "grep", "write", "edit", "bash"}
+SAFE_TOOL_POOL: set[str] = {"read", "glob", "grep", "write", "edit", "bash", "ask_user"}
 
 RISK_KEYWORDS: list[str] = [
     "drop database",
@@ -51,6 +53,7 @@ def get_tools_by_names(
     state: dict[str, Any],
 ) -> list[Tool]:
     """Build Tool instances from a list of approved tool names."""
+    from eng_loop.tools.ask_user_tool import create_ask_user_tool
     from eng_loop.tools.bash_tool import create_bash_tool
     from eng_loop.tools.edit_tool import create_edit_tool
     from eng_loop.tools.glob_tool import create_glob_tool
@@ -70,6 +73,7 @@ def get_tools_by_names(
         "bash": lambda: create_bash_tool(workdir=project_root, timeout=bash_timeout),
         "glob": create_glob_tool,
         "grep": create_grep_tool,
+        "ask_user": create_ask_user_tool,
     }
 
     tools = []
@@ -93,7 +97,7 @@ def authorize_blueprint(
     """
     from eng_loop.schemas import DynamicBlueprint
 
-    work_item = state.get("work_item", "").lower()
+    work_item = get_work_item_text(state).lower()
 
     if any(kw in work_item for kw in RISK_KEYWORDS):
         auth_complexity = "restricted"
@@ -283,11 +287,7 @@ def _validate_semantic_policy(
     Raises TopologyValidationError for fatal policy violations.
     """
     notes = []
-    raw_work_item = state.get("work_item", "")
-    if isinstance(raw_work_item, dict):
-        work_item = str(raw_work_item.get("title", "")).lower()
-    else:
-        work_item = str(raw_work_item).lower()
+    work_item = get_work_item_text(state).lower()
     complexity = state.get("complexity", "small")
     ui_project = state.get("ui_project", False)
     stage_set = set(proposal.required_stages)
