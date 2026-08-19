@@ -261,7 +261,7 @@ def run_essence_gate(
             else:
                 all_findings.append(item.model_dump())
 
-        # 1. Lens 4 → BLOCKED (terminal, always)
+        # 1. Lens 4 → check if auto-adjustable (scope/complexity mismatch)
         if lens_4:
             tensions = []
             for conflict in lens_4:
@@ -270,6 +270,21 @@ def run_essence_gate(
                 else:
                     tensions.append(str(conflict))
             tension_str = "; ".join(tensions)
+
+            # Auto-adjust: if tension is about scope/complexity mismatch,
+            # try to bump complexity up instead of blocking
+            auto_adjusted = _try_auto_adjust_complexity(tensions, stage_id, state, config)
+            if auto_adjusted:
+                logger.info(
+                    "Essence gate for %s: auto-adjusted complexity from '%s' to '%s'",
+                    stage_id,
+                    auto_adjusted["old_complexity"],
+                    auto_adjusted["new_complexity"],
+                )
+                # Re-run essence check with updated complexity context
+                continue
+
+            # Not auto-adjustable — terminal block
             capture_decision = essence_config.get("capture_decisions", True)
             context_file = essence_config.get("context_file", "context.md")
 
@@ -686,6 +701,85 @@ def _build_essence_prompt(
         f"lens_1_subjective_terms, lens_2_hidden_assumptions, lens_3_literal_traps,\n"
         f"lens_4_conflicts, clean, adjustments, clarifying_questions, summary."
     )
+
+
+def _try_auto_adjust_complexity(
+    tensions: list[str],
+    stage_id: str,
+    state: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Detect scope/complexity mismatch in Lens 4 tensions and auto-adjust.
+
+    If the tension indicates that the current complexity classification is too
+    low for the scope of work (e.g., 'NOT a small task', 'scope is medium-to-large'),
+    bumps the complexity up and re-activates the corresponding stages.
+
+    Returns a dict with old/new complexity on success, None if not applicable.
+    """
+    from eng_loop.state import COMPLEXITY_ORDER
+    from eng_loop.tools.autosizing import deactivate_inactive_stages
+
+    current_complexity = state.get("complexity", "small")
+    complexity_order = COMPLEXITY_ORDER.get(current_complexity, 0)
+
+    # Check if we've already auto-adjusted (prevent infinite loop)
+    auto_adjust_count = state.get("_complexity_auto_adjust_count", 0)
+    if auto_adjust_count >= 2:
+        logger.warning("Auto-adjust complexity already attempted %d times, stopping", auto_adjust_count)
+        return None
+
+    # Detect scope/complexity mismatch patterns
+    scope_mismatch_keywords = [
+        "not a small task",
+        "not a medium task",
+        "scope is medium",
+        "scope is large",
+        "scope is medium-to-large",
+        "complexity conflicts",
+        "classification conflicts",
+        "is NOT a small",
+        "is NOT a medium",
+        "requires more stages",
+        "broad validation",
+        "all flows",
+        "all user flows",
+        "production readiness",
+    ]
+
+    tension_combined = " ".join(tensions).lower()
+    is_scope_mismatch = any(kw in tension_combined for kw in scope_mismatch_keywords)
+
+    if not is_scope_mismatch:
+        return None
+
+    # Determine new complexity level
+    complexity_ladder = ["small", "medium", "large", "complex"]
+    current_idx = complexity_ladder.index(current_complexity) if current_complexity in complexity_ladder else 0
+    if current_idx >= len(complexity_ladder) - 1:
+        return None  # Already at maximum
+
+    new_complexity = complexity_ladder[current_idx + 1]
+    logger.info(
+        "Essence gate detected scope mismatch at stage %s: '%s' → '%s'",
+        stage_id,
+        current_complexity,
+        new_complexity,
+    )
+
+    # Update state
+    state["complexity"] = new_complexity
+    state["_complexity_auto_adjust_count"] = auto_adjust_count + 1
+
+    # Re-activate stages for new complexity
+    stages = dict(state.get("stages", {}))
+    stages = deactivate_inactive_stages(stages, new_complexity, state.get("ui_project", False))
+    state["stages"] = stages
+
+    return {
+        "old_complexity": current_complexity,
+        "new_complexity": new_complexity,
+    }
 
 
 def _apply_adjustments(stage_inputs: str, adjustments: list[str]) -> str:

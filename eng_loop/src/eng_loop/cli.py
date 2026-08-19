@@ -36,6 +36,112 @@ from eng_loop.tools.progress import (
 )
 
 
+def _show_execution_plan(
+    state: dict[str, Any],
+    topology: Any,
+    work_item: str,
+    config: dict[str, Any],
+) -> None:
+    """Display the execution plan and optionally ask for user confirmation.
+
+    Shows complexity assessment rationale, active stages, and strategy.
+    If a complexity assessment was made by the LLM, displays its rationale.
+    User can confirm, adjust complexity, or cancel.
+    """
+    from rich.prompt import Prompt
+
+    complexity = state.get("complexity", "small")
+    work_type = state.get("work_type", "feature")
+    ui_project = state.get("ui_project", False)
+    assessment = state.get("complexity_assessment", {})
+
+    # Build strategy label
+    strategy_labels = {
+        "feature": "FEATURE",
+        "bugfix": "BUGFIX",
+        "documentation": "DOCUMENTATION",
+        "operational": "OPERATIONAL",
+    }
+    strategy = strategy_labels.get(work_type, work_type.upper())
+
+    # Complexity label
+    complexity_labels = {
+        "small": "small (bypassing Design/Arch)",
+        "medium": "medium (includes Arch)",
+        "large": "large (includes Design + Arch)",
+        "complex": "complex (full pipeline)",
+    }
+    complexity_label = complexity_labels.get(complexity, complexity)
+
+    # Display assessment rationale if available
+    if assessment.get("rationale"):
+        ui.console.print()
+        ui.console.print(
+            Panel(
+                f"[dim]{assessment['rationale']}[/dim]",
+                title="[bold yellow]Complexity Assessment[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+
+    # Display execution plan summary
+    active_count = len(topology.active_nodes)
+    total = topology.total_available
+
+    plan_text = (
+        f"Strategy: [bold]{strategy}[/bold] — init → impl → verify → post\n"
+        f"Complexity: [bold]{complexity}[/bold] ({complexity_label})\n"
+        f"Stages: [bold]{active_count}[/bold] of {total} active"
+    )
+
+    if ui_project:
+        plan_text += "\nUI Project: [bold green]yes[/bold green]"
+
+    if assessment.get("estimated_files"):
+        plan_text += f"\nEstimated files: [bold]{assessment['estimated_files']}[/bold]"
+    if assessment.get("estimated_tasks"):
+        plan_text += f"\nEstimated tasks: [bold]{assessment['estimated_tasks']}[/bold]"
+
+    ui.console.print()
+    ui.console.print(Panel(plan_text, border_style="cyan"))
+
+    # Check if auto-confirmation is enabled (non-interactive or config flag)
+    auto_confirm = config.get("dynamic_graph", {}).get("auto_confirm", False)
+    is_tty = sys.stdin.isatty()
+
+    if auto_confirm or not is_tty:
+        return
+
+    # Ask for confirmation
+    ui.console.print()
+    choice = Prompt.ask(
+        "[bold]Proceed[/bold] ([bold green]y[/bold]es, [bold yellow]n[/bold]o, [bold blue]a[/bold]djust complexity)",
+        choices=["y", "n", "a"],
+        default="y",
+    )
+
+    if choice == "y":
+        return
+
+    if choice == "n":
+        ui.console.print()
+        ui.console.print(Panel("[bold yellow]Execution cancelled by user.[/bold yellow]", border_style="yellow"))
+        _save_state(state, config.get("paths", {}))
+        sys.exit(0)
+
+    if choice == "a":
+        new_complexity = Prompt.ask(
+            "[bold]Set complexity[/bold]",
+            choices=["small", "medium", "large", "complex"],
+            default=complexity,
+        )
+        if new_complexity != complexity:
+            state["complexity"] = new_complexity
+            ui.console.print(f"[green]Complexity adjusted to: {new_complexity}[/green]")
+            # Rebuild graph with new complexity — caller handles this
+            state["_complexity_adjusted"] = True
+
+
 def main():
     parser = argparse.ArgumentParser(description="Engineering Loop Orchestrator (LangGraph)")
 
@@ -258,14 +364,18 @@ def main():
 
     if state.get("complexity", "unset") == "unset":
         from eng_loop.tools.autosizing import (
-            classify_complexity,
+            classify_complexity_llm,
             classify_work_type,
             detect_ui_project,
         )
 
-        state["complexity"] = classify_complexity(args.work_item, config)
         state["work_type"] = classify_work_type(args.work_item)
         state["ui_project"] = detect_ui_project(paths)
+
+        # Use LLM-assisted classification (falls back to heuristics on error)
+        ui.console.print("[dim]  model → init.setup.complexity ...[/dim]")
+        state["complexity"] = classify_complexity_llm(args.work_item, config, state=state, paths=paths)
+        ui.console.print(f"[dim]  model ← init.setup.complexity ({state['complexity']})[/dim]")
 
     # ── Determine graph mode ─────────────────────────────────────
     dynamic_graph = args.dynamic_graph or config.get("dynamic_graph", {}).get("enabled", False)
@@ -413,6 +523,31 @@ def main():
                 work_type=state.get("work_type", "feature"),
                 ui_project=state.get("ui_project", False),
             )
+
+            # ── Pre-execution proposal: show plan and ask for confirmation ──
+            _show_execution_plan(state, topology, args.work_item, config)
+
+            # If user adjusted complexity, rebuild graph
+            if state.pop("_complexity_adjusted", False):
+                ui.console.print("[yellow]Rebuilding graph with adjusted complexity...[/yellow]")
+                compiled, topology = graph_builder.compile(
+                    state,
+                    config,
+                    interrupt_before=interrupt_nodes or None,
+                    authorized_topology=authorized_topology if use_proposal else None,
+                )
+                graph = compiled
+                state["graph_topology"] = topology.to_dict()
+                state["active_nodes"] = topology.active_nodes
+                ui.render_topology(
+                    work_item=args.work_item,
+                    active_nodes=topology.active_nodes,
+                    complexity=state.get("complexity", "unset"),
+                    total_available=topology.total_available,
+                    work_type=state.get("work_type", "feature"),
+                    ui_project=state.get("ui_project", False),
+                )
+
     else:
         if not hud_mode:
             ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")

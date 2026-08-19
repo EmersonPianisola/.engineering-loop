@@ -1,6 +1,169 @@
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
+
+from pydantic import BaseModel, Field
+
+from eng_loop.model import create_model_from_config
+from eng_loop.state import STAGE_MIN_COMPLEXITY, STAGE_ORDER
+from eng_loop.tools.agent_runner import AgentResult, run_agent
+from eng_loop.tools.agent_tools import get_tools_for_stage
+from eng_loop.tools.node_helpers import build_node_prompt
+
+logger = logging.getLogger(__name__)
+
+
+class ComplexityAssessment(BaseModel):
+    """LLM-assessed complexity for a work item."""
+
+    complexity: str = Field(description="Assessed complexity: small, medium, large, or complex")
+    estimated_files: int = Field(description="Estimated number of files that will be touched or created")
+    estimated_tasks: int = Field(description="Estimated number of distinct sub-tasks required")
+    requires_architecture: bool = Field(description="Does this task require architectural design or solution planning?")
+    requires_design: bool = Field(description="Does this task require UI/UX design work?")
+    requires_qa: bool = Field(description="Does this task require QA beyond basic linting and unit tests?")
+    requires_e2e: bool = Field(description="Does this task require end-to-end testing?")
+    requires_deploy: bool = Field(description="Does this task involve deployment preparation?")
+    rationale: str = Field(description="Explanation of why this complexity level was chosen")
+
+
+def classify_complexity_llm(
+    work_item: str,
+    config: dict[str, Any],
+    state: dict[str, Any] | None = None,
+    paths: dict[str, Any] | None = None,
+) -> str:
+    """Use LLM to assess work item complexity with codebase context.
+
+    Falls back to heuristic classification on any error.
+    """
+    state = state or {}
+    paths = paths or {}
+    ui_project = state.get("ui_project", False)
+    work_type = state.get("work_type", "feature")
+    codebase_facts = state.get("codebase_facts", {})
+
+    # Build stage context for the LLM
+    stage_context = _build_stage_context()
+
+    instructions = (
+        f"You are a Complexity Assessor. Your job is to accurately assess the\n"
+        f"complexity of a work item to determine which pipeline stages are needed.\n\n"
+        f"## WORK ITEM\n"
+        f"{work_item}\n\n"
+        f"## PROJECT CONTEXT\n"
+        f"UI Project: {ui_project}\n"
+        f"Work Type: {work_type}\n"
+        f"Codebase Facts: {json.dumps(codebase_facts, default=str)}\n\n"
+        f"## COMPLEXITY LEVELS\n"
+        f"small — 1-3 files, single focused task, no new domains, no integrations\n"
+        f"medium — 4-10 files, multiple related tasks, may involve integrations\n"
+        f"large — 10+ files, cross-cutting changes, new domains, architecture needed\n"
+        f"complex — ambiguous scope, multiple new domains, major integrations\n\n"
+        f"## STAGE REQUIREMENTS BY COMPLEXITY\n"
+        f"{stage_context}\n\n"
+        f"## IMPORTANT GUIDELINES\n"
+        f"1. 'Validation' of multiple user flows is NOT small — it touches many files.\n"
+        f"2. Tasks mentioning 'all flows', 'production readiness', 'all stages' are medium+.\n"
+        f"3. Firebase integration (auth, firestore, storage, functions) is an integration.\n"
+        f"4. Multi-feature validation requires architecture and QA stages.\n"
+        f"5. When in doubt, err on the side of higher complexity (more stages is safer).\n\n"
+        f"## OUTPUT\n"
+        f"Return a JSON object with the assessment fields."
+    )
+
+    prompt = build_node_prompt(
+        "init.setup",
+        state,
+        paths,
+        config,
+        role_description="Complexity Assessor",
+        instructions=instructions,
+    )
+
+    model = create_model_from_config(config, "init.setup")
+    tools = get_tools_for_stage("init.setup", paths, config, state)
+    max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
+
+    try:
+        agent_result: AgentResult = run_agent(
+            model=model,
+            tools=tools,
+            prompt=prompt,
+            stage_id="init.setup.complexity",
+            output_schema=ComplexityAssessment,
+            max_iterations=max_agent_iterations,
+            config=config,
+        )
+
+        if agent_result.error:
+            logger.warning(
+                "LLM complexity classification error: %s, falling back to heuristics",
+                agent_result.error,
+            )
+            return classify_complexity(work_item, config)
+
+        assessment = ComplexityAssessment(**agent_result.data)
+        complexity = assessment.complexity
+        if complexity not in ("small", "medium", "large", "complex"):
+            logger.warning(
+                "LLM returned invalid complexity '%s', falling back to heuristics",
+                complexity,
+            )
+            return classify_complexity(work_item, config)
+
+        logger.info(
+            "LLM complexity assessment: %s (files=%d, tasks=%d, rationale=%s)",
+            complexity,
+            assessment.estimated_files,
+            assessment.estimated_tasks,
+            assessment.rationale[:200],
+        )
+
+        # Store assessment for downstream use (essence gate can reference it)
+        if state is not None:
+            state.setdefault("complexity_assessment", {})
+            state["complexity_assessment"].update(
+                {
+                    "complexity": complexity,
+                    "estimated_files": assessment.estimated_files,
+                    "estimated_tasks": assessment.estimated_tasks,
+                    "requires_architecture": assessment.requires_architecture,
+                    "requires_design": assessment.requires_design,
+                    "requires_qa": assessment.requires_qa,
+                    "requires_e2e": assessment.requires_e2e,
+                    "requires_deploy": assessment.requires_deploy,
+                    "rationale": assessment.rationale,
+                }
+            )
+
+        return complexity
+
+    except Exception as e:
+        logger.warning("LLM complexity classification failed: %s, falling back to heuristics", e)
+        return classify_complexity(work_item, config)
+
+
+def _build_stage_context() -> str:
+    """Build a context string describing which stages are active at each complexity."""
+    lines = ["| Complexity | Active Stages |"]
+    lines.append("|---|---|")
+
+    for level in ["small", "medium", "large", "complex"]:
+        active = []
+        from eng_loop.state import COMPLEXITY_ORDER
+
+        level_order = COMPLEXITY_ORDER.get(level, 0)
+        for stage in STAGE_ORDER:
+            min_c = STAGE_MIN_COMPLEXITY.get(stage)
+            if min_c and COMPLEXITY_ORDER.get(min_c, 0) > level_order:
+                continue
+            active.append(stage)
+        lines.append(f"| {level} | {', '.join(active[:8])}{'...' if len(active) > 8 else ''} |")
+
+    return "\n".join(lines)
 
 
 def classify_complexity(work_item: str, config: dict[str, Any]) -> str:
