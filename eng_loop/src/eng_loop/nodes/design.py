@@ -120,6 +120,10 @@ def design_node(stage_id: str):
 
         artifact_root = paths.get("artifact_root", "")
         design_output = result.get("design_output", "")
+        if isinstance(design_output, dict):
+            import json
+
+            design_output = json.dumps(design_output, indent=2, ensure_ascii=False)
         if design_output:
             from eng_loop.tools.file_ops import write_file
 

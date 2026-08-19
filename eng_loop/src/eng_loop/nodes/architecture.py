@@ -131,6 +131,10 @@ def arch_node(stage_id: str):
 
         artifact_root = paths.get("artifact_root", "")
         arch_output = result.get("architecture_output", "")
+        if isinstance(arch_output, dict):
+            import json
+
+            arch_output = json.dumps(arch_output, indent=2, ensure_ascii=False)
         if arch_output:
             from eng_loop.tools.file_ops import write_file
 

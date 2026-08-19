@@ -98,6 +98,10 @@ def doc_decisions_node(state: dict[str, Any]) -> Command[str]:
     from eng_loop.tools.file_ops import write_file
 
     decision_log = result.get("decision_log", "")
+    if isinstance(decision_log, dict):
+        import json
+
+        decision_log = json.dumps(decision_log, indent=2, ensure_ascii=False)
     write_file(f"{artifact_root}/decision-log.md", decision_log)
     log_artifact(stage_id, f"{artifact_root}/decision-log.md")
 

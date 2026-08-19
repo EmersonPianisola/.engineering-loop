@@ -407,6 +407,10 @@ def init_bdd_node(state: dict[str, Any]) -> Command[str]:
 
     artifact_root = paths.get("artifact_root", "")
     journey_content = result.get("journey_map", "")
+    if isinstance(journey_content, dict):
+        import json
+
+        journey_content = json.dumps(journey_content, indent=2, ensure_ascii=False)
     if journey_content:
         from eng_loop.tools.file_ops import write_file
 

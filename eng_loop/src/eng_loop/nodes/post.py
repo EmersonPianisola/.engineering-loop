@@ -147,6 +147,10 @@ Set final_status to "failed" if artifacts are missing or work item was not compl
     stages[stage_id]["output"] = str(result)
 
     summary = result.get("summary", "")
+    if isinstance(summary, dict):
+        import json
+
+        summary = json.dumps(summary, indent=2, ensure_ascii=False)
     if summary:
         from eng_loop.tools.file_ops import write_file
 

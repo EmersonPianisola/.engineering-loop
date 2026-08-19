@@ -118,6 +118,10 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
     stages[stage_id]["output"] = str(result)
 
     blueprint = result.get("blueprint", "")
+    if isinstance(blueprint, dict):
+        import json
+
+        blueprint = json.dumps(blueprint, indent=2, ensure_ascii=False)
     if blueprint:
         from eng_loop.tools.file_ops import write_file
 
