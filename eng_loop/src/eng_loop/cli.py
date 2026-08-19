@@ -1533,10 +1533,9 @@ def _handle_essence_clarification(
     # Do NOT increment here — it would double-count (gate increments on each
     # clarification cycle, and the CLI would add another on each answer).
 
-    # Reset essence gate for re-execution
-    if blocked_stage in state.get("stages", {}):
-        state["stages"][blocked_stage]["essence_checked"] = False
-
+    # Do NOT reset essence_checked — the gate already ran and the user
+    # provided clarification. Re-running the gate would regenerate the same
+    # findings and create an infinite clarification loop.
     state["status"] = "running"
     state["blocking_condition"] = ""
     state["essence_clarifying_questions"] = []

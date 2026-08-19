@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -40,6 +40,17 @@ class EdgeDefinition(BaseModel):
     edge_type: Literal["fixed", "conditional", "loopback", "terminal"] = "fixed"
     condition: Literal[tuple(ALLOWED_CONDITIONS)] = "always"
     description: str = Field(default="", description="Human-readable edge description")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_from_to(cls, data: Any) -> Any:
+        """Coerce 'from'/'to' field names to 'from_stage'/'to_stage'."""
+        if isinstance(data, dict):
+            if "from" in data and "from_stage" not in data:
+                data = {**data, "from_stage": data["from"]}
+            if "to" in data and "to_stage" not in data:
+                data = {**data, "to_stage": data["to"]}
+        return data
 
 
 class PhaseGroup(BaseModel):
@@ -91,6 +102,16 @@ class GraphTopologyProposal(BaseModel):
         default_factory=tuple, description="Per-stage execution policies (retry, failure routing)"
     )
     rationale: str = Field(description="Explanation of why this topology is optimal for the task")
+
+    @field_validator("execution_policies", mode="before")
+    @classmethod
+    def coerce_execution_policies(cls, v: Any) -> Any:
+        """Coerce non-list values (e.g. global policy dict) to empty tuple."""
+        if isinstance(v, dict):
+            return ()
+        if isinstance(v, list):
+            return v
+        return v or ()
 
     @field_validator("required_stages")
     @classmethod

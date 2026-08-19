@@ -325,11 +325,18 @@ def run_essence_gate(
                 ),
             )
 
+            # Mark stage as essence-checked so the gate doesn't re-run after
+            # the user answers clarification. Re-running would generate the
+            # same findings and create an infinite clarification loop.
+            finding_ids = [f.get("finding_id", "") for f in significant_findings if f.get("finding_id")]
+
             if questions:
                 return EssenceResult(
                     waiting_for_input=True,
                     decision=EssenceDecision.CLARIFICATION_REQUIRED,
                     clarifying_questions=questions,
+                    updated_state={"stages": _mark_essence_checked_stages(stage_id, stages)},
+                    adjustments=finding_ids,
                 )
             # Significant findings but no questions — still block
             return EssenceResult(
@@ -347,6 +354,8 @@ def run_essence_gate(
                     }
                     for f in significant_findings[:5]
                 ],
+                updated_state={"stages": _mark_essence_checked_stages(stage_id, stages)},
+                adjustments=finding_ids,
             )
 
         # 3. Clean → PASS
@@ -396,6 +405,7 @@ def run_essence_gate(
                         "severity": "medium",
                     }
                 ],
+                updated_state={"stages": _mark_essence_checked_stages(stage_id, stages)},
             )
 
         # 5. Fallback — not clean, no adjustments, no significant findings
@@ -790,6 +800,17 @@ def _apply_adjustments(stage_inputs: str, adjustments: list[str]) -> str:
     return adjusted
 
 
+def _mark_essence_checked_stages(
+    stage_id: str,
+    stages: dict[str, Any],
+) -> dict[str, Any]:
+    """Mark a stage as essence-checked. Returns updated stages dict."""
+    if stage_id not in stages:
+        stages[stage_id] = {}
+    stages[stage_id]["essence_checked"] = True
+    return stages
+
+
 def _mark_essence_checked(
     stage_id: str,
     stages: dict[str, Any],
@@ -797,16 +818,14 @@ def _mark_essence_checked(
     retries_exceeded: bool = False,
 ) -> EssenceResult:
     """Mark a stage as essence-checked and return the result."""
-    if stage_id not in stages:
-        stages[stage_id] = {}
-    stages[stage_id]["essence_checked"] = True
+    updated = _mark_essence_checked_stages(stage_id, stages)
     if retries_exceeded:
-        stages[stage_id]["essence_retries_exceeded"] = True
+        updated[stage_id]["essence_retries_exceeded"] = True
 
     return EssenceResult(
         passed=True,
         decision=EssenceDecision.PASS,
-        updated_state={"stages": stages},
+        updated_state={"stages": updated},
     )
 
 
