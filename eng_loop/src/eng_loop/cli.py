@@ -615,6 +615,7 @@ def main():
                 from eng_loop.tools.hud_tui import TextualHUDController
 
                 tui_controller = TextualHUDController(exec_state, normalizer, args.work_item)
+                tui_controller.start()
                 ui.set_normalizer(normalizer)
             except ImportError:
                 ui.console.print("[yellow]Warning: Textual not installed, falling back to Rich HUD.[/yellow]")
@@ -742,6 +743,8 @@ def main():
         if hud:
             hud.stop()
             ui.set_hud(None)
+        if tui_controller:
+            tui_controller.stop()
 
 
 def _invoke_graph(

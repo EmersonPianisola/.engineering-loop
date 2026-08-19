@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import sys
+import threading
 from typing import TYPE_CHECKING, Any
 
 from textual import on
@@ -1012,33 +1012,33 @@ class TextualHUDController:
         self.app = MAGEHUDApp(execution_state, normalizer)
         self._work_item = work_item
         self._running = False
-        self._app_task: asyncio.Task | None = None
+        self._app_thread: threading.Thread | None = None
 
-    async def _run_app(self) -> None:
-        """Run the Textual app in async mode."""
+    def _run_app_thread(self) -> None:
+        """Run the Textual app in a background thread."""
         try:
-            async with self.app.run_async():
-                pass
+            self.app.run()
         except Exception:
             pass
         self._running = False
 
     def start(self) -> None:
-        """Start the HUD in a background task."""
+        """Start the HUD in a background thread."""
         from eng_loop.tools.progress import ui as progress_ui
 
         progress_ui.set_tui_active(True)
         self._running = True
-        self._app_task = asyncio.create_task(self._run_app())
+        self._app_thread = threading.Thread(target=self._run_app_thread, daemon=True)
+        self._app_thread.start()
 
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Stop the HUD."""
         from eng_loop.tools.progress import ui as progress_ui
 
         self._running = False
         self.app.exit()
-        if self._app_task:
-            await self._app_task
+        if self._app_thread and self._app_thread.is_alive():
+            self._app_thread.join(timeout=5)
         progress_ui.set_tui_active(False)
 
     def is_paused(self) -> bool:

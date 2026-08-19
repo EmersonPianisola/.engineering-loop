@@ -277,12 +277,36 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
         "propose dynamic steps with specific roles, tool capabilities, and validation rules.\n"
         "Each step must have a unique step_id matching ^[a-z0-9][a-z0-9-]{{2,63}}$\n"
         "Max 5 steps allowed. Use trigger='augment' only if dynamic steps are truly needed.\n\n"
-        "Return a JSON object with fields:\n"
-        "- plan_id: unique identifier\n"
-        "- trigger: 'none' or 'augment'\n"
-        "- proposed_complexity: 'standard', 'adaptive', or 'restricted' (NOT 'small', 'medium', 'large', 'complex')\n"
-        "- steps: array of dynamic steps (empty if trigger='none')\n"
-        "- rationale: explanation"
+        "Return a JSON object matching this schema:\n"
+        "{{\n"
+        '  "plan_id": "unique-id",\n'
+        '  "trigger": "none" or "augment",\n'
+        '  "proposed_complexity": "standard" or "adaptive" or "restricted",\n'
+        '  "rationale": "explanation",\n'
+        '  "steps": [\n'
+        '    {\n'
+        '      "step_id": "lowercase-hyphenated-id",\n'
+        '      "role_description": "cognitive agent role for this step (REQUIRED)",\n'
+        '      "requested_capabilities": ["read_files", "write_files"],\n'
+        '      "max_attempts": 3,\n'
+        '      "validation_rules": [\n'
+        '        {"type": "files_exist", "payload": {"paths": ["src/foo.py"]}},\n'
+        '        {"type": "tests_pass", "payload": {"suite": "unit", "command": "pytest tests/"}},\n'
+        '        {"type": "contains_symbol", "payload": {"symbol": "def main", "target_file": "src/foo.py"}}\n'
+        "      ]\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "IMPORTANT:\n"
+        "- role_description is REQUIRED on every step\n"
+        "- validation_rules must be objects with 'type' and 'payload' fields\n"
+        "- type must be one of: 'tests_pass', 'files_exist', 'contains_symbol'\n"
+        "- For 'tests_pass', payload must have 'suite' (unit|integration|e2e) and 'command'\n"
+        "- For 'files_exist', payload must have 'paths' (array of relative paths)\n"
+        "- For 'contains_symbol', payload must have 'symbol' and 'target_file'\n"
+        "- If trigger='none', steps must be empty array\n"
+        "- If trigger='augment', steps must contain at least one step\n"
+        "- proposed_complexity must be 'standard', 'adaptive', or 'restricted' (NOT 'small', 'medium', 'large', 'complex')"
     )
 
     prompt = build_node_prompt(
