@@ -112,10 +112,11 @@ def _show_execution_plan(
     if auto_confirm or not is_tty:
         return
 
-    # Ask for confirmation
+    # Ask for confirmation (print styled prompt separately to avoid Rich markup parsing issues)
     ui.console.print()
+    ui.console.print("[bold]Proceed[/bold] ([green]y[/]es, [yellow]n[/]o, [blue]a[/]djust complexity)")
     choice = Prompt.ask(
-        "[bold]Proceed[/bold] ([bold green]y[/bold]es, [bold yellow]n[/bold]o, [bold blue]a[/bold]djust complexity)",
+        "  > ",
         choices=["y", "n", "a"],
         default="y",
     )
@@ -130,8 +131,9 @@ def _show_execution_plan(
         sys.exit(0)
 
     if choice == "a":
+        ui.console.print("[bold]Set complexity[/bold] (small / medium / large / complex)")
         new_complexity = Prompt.ask(
-            "[bold]Set complexity[/bold]",
+            "  > ",
             choices=["small", "medium", "large", "complex"],
             default=complexity,
         )
