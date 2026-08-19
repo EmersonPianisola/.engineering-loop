@@ -163,6 +163,7 @@ class GraphBuilder:
         from eng_loop.tools.autosizing import (
             DOCUMENTATION_EXCLUDED_STAGES,
             OPERATIONAL_EXCLUDED_STAGES,
+            VALIDATION_EXCLUDED_STAGES,
         )
 
         complexity = state.get("complexity", "small")
@@ -180,6 +181,8 @@ class GraphBuilder:
         excluded_for_work_type = set()
         if work_type == "documentation":
             excluded_for_work_type = set(DOCUMENTATION_EXCLUDED_STAGES)
+        elif work_type == "validation":
+            excluded_for_work_type = set(VALIDATION_EXCLUDED_STAGES)
         elif work_type == "operational":
             excluded_for_work_type = set(OPERATIONAL_EXCLUDED_STAGES)
         elif work_type == "bugfix":

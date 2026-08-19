@@ -6,6 +6,7 @@ from pathlib import Path
 from eng_loop.tools.autosizing import (
     DOCUMENTATION_EXCLUDED_STAGES,
     OPERATIONAL_EXCLUDED_STAGES,
+    VALIDATION_EXCLUDED_STAGES,
     WORK_TYPE_KEYWORDS,
     _estimate_files,
     _estimate_tasks,
@@ -545,3 +546,53 @@ def test_work_type_keywords_categories():
 def test_work_type_keywords_non_empty():
     for category, keywords in WORK_TYPE_KEYWORDS.items():
         assert len(keywords) > 0, f"{category} should have keywords"
+
+
+def test_classify_work_type_validation():
+    assert classify_work_type("Validate the system for production") == "validation"
+
+
+def test_classify_work_type_validation_portuguese():
+    assert classify_work_type(
+        "Valide o sistema atual para ser executado em producao"
+    ) == "validation"
+
+
+def test_classify_work_type_validation_readiness():
+    assert classify_work_type("Production readiness check for all stages") == "validation"
+
+
+def test_deactivate_for_work_type_validation():
+    stages = {
+        "init": {"done": False, "attempts": 0},
+        "impl.design": {"done": False, "attempts": 0},
+        "impl.code": {"done": False, "attempts": 0},
+        "doc.update": {"done": False, "attempts": 0},
+        "verify": {"done": False, "attempts": 0},
+        "qa.static": {"done": False, "attempts": 0},
+        "deploy.prepare": {"done": False, "attempts": 0},
+        "post": {"done": False, "attempts": 0},
+    }
+    result = deactivate_for_work_type(stages, "validation")
+    assert result["impl.design"]["done"] is True
+    assert result["impl.code"]["done"] is True
+    assert result["doc.update"]["done"] is True
+    # verify, QA, deploy should remain active
+    assert result["verify"]["done"] is False
+    assert result["qa.static"]["done"] is False
+    assert result["deploy.prepare"]["done"] is False
+    assert result["post"]["done"] is False
+
+
+def test_validation_excluded_stages():
+    assert "impl.design" in VALIDATION_EXCLUDED_STAGES
+    assert "impl.code" in VALIDATION_EXCLUDED_STAGES
+    assert "doc.update" in VALIDATION_EXCLUDED_STAGES
+    assert "verify" not in VALIDATION_EXCLUDED_STAGES
+    assert "qa.static" not in VALIDATION_EXCLUDED_STAGES
+    assert "deploy.prepare" not in VALIDATION_EXCLUDED_STAGES
+
+
+def test_work_type_keywords_validation():
+    assert "validation" in WORK_TYPE_KEYWORDS
+    assert "validation_single" in WORK_TYPE_KEYWORDS

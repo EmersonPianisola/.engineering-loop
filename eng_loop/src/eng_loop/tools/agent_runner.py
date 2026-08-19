@@ -993,7 +993,7 @@ def run_agent_via_opencode(
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr→stdout to avoid _readerthread exceptions on Windows when proc.kill() is called
                 cwd=str(project_root),
             )
 

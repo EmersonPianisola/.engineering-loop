@@ -225,7 +225,7 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
             handler=impl_design_node,
             phase="impl",
             description="Implementation blueprint creation",
-            excluded_for_work_types=["documentation"],
+            excluded_for_work_types=["documentation", "validation"],
         )
     )
     registry.register(
@@ -235,6 +235,7 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
             handler=impl_code_node,
             phase="impl",
             description="TDD code implementation",
+            excluded_for_work_types=["validation"],
         )
     )
     registry.register(
@@ -244,7 +245,7 @@ def build_registry(parallel_qa: bool = False) -> NodeRegistry:
             handler=doc_update_node,
             phase="impl",
             description="Update existing project documentation",
-            excluded_for_work_types=["documentation"],
+            excluded_for_work_types=["documentation", "validation"],
         )
     )
 

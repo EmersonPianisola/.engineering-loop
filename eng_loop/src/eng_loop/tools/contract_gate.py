@@ -39,16 +39,30 @@ def code_exists_for_verify(
     source_output: dict[str, Any],
     state: dict[str, Any],
 ) -> tuple[bool, str]:
-    """impl.code → doc-update: Implementation must have produced artifacts."""
+    """impl.code → doc-update: Implementation must have produced artifacts.
+
+    For validation work types, no new code is expected — relax the check
+    to allow passing through if the implementation summary indicates
+    a validation-only run.
+    """
+    work_type = state.get("work_type", "feature")
+
     files = source_output.get("files_created", [])
+    tests_passed = source_output.get("tests_passed", False)
+    summary = source_output.get("implementation_summary", "")
+
+    if work_type == "validation":
+        # Validation tasks don't create new files; just need a summary
+        if len(summary) < 20:
+            return False, "Implementation summary too short — possible incomplete execution"
+        return True, "ok"
+
     if not files:
         return False, "No files created — nothing to verify"
 
-    tests_passed = source_output.get("tests_passed", False)
     if not tests_passed:
         return False, "Tests not passing — cannot verify broken implementation"
 
-    summary = source_output.get("implementation_summary", "")
     if len(summary) < 20:
         return False, "Implementation summary too short — possible incomplete execution"
 

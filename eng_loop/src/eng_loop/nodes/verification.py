@@ -239,6 +239,20 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
             goto="impl-code",
         )
 
+    # Pre-flight: verify Playwright can launch before expensive agent run
+    _e2e_error = _check_e2e_prerequisites(paths)
+    if _e2e_error:
+        log_stage_fail(stage_id, f"pre-flight: {_e2e_error}")
+        stages[stage_id]["done"] = True
+        return Command(
+            update={
+                "stages": stages,
+                "status": "blocked",
+                "blocking_condition": f"{stage_id} pre-flight failed: {_e2e_error}",
+            },
+            goto="__end__",
+        )
+
     prompt = build_node_prompt(
         stage_id,
         state,
@@ -353,6 +367,41 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
         },
         goto=next_node,
     )
+
+
+def _check_e2e_prerequisites(paths: dict[str, Any]) -> str | None:
+    """Pre-flight check for E2E testing environment.
+
+    Returns None if OK, or an error message string if prerequisites are missing.
+    Fails fast to avoid wasting 50+ minutes on unfixable browser issues.
+    """
+    import shutil
+    import subprocess
+
+    project_root = paths.get("project_root", ".")
+
+    # Check if npx is available
+    if not shutil.which("npx"):
+        return "npx not found — Node.js/npm not installed"
+
+    # Quick check: can playwright respond?
+    try:
+        result = subprocess.run(
+            ["npx", "playwright", "--version"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr_fragment = (result.stderr or result.stdout or "unknown error")[:300]
+            return f"playwright --version failed: {stderr_fragment}"
+    except subprocess.TimeoutExpired:
+        return "playwright --version timed out (30s) — browser may be stuck downloading"
+    except FileNotFoundError:
+        return "npx not found in PATH"
+
+    return None
 
 
 def _post_verify(state: dict[str, Any]) -> str:

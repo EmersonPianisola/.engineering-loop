@@ -395,6 +395,43 @@ WORK_TYPE_KEYWORDS: dict[str, list[str]] = {
         "fail",
         "failing",
     ],
+    "validation": [
+        "validate",
+        "validation",
+        "validar",
+        "validação",
+        "validade",
+        "valide",
+        "valide o",
+        "validar o",
+        "validar sistema",
+        "validate system",
+        "validate the",
+        "production readiness",
+        "prontidão para produção",
+        "garantir que esteja funcionando",
+        "garantir funcionamento",
+        "check if working",
+        "ensure it works",
+        "ensure production",
+        "verify system",
+        "verificar sistema",
+        "audit",
+        "auditar",
+        "health check",
+        "readiness check",
+        "all stages",
+        "all flows",
+        "todas etapas",
+        "todos fluxos",
+    ],
+    "validation_single": [
+        "valid",
+        "check",
+        "audit",
+        "readiness",
+        "garantir",
+    ],
     "feature": [
         "implement",
         "create",
@@ -432,16 +469,19 @@ def classify_work_type(work_item: str) -> str:
     documentation_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["documentation"] if kw in text_lower)
     operational_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["operational"] if kw in text_lower)
     bugfix_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["bugfix"] if kw in text_lower)
+    validation_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["validation"] if kw in text_lower)
     feature_phrase = sum(2 for kw in WORK_TYPE_KEYWORDS["feature"] if kw in text_lower)
 
     # Tier 2: Single-word matches (weight=1)
     documentation_single = sum(1 for kw in WORK_TYPE_KEYWORDS["documentation_single"] if kw in text_lower)
     operational_single = sum(1 for kw in WORK_TYPE_KEYWORDS["operational_single"] if kw in text_lower)
     bugfix_single = sum(1 for kw in WORK_TYPE_KEYWORDS["bugfix_single"] if kw in text_lower)
+    validation_single = sum(1 for kw in WORK_TYPE_KEYWORDS["validation_single"] if kw in text_lower)
 
     documentation_score = documentation_phrase + documentation_single
     operational_score = operational_phrase + operational_single
     bugfix_score = bugfix_phrase + bugfix_single
+    validation_score = validation_phrase + validation_single
     feature_score = feature_phrase
 
     # Documentation: needs phrase match (>=2) OR strong single-word signal (>=3)
@@ -449,9 +489,20 @@ def classify_work_type(work_item: str) -> str:
         documentation_single >= 3
         and documentation_score > operational_score
         and documentation_score > bugfix_score
+        and documentation_score > validation_score
         and documentation_score > feature_score
     ):
         return "documentation"
+
+    # Validation: needs phrase match (>=2) OR strong single-word signal (>=3)
+    if validation_phrase >= 2 or (
+        validation_single >= 3
+        and validation_score > documentation_score
+        and validation_score > operational_score
+        and validation_score > bugfix_score
+        and validation_score > feature_score
+    ):
+        return "validation"
 
     # Operational: needs phrase match (>=2) OR strong single-word signal (>=4)
     if operational_phrase >= 2 or (
@@ -513,6 +564,25 @@ DOCUMENTATION_EXCLUDED_STAGES: list[str] = [
     "doc.project",
 ]
 
+# Stages to deactivate for validation work (no new code, skip creation stages)
+# Validation tasks audit existing systems: init → verify → QA → deploy → post
+VALIDATION_EXCLUDED_STAGES: list[str] = [
+    "impl.design",
+    "impl.code",
+    "doc.update",
+    "arch.requirements",
+    "arch.solution",
+    "arch.review",
+    "design.user-research",
+    "design.personas",
+    "design.info-arch",
+    "design.interaction",
+    "design.design-system",
+    "design.visual-design",
+    "doc.decisions",
+    "doc.project",
+]
+
 
 def deactivate_for_work_type(stages: dict[str, Any], work_type: str) -> dict[str, Any]:
     """Deactivate stages that don't apply for the given work type."""
@@ -524,6 +594,8 @@ def deactivate_for_work_type(stages: dict[str, Any], work_type: str) -> dict[str
 
     if work_type == "documentation":
         excluded = DOCUMENTATION_EXCLUDED_STAGES
+    elif work_type == "validation":
+        excluded = VALIDATION_EXCLUDED_STAGES
     elif work_type == "operational":
         excluded = OPERATIONAL_EXCLUDED_STAGES
     elif work_type == "bugfix":

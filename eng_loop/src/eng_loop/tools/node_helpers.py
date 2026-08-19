@@ -7,6 +7,14 @@ from eng_loop.templates import get_skill_name, get_stage_file, load_skill, load_
 from eng_loop.tools.graphify import get_graphify_injection, precompute_graph_context
 from eng_loop.tools.prompt_builder import PromptBuilder
 
+# Deterministic and meta nodes don't have (or need) stage procedure templates.
+# Skipping them avoids spurious "Missing markdown file" warnings.
+_NO_PROCEDURE_STAGES = frozenset({
+    "init.setup",
+    "dynamic.architect",
+    "meta.executor",
+})
+
 
 def build_node_prompt(
     stage_id: str,
@@ -47,7 +55,7 @@ def build_node_prompt(
     skill_name = get_skill_name(stage_id)
 
     stage_proc = ""
-    if include_procedure:
+    if include_procedure and stage_id not in _NO_PROCEDURE_STAGES:
         stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
 
     skill_content = ""
