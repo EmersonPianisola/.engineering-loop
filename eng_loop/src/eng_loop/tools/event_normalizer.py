@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from eng_loop.tools.execution_state import (
     AgentActionEvent,
     CommandHistoryEvent,
+    ContextBudgetEvent,
     NodeCompletedEvent,
     NodeStartedEvent,
     NodeStatus,
@@ -277,9 +278,7 @@ class EventNormalizer:
         """Emit PlanningStartedEvent."""
         from eng_loop.tools.execution_state import PlanningStartedEvent
 
-        self.execution_state.apply(
-            PlanningStartedEvent(architect_node=architect_node)
-        )
+        self.execution_state.apply(PlanningStartedEvent(architect_node=architect_node))
 
     def planning_completed(
         self,
@@ -357,6 +356,25 @@ class EventNormalizer:
                 severity=severity,
                 message=message,
                 node_name=node_name,
+            )
+        )
+
+    def context_budget_record(
+        self,
+        stage_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_tokens: int = 0,
+        breakdown: dict[str, int] | None = None,
+    ) -> None:
+        """Record token usage in the context budget manager."""
+        self.execution_state.apply(
+            ContextBudgetEvent(
+                stage_id=stage_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                breakdown=breakdown or {},
             )
         )
 

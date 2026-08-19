@@ -339,6 +339,18 @@ class DiagnosticEvent:
     timestamp: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class ContextBudgetEvent:
+    """Token usage recorded for context budget tracking."""
+
+    stage_id: str
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int = 0
+    breakdown: dict[str, int] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.monotonic)
+
+
 # ─── Threat Evaluator ─────────────────────────────────────────────────
 
 
@@ -390,6 +402,7 @@ class ExecutionState:
         all_node_names: list[str],
         max_attempts_map: dict[str, int] | None = None,
         context_limit: int = 128_000,
+        context_budget_config: dict[str, Any] | None = None,
     ):
         self.quest_id = quest_id
         self.title = title
@@ -440,6 +453,9 @@ class ExecutionState:
         self._wall_clock_start = time.time()
         self._monotonic_start = time.monotonic()
 
+        # Context Budget Manager
+        self._budget_manager = self._init_budget_manager(context_limit, context_budget_config)
+
     def apply(self, event: Any) -> None:
         """Dispatch event to the appropriate reducer."""
         with self._lock:
@@ -479,6 +495,8 @@ class ExecutionState:
                 self._handle_checkpoint(event)
             elif isinstance(event, DiagnosticEvent):
                 self._handle_diagnostic(event)
+            elif isinstance(event, ContextBudgetEvent):
+                self._handle_context_budget(event)
 
     def _handle_node_started(self, event: NodeStartedEvent) -> None:
         if self._status == ExecutionStatus.PENDING:
@@ -666,12 +684,75 @@ class ExecutionState:
         }
 
     def _handle_diagnostic(self, event: DiagnosticEvent) -> None:
-        self._diagnostics.append({
-            "severity": event.severity,
-            "message": event.message,
-            "node_name": event.node_name,
-            "timestamp": event.timestamp,
-        })
+        self._diagnostics.append(
+            {
+                "severity": event.severity,
+                "message": event.message,
+                "node_name": event.node_name,
+                "timestamp": event.timestamp,
+            }
+        )
+
+    def _handle_context_budget(self, event: ContextBudgetEvent) -> None:
+        """Record token usage in the context budget manager."""
+        from eng_loop.tools.context_budget import CallBreakdown
+
+        breakdown = CallBreakdown(
+            system_prompt=event.breakdown.get("system_prompt", 0),
+            stage_instructions=event.breakdown.get("stage_instructions", 0),
+            conversation=event.breakdown.get("conversation", 0),
+            tool_results=event.breakdown.get("tool_results", 0),
+            previous_outputs=event.breakdown.get("previous_outputs", 0),
+            other=event.breakdown.get("other", 0),
+            input_total=event.input_tokens,
+            output_tokens=event.output_tokens,
+            cached_tokens=event.cached_tokens,
+        )
+        self._budget_manager.record_call(event.stage_id, breakdown)
+
+    @staticmethod
+    def _init_budget_manager(
+        context_limit: int,
+        config: dict[str, Any] | None,
+    ) -> Any:
+        """Initialize the ContextBudgetManager from config."""
+        from eng_loop.tools.context_budget import (
+            CompactionMode,
+            ContextBudgetManager,
+            ReservedOutputConfig,
+        )
+
+        if not config:
+            return ContextBudgetManager(
+                context_window=context_limit,
+                reserved_output=4096,
+                safety_margin=2048,
+            )
+
+        comp_cfg = config.get("compaction", {})
+        thresh = config.get("thresholds", {})
+        res_cfg = config.get("reserved_output", {})
+
+        # Parse stage overrides
+        stage_reserved = {}
+        for stage_id, stage_cfg in config.get("stage_overrides", {}).items():
+            stage_reserved[stage_id] = ReservedOutputConfig(
+                mode=stage_cfg.get("mode", res_cfg.get("mode", "fixed")),
+                value=stage_cfg.get("reserved_output", res_cfg.get("default", 4096)),
+                min_value=res_cfg.get("min", 2048),
+                max_value=res_cfg.get("max", 8192),
+            )
+
+        return ContextBudgetManager(
+            context_window=context_limit,
+            reserved_output=res_cfg.get("default", 4096),
+            safety_margin=config.get("safety_margin_tokens", 2048),
+            thresholds=thresh or None,
+            compaction_mode=CompactionMode(comp_cfg.get("mode", "auto")),
+            stage_reserved=stage_reserved if stage_reserved else None,
+            preserve_count=comp_cfg.get("preserve_count", 15),
+            truncate_tool_result_chars=comp_cfg.get("truncate_tool_result_chars", 2000),
+        )
 
     # ─── Payload Management (Node Inspector X-Ray) ──────────────────
 
@@ -987,11 +1068,7 @@ class ExecutionState:
                 pipeline_status = PipelineStatus.RUNNING
             else:
                 # PENDING or unknown
-                pipeline_status = (
-                    PipelineStatus.PLANNING
-                    if not self._planning_done
-                    else PipelineStatus.RUNNING
-                )
+                pipeline_status = PipelineStatus.PLANNING if not self._planning_done else PipelineStatus.RUNNING
 
             # ── Build graph nodes ───────────────────────────────────
             nodes: dict[str, GraphNodeInfo] = {}
@@ -1000,11 +1077,7 @@ class ExecutionState:
             total_attempts_count = 0
 
             for node_name in self.all_node_names:
-                phase = (
-                    node_name.split(".")[0]
-                    if "." in node_name
-                    else node_name.split("-")[0]
-                )
+                phase = node_name.split(".")[0] if "." in node_name else node_name.split("-")[0]
                 phases.setdefault(phase, []).append(node_name)
 
                 # Determine visual status
@@ -1020,9 +1093,7 @@ class ExecutionState:
                         visual = NodeVisualStatus.SUCCESS
                 else:
                     execs = self._executions.get(node_name, {})
-                    has_active = any(
-                        e.status == NodeStatus.ACTIVE for e in execs.values()
-                    )
+                    has_active = any(e.status == NodeStatus.ACTIVE for e in execs.values())
                     if has_active:
                         visual = NodeVisualStatus.RUNNING
                     else:
@@ -1040,25 +1111,18 @@ class ExecutionState:
                         execution_id=exec_id,
                         start_ms=exec_record.start_time,
                         end_ms=exec_record.end_time,
-                        result=(
-                            "success"
-                            if exec_record.status == NodeStatus.COMPLETED
-                            else "failed"
-                        ),
+                        result=("success" if exec_record.status == NodeStatus.COMPLETED else "failed"),
                     )
                     ne.attempts.append(
-                        type("AttemptRecord", (), {
-                            "attempt_num": exec_record.attempt_number,
-                            "duration_ms": int(
-                                (exec_record.end_time or now - exec_record.start_time)
-                                * 1000
-                            ),
-                            "result": (
-                                "success"
-                                if exec_record.status == NodeStatus.COMPLETED
-                                else "failed"
-                            ),
-                        })()
+                        type(
+                            "AttemptRecord",
+                            (),
+                            {
+                                "attempt_num": exec_record.attempt_number,
+                                "duration_ms": int((exec_record.end_time or now - exec_record.start_time) * 1000),
+                                "result": ("success" if exec_record.status == NodeStatus.COMPLETED else "failed"),
+                            },
+                        )()
                     )
                     node_execs.append(ne)
                     total_executions += 1
@@ -1066,9 +1130,7 @@ class ExecutionState:
                     node_tool_count += exec_record.tool_count
 
                     if exec_record.end_time:
-                        node_total_ms += int(
-                            (exec_record.end_time - exec_record.start_time) * 1000
-                        )
+                        node_total_ms += int((exec_record.end_time - exec_record.start_time) * 1000)
 
                     if exec_record.status == NodeStatus.FAILED:
                         error_msg = f"Node {node_name} failed"
@@ -1097,30 +1159,18 @@ class ExecutionState:
             for node_id, node_info in nodes.items():
                 if node_info.is_container and node_info.visual_status == NodeVisualStatus.PENDING:
                     # Derive from children
-                    child_statuses = [
-                        nodes[c].visual_status for c in node_info.children if c in nodes
-                    ]
-                    if any(
-                        s == NodeVisualStatus.RUNNING for s in child_statuses
-                    ):
+                    child_statuses = [nodes[c].visual_status for c in node_info.children if c in nodes]
+                    if any(s == NodeVisualStatus.RUNNING for s in child_statuses):
                         node_info.visual_status = NodeVisualStatus.RUNNING
-                    elif all(
-                        s == NodeVisualStatus.SUCCESS for s in child_statuses
-                    ):
+                    elif all(s == NodeVisualStatus.SUCCESS for s in child_statuses):
                         node_info.visual_status = NodeVisualStatus.SUCCESS
 
             # ── Metrics ────────────────────────────────────────────
             total_nodes = len(self.all_node_names)
-            completed_count = sum(
-                1 for s in self._completed.values() if s == NodeStatus.COMPLETED
-            )
-            failed_count = sum(
-                1 for s in self._completed.values() if s == NodeStatus.FAILED
-            )
+            completed_count = sum(1 for s in self._completed.values() if s == NodeStatus.COMPLETED)
+            failed_count = sum(1 for s in self._completed.values() if s == NodeStatus.FAILED)
             running_count = len(self.active_party)
-            pending_count = (
-                total_nodes - completed_count - failed_count - running_count
-            )
+            pending_count = total_nodes - completed_count - failed_count - running_count
             retries = max(0, total_attempts_count - len(self._executions))
 
             metrics = PipelineMetrics(
@@ -1148,9 +1198,7 @@ class ExecutionState:
             for exec_record in self.active_party:
                 current_node_id = exec_record.node_name
                 current_attempt = exec_record.attempt_number
-                current_elapsed_ms = int(
-                    (now - exec_record.start_time) * 1000
-                )
+                current_elapsed_ms = int((now - exec_record.start_time) * 1000)
                 current_tool_count = exec_record.tool_count
 
             # ── History (completed nodes, ordered) ─────────────────
@@ -1214,6 +1262,9 @@ class ExecutionState:
                 for d in self._diagnostics
             ]
 
+            # ── Context Budget ─────────────────────────────────────
+            context_budget = self._build_context_budget_info(current_node_id)
+
             return ExecutionViewModel(
                 pipeline_status=pipeline_status,
                 work_item=work_item or self.title,
@@ -1232,8 +1283,51 @@ class ExecutionState:
                 checkpoint=checkpoint,
                 essence_gate=essence_gate,
                 diagnostics=diagnostics,
+                context_budget=context_budget,
                 total_elapsed_ms=total_elapsed_ms,
             )
+
+    def _build_context_budget_info(self, current_node_id: str | None) -> "ContextBudgetInfo | None":  # noqa: F821,UP037
+        """Build ContextBudgetInfo from the budget manager state."""
+        from eng_loop.tools.cli_viewmodel import ContextBudgetInfo
+
+        stage_id = current_node_id or ""
+        state = self._budget_manager.get_state(stage_id)
+
+        # Build history entries for the current stage
+        history_entries = []
+        for entry in state.stage_history.get(stage_id, []):
+            history_entries.append(
+                {
+                    "call_number": entry.call_number,
+                    "input_tokens": entry.input_tokens,
+                    "output_tokens": entry.output_tokens,
+                    "pressure": entry.pressure,
+                }
+            )
+
+        return ContextBudgetInfo(
+            model_name=state.model_name,
+            context_window=state.context_window,
+            used_tokens=state.used_tokens,
+            remaining_tokens=state.remaining_tokens,
+            safe_remaining=state.safe_remaining,
+            pressure=state.pressure.value,
+            system_tokens=state.call_breakdown.system_prompt,
+            stage_tokens=state.call_breakdown.stage_instructions,
+            conversation_tokens=state.call_breakdown.conversation,
+            tool_tokens=state.call_breakdown.tool_results,
+            output_tokens=state.call_breakdown.output_tokens,
+            cached_tokens=state.call_breakdown.cached_tokens,
+            tool_calls=state.tool_calls,
+            call_number=len(history_entries),
+            compaction_suggested=state.compaction_suggested,
+            compaction_count=len(state.compaction_records),
+            tokens_compacted=state.tokens_compacted,
+            tokenizer_provider=state.tokenizer_provider,
+            tokenizer_accuracy=state.tokenizer_accuracy,
+            stage_history=history_entries,
+        )
 
     def _get_node_duration(self, node_name: str) -> float | None:
         execs = self._executions.get(node_name, {})

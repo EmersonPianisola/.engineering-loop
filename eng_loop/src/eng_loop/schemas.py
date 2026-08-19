@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -169,6 +170,33 @@ class AuthorizedGraphTopology(BaseModel):
     execution_policies: tuple[ExecutionPolicy, ...]
     rationale: str
     policy_notes: str = Field(default="", description="Notes from policy validation")
+
+
+# ──────────────────────────────────────────────
+# CONTEXT BUDGET — P0 runtime protection for local models
+# ──────────────────────────────────────────────
+
+
+class ContextBudgetConstraint(BaseModel):
+    """Context budget constraint for Dynamic Architect planning.
+
+    Provides the architect with context window information so it can
+    propose a topology that respects the available budget.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model_context_window: int = Field(description="Model's context window in tokens")
+    current_usage: int = Field(default=0, description="Tokens currently in use")
+    safe_remaining: int = Field(description="Tokens safely available for next call")
+    pressure: str = Field(
+        default="safe",
+        description="Current pressure state: safe, watch, pressure, exhausted",
+    )
+    compaction_available: bool = Field(
+        default=True,
+        description="Whether compaction is available to reclaim tokens",
+    )
 
 
 # ──────────────────────────────────────────────
@@ -659,15 +687,46 @@ class DocProjectOutput(BaseModel):
 # ──────────────────────────────────────────────
 # ESSENCE SIDECAR — Four Lenses validation
 # ──────────────────────────────────────────────
+class Severity(str, Enum):
+    """Impact severity of a finding — based on effect on solution, not finding type.
+
+    HIGH   — Interpretation fundamentally changes the solution or architecture.
+             Examples: 'login' = OAuth vs session vs SSO; 'database' = SQL vs NoSQL.
+    MEDIUM — Meaningful decision exists, but a reasonable default is available.
+             Examples: 'cache' = in-memory vs distributed; 'logging' level/format.
+    LOW    — Decision doesn't significantly change the outcome.
+             Examples: 'nice UI' aesthetic preference; 'clean code' stylistic.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class EssenceDecision(str, Enum):
+    """Deterministic policy decision made by the Essence Gate.
+
+    The LLM detects findings; the policy engine decides what to do.
+    """
+
+    PASS = "pass"
+    AUTO_ADJUST = "auto_adjust"
+    CLARIFICATION_REQUIRED = "clarification_required"
+    BLOCKED = "blocked"
+
+
 class EssenceSubjectiveTerm(BaseModel):
     """A subjective term found by Lens 1."""
 
     model_config = ConfigDict(frozen=True)
 
+    finding_id: str = Field(default="", description="Unique identifier, e.g. 'lens1_subject_cake'")
     term: str = Field(default="", description="The subjective term")
     context: str = Field(default="", description="Where the term appears")
-    interpretations: list[str] = Field(
-        default_factory=list, description="Proposed concrete interpretations"
+    interpretations: list[str] = Field(default_factory=list, description="Proposed concrete interpretations")
+    severity: Severity = Field(
+        default=Severity.LOW,
+        description="Impact severity: how much does this ambiguity change the solution?",
     )
 
 
@@ -676,9 +735,13 @@ class EssenceHiddenAssumption(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    finding_id: str = Field(default="", description="Unique identifier, e.g. 'lens2_assump_no_allergies'")
     assumption: str = Field(default="", description="The unstated assumption")
     risk: str = Field(default="", description="What could go wrong if assumption is false")
-    severity: Literal["high", "medium", "low"] = Field(default="low")
+    severity: Severity = Field(
+        default=Severity.LOW,
+        description="Impact severity: how critical is this assumption?",
+    )
 
 
 class EssenceLiteralTrap(BaseModel):
@@ -686,9 +749,14 @@ class EssenceLiteralTrap(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    finding_id: str = Field(default="", description="Unique identifier, e.g. 'lens3_trap_receipt_recipe'")
     phrasing: str = Field(default="", description="The ambiguous phrasing")
     ambiguity: str = Field(default="", description="Why it can be misinterpreted")
     likely_misinterpretation: str = Field(default="", description="What an LLM might do wrong")
+    severity: Severity = Field(
+        default=Severity.LOW,
+        description="Impact severity: how much does this trap affect the outcome?",
+    )
 
 
 class EssenceConflict(BaseModel):
@@ -702,16 +770,46 @@ class EssenceConflict(BaseModel):
     requires_user_resolution: bool = Field(default=True)
 
 
+class EssenceClarifyingQuestion(BaseModel):
+    """A clarifying question derived from a significant finding.
+
+    Invariant: every question MUST reference an existing finding_id.
+    Invariant: every significant finding MUST have a corresponding question.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(default="", description="Unique question id, e.g. 'essence_q_001'")
+    finding_id: str = Field(
+        default="",
+        description="References the finding this question addresses",
+    )
+    lens: Literal["lens_1", "lens_2", "lens_3"] = Field(default="lens_1", description="Which lens produced the finding")
+    finding_summary: str = Field(default="", description="Brief summary of the finding")
+    question: str = Field(default="", description="The question to ask the user")
+    options: list[str] = Field(default_factory=list, description="Suggested answer options")
+    severity: Severity = Field(
+        default=Severity.LOW,
+        description="Mirrors the finding's severity",
+    )
+
+
 class EssenceOutput(BaseModel):
-    """Structured output from Essence Four Lenses validation."""
+    """Structured output from Essence Four Lenses validation.
+
+    The LLM populates findings and questions. The policy engine (runtime)
+    derives the EssenceDecision — the LLM never decides its own authority.
+    """
 
     lens_1_subjective_terms: list[EssenceSubjectiveTerm] = Field(default_factory=list)
     lens_2_hidden_assumptions: list[EssenceHiddenAssumption] = Field(default_factory=list)
     lens_3_literal_traps: list[EssenceLiteralTrap] = Field(default_factory=list)
     lens_4_conflicts: list[EssenceConflict] = Field(default_factory=list)
     clean: bool = Field(default=False, description="True if all four lenses found nothing")
-    adjustments: list[str] = Field(
-        default_factory=list, description="Lens 1-3 adjustments applied inline"
+    adjustments: list[str] = Field(default_factory=list, description="Lens 1-3 adjustments applied inline")
+    clarifying_questions: list[EssenceClarifyingQuestion] = Field(
+        default_factory=list,
+        description="Questions for user clarification (derived from significant findings)",
     )
     summary: str = Field(default="", description="One-line summary of findings")
 

@@ -4,7 +4,7 @@ type: entry-point
 description: 'Start the engineering loop — quick reference for CLI and prompt mode.'
 ---
 
-# Engineering Loop v11.4 — Start Here
+# Engineering Loop v12.1 — Start Here
 
 ## Iniciar o Loop
 
@@ -142,6 +142,89 @@ Valida topologia, transições de estado e roteamento do grafo **sem chamadas LL
 
 ---
 
+## Context Budget Manager (P0, v12.1)
+
+Protecao de runtime para modelos locais. Janela de contexto é um recurso operacional limitado — como RAM, VRAM, CPU.
+
+### Como Funciona
+
+Antes de cada chamada LLM, o sistema verifica:
+
+```
+input_tokens + reserved_output + safety_margin <= context_window?
+  Sim → prossegue
+  Não → compacta (se auto) → re-verifica → se ainda não cabe → bloqueia
+```
+
+**O criterio de bloqueio NÃO é porcentagem.** É:
+
+```
+input + reserved_output + safety_margin > context_window → BLOQUEIA
+```
+
+### Estados de Pressão
+
+| Estado | Uso | Comportamento |
+|--------|-----|---------------|
+| **SAFE** | < 70% | Execucao normal |
+| **WATCH** | 70-85% | Monitoramento |
+| **PRESSURE** | 85-95% | Auto-compacta |
+| **EXHAUSTED** | > 95% ou sem budget seguro | Bloqueia chamada |
+
+### Display no CLI
+
+Durante execucao:
+
+```
+● impl.code                                      01:24
+
+Context  24.8k / 32.8k  ████████████░░░░  75.7%  WATCH
+Safe     5.9k remaining   ·  3 tool calls · 7.9k tokens
+```
+
+### Configuracao
+
+```yaml
+hardware:
+  context_budget:
+    enabled: true
+    safety_margin_tokens: 2048
+    compaction:
+      mode: auto          # auto | suggest | disabled
+    thresholds:
+      safe: 0.70
+      watch: 0.85
+      pressure: 0.95
+    reserved_output:
+      default: 4096
+      mode: fixed         # fixed | adaptive
+```
+
+### Compactacao
+
+Rule-based, message-level. Preserva:
+- SystemMessage (sempre)
+- Primeiro HumanMessage (objetivo/work item)
+- Respostas do Essence Gate / decisoes confirmadas
+- Ultimas N trocas de ferramentas (default: 15)
+
+Reduz:
+- ToolMessage antigos → resumo compacto
+- Resultados de ferramentas grandes (>2000 chars) → truncamento head/tail
+- Outputs redundantes
+
+Toda compactacao emite um `CompactionRecord` para auditoria. Nunca descarta contexto silenciosamente.
+
+### Tokenizer
+
+Tokenizer real, nao estimativa de 4 chars/token. Prioridade:
+
+```
+1. tiktoken (endpoints compatíveis OpenAI)
+2. Tokenizer nativo do modelo
+3. Fallback: 4 chars/token (estimado)
+```
+
 ## Otimizações de Contexto (v11.3)
 
 O loop agora pré-computa o contexto estrutural do projeto, eliminando tool-calls exploratórios repetidos.
@@ -246,7 +329,8 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 
 | Arquivo | Versão |
 |---------|--------|
-| Framework | v11.4.0 |
+| Framework | v12.1.0 |
+| Context Budget | Tokenizer real, budget por chamada, auto-compaction, prevencao overflow (P0) |
 | Contract Gate | Middleware valida contratos entre stages (blueprint→code, code→verify) |
 | Parallel QA | Fan-out/fan-in com qa-dispatcher + qa-join, rollback para impl.code |
 | Causal Rollback | Reducer rollback_to_stage reset causal chain (impl.code → verify) |

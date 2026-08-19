@@ -50,6 +50,7 @@ def propose_topology(
     paths = paths or {}
     node_catalog = _build_node_catalog_context()
     allowed_conditions_text = _build_allowed_conditions_context()
+    context_budget_text = _build_context_budget_context(config)
 
     instructions = (
         f"You are a Graph Topology Architect. Your job is to design the optimal\n"
@@ -62,6 +63,9 @@ def propose_topology(
         f"{node_catalog}\n\n"
         f"## ALLOWED EDGE CONDITIONS\n"
         f"{allowed_conditions_text}\n\n"
+        f"{context_budget_text}\n"
+        if context_budget_text
+        else ""
         f"## CRITICAL: HAPPY-PATH ONLY\n"
         f"You propose ONLY the happy-path (forward-progress) edges.\n"
         f"Failure routing (loopback on retry, terminal on blocked) is AUTOMATICALLY\n"
@@ -205,6 +209,33 @@ def _build_allowed_conditions_context() -> str:
     for cond, desc in condition_descriptions.items():
         lines.append(f"| `{cond}` | {desc} |")
     return "\n".join(lines)
+
+
+def _build_context_budget_context(config: dict[str, Any]) -> str:
+    """Build context budget information for the architect's prompt.
+
+    Provides the architect with context window constraints so it can
+    propose a topology that respects the available budget.
+    """
+    hardware = config.get("hardware", {})
+    context_window = hardware.get("context_window", 0)
+    if context_window <= 0:
+        return ""
+
+    budget_cfg = hardware.get("context_budget", {})
+    reserved = budget_cfg.get("reserved_output", {}).get("default", 4096)
+    margin = budget_cfg.get("safety_margin_tokens", 2048)
+    effective = context_window - reserved - margin
+
+    return (
+        f"## CONTEXT BUDGET CONSTRAINTS\n"
+        f"The model has a context window of {context_window:,} tokens.\n"
+        f"After reserving {reserved:,} tokens for output and {margin:,} for safety margin,\n"
+        f"the effective input budget is {effective:,} tokens per call.\n"
+        f"Design a topology that can execute within these constraints.\n"
+        f"Stages that accumulate large context (many tool calls, large artifacts)\n"
+        f"may need compaction. Prefer fewer, more focused stages over many small ones.\n\n"
+    )
 
 
 # ───────────────────────────────────────────────────────────────────

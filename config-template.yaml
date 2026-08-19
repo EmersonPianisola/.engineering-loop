@@ -160,6 +160,31 @@ hardware:
   max_findings_buffer: 50
   compact_log_after_iteration: 3
 
+  # Context Budget Manager — P0 runtime protection for local models
+  context_budget:
+    enabled: true
+    safety_margin_tokens: 2048
+    compaction:
+      mode: auto          # auto | suggest | disabled
+      preserve_count: 15  # last N messages to keep during compaction
+      truncate_tool_result_chars: 2000
+    thresholds:
+      safe: 0.70
+      watch: 0.85
+      pressure: 0.95
+    reserved_output:
+      default: 4096
+      mode: fixed         # fixed | adaptive
+      min: 2048
+      max: 8192
+    # Per-stage reserved output override (optional)
+    # stage_overrides:
+    #   impl.code:
+    #     reserved_output: 8192
+    #     mode: adaptive
+    #   init:
+    #     reserved_output: 2048
+
 # ============================================================
 # ESSENCE SIDECAR — runs BEFORE every stage
 # ============================================================
@@ -167,6 +192,17 @@ essence:
   enabled: true
   skill: "essence"
   run_before_stage: true
+  # Clarification threshold: findings at this severity or above require user input.
+  #   "high"   — only block on architectural-impact ambiguities
+  #   "medium" — block on any meaningful decision (default)
+  #   "low"    — block on every finding, including minor wording
+  clarification_threshold: "medium"
+  # Max auto-adjust retries for findings BELOW threshold before asking user
+  auto_adjust_max: 3
+  # Max times to ask the same user for clarification before blocking
+  max_clarification_attempts: 3
+  # Max questions per clarification request
+  max_questions_per_request: 5
   capture_decisions: true
   context_file: "context.md"
 

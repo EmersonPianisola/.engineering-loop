@@ -15,6 +15,7 @@ from langchain_core.messages.ai import AIMessageChunk
 from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
+from rich.panel import Panel
 
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
@@ -167,6 +168,7 @@ def run_agent(
     *,
     config: dict[str, Any] | None = None,
     progress_cb: ProgressCallback | None = None,
+    budget_manager: Any | None = None,
 ) -> AgentResult:
     """Run an agentic loop: LLM calls tools until work is complete, then extracts structured output.
 
@@ -308,6 +310,10 @@ def run_agent(
     _read_only_answer_threshold = 15  # After 15 iterations, force the agent to answer
     _read_only_answer_injected = False
 
+    # Ask-user rate limiter — prevent spam of user input requests
+    _ask_user_count = 0
+    _ASK_USER_MAX = 3  # Max 3 ask_user calls per stage
+
     for iteration in range(1, max_iterations + 1):
         iter_start = time.monotonic()
         _dbg.debug(
@@ -331,6 +337,28 @@ def run_agent(
                     )
                 )
             )
+
+        # CONTEXT BUDGET — pre-call check
+        if budget_manager:
+            _budget_result = _check_context_budget(
+                budget_manager,
+                stage_id,
+                messages,
+                model,
+            )
+            if not _budget_result["allowed"]:
+                elapsed = time.monotonic() - t0
+                log_model_done(stage_id, elapsed)
+                log_stage_fail(stage_id, _budget_result["reason"])
+                return AgentResult(
+                    data={},
+                    conversation=list(messages),
+                    tool_calls_made=tool_calls_total,
+                    iterations=iteration,
+                    elapsed=elapsed,
+                    error=_budget_result["reason"],
+                )
+            messages = _budget_result["messages"]
 
         try:
             # Stream tokens for HUD visibility, then aggregate into final response
@@ -360,6 +388,8 @@ def run_agent(
 
         # Extract token usage for HUD telemetry
         _report_token_usage(stage_id, response)
+        # Record in context budget manager
+        _record_context_budget(stage_id, response, messages, budget_manager)
 
         iter_elapsed = time.monotonic() - iter_start
         if isinstance(response, AIMessage):
@@ -376,6 +406,48 @@ def run_agent(
                 for tc in response.tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc.get("args", {})
+
+                    # Intercept ask_user — collect input from terminal
+                    if tool_name == "ask_user":
+                        _dbg.debug(
+                            "[DEBUG] agent_runner: stage=%s INTERCEPTING ask_user, questions=%d",
+                            stage_id,
+                            len(tool_args.get("questions", [])),
+                        )
+                        _ask_user_count += 1
+                        if _ask_user_count > _ASK_USER_MAX:
+                            messages.append(response)
+                            messages.append(
+                                ToolMessage(
+                                    content=(
+                                        f"BLOCKED: You have already used ask_user {_ask_user_count - 1} times. "
+                                        f"Maximum {_ASK_USER_MAX} uses per stage. "
+                                        f"Work with the information you have and proceed."
+                                    ),
+                                    tool_call_id=tc["id"],
+                                )
+                            )
+                            tool_calls_total += 1
+                            continue
+                        answers = _collect_user_input(tool_args, stage_id)
+                        messages.append(response)
+                        messages.append(
+                            ToolMessage(
+                                content=json.dumps(answers, ensure_ascii=False),
+                                tool_call_id=tc["id"],
+                            )
+                        )
+                        tool_calls_total += 1
+                        # Record interaction in state for audit
+                        if config:
+                            config.setdefault("user_interactions", []).append(
+                                {
+                                    "stage": stage_id,
+                                    "questions": tool_args.get("questions", []),
+                                    "answers": answers.get("answers", []),
+                                }
+                            )
+                        continue
 
                     # Phase 4: Compliance — verify tool is allowed for this stage
                     allowed_tools = _get_allowed_tools(stage_id, tools)
@@ -1265,6 +1337,12 @@ def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
     """Print a tool call event, mimicking opencode TUI style."""
     import sys as _sys
 
+    # Silent when spinner is active — it handles visual feedback
+    from eng_loop.tools.progress import _get_active_spinner
+
+    if _get_active_spinner():
+        return
+
     icon = {"read": "R", "write": "W", "edit": "E", "bash": "$", "glob": "G", "grep": "S"}.get(tool, "?")
     path_str = f" {path}" if path else ""
     _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[36m{icon}\033[0m {tool}{path_str}\n")
@@ -1274,6 +1352,12 @@ def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
 def _print_text(stage_id: str, text: str) -> None:
     """Print LLM text output, truncated."""
     import sys as _sys
+
+    # Silent when spinner is active
+    from eng_loop.tools.progress import _get_active_spinner
+
+    if _get_active_spinner():
+        return
 
     # Only print if it's substantive (not just "OK" or similar)
     if len(text) < 10:
@@ -1285,15 +1369,31 @@ def _print_text(stage_id: str, text: str) -> None:
 
 
 def _print_error(stage_id: str, error: str) -> None:
-    """Print an error event."""
-    import sys as _sys
+    """Print an error event with proper panel formatting."""
+    from eng_loop.tools.progress import _get_active_spinner, ui
 
-    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[31merror: {error}\033[0m\n")
-    _sys.stdout.flush()
+    spinner = _get_active_spinner()
+    if spinner:
+        # Spinner is active — let it handle the display
+        return
+
+    # Use Rich panel for errors — consistent with rest of CLI
+    ui.console.print(
+        Panel(
+            f"[bold red]Error in {stage_id}[/bold red]\n[dim]{error}[/dim]",
+            title="[bold red]\u2717 Error[/bold red]",
+            border_style="red",
+        )
+    )
 
 
 def _print_progress(stage_id: str, elapsed: float) -> None:
     """Print a progress heartbeat."""
+    from eng_loop.tools.progress import _get_active_spinner
+
+    if _get_active_spinner():
+        return
+
     import sys as _sys
 
     _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s\033[0m\n")
@@ -1301,11 +1401,19 @@ def _print_progress(stage_id: str, elapsed: float) -> None:
 
 
 def _print_warning(stage_id: str, message: str) -> None:
-    """Print a warning message."""
-    import sys as _sys
+    """Print a warning message with proper panel formatting."""
+    from eng_loop.tools.progress import _get_active_spinner, ui
 
-    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[33mwarn: {message}\033[0m\n")
-    _sys.stdout.flush()
+    if _get_active_spinner():
+        return
+
+    ui.console.print(
+        Panel(
+            f"[yellow]{stage_id}[/yellow]\n[dim]{message}[/dim]",
+            title="[bold yellow]\u26a0 Warning[/bold yellow]",
+            border_style="yellow",
+        )
+    )
 
 
 def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: type[BaseModel] | None = None) -> str:
@@ -2018,6 +2126,210 @@ def _report_token_usage(stage_id: str, response: Any) -> None:
             cached_details = usage.get("prompt_tokens_details", {})
             cached = cached_details.get("cached_tokens", 0)
             normalizer.tokens_consumed(stage_id, inp, out, cached)
+    except Exception:
+        pass
+
+
+def _collect_user_input(
+    tool_args: dict,
+    stage_id: str,
+) -> dict[str, Any]:
+    """Collect user input via the interaction handler.
+
+    Called when the agent invokes ask_user. Pauses execution,
+    presents questions to the user, and returns their answers.
+    """
+    from eng_loop.tools.interaction_handler import get_interaction_handler
+
+    questions = tool_args.get("questions", [])
+    context = tool_args.get("context", "")
+
+    handler = get_interaction_handler()
+
+    if not handler.is_available():
+        return {
+            "status": "non_interactive",
+            "message": (
+                "Non-interactive environment — cannot collect user input. "
+                "Proceed with the information available or make a reasonable assumption "
+                "and document it."
+            ),
+            "answers": [],
+        }
+
+    answers = handler.collect_questions(questions, context, stage_id)
+
+    if not answers and not handler.is_available():
+        return {
+            "status": "cancelled",
+            "message": "User cancelled the input request. Proceed with available information.",
+            "answers": [],
+        }
+
+    # Build structured response: map questions to answers
+    paired = []
+    for i, q in enumerate(questions):
+        ans = answers[i] if i < len(answers) else ""
+        paired.append(
+            {
+                "question": q,
+                "answer": ans if ans else "[skipped]",
+            }
+        )
+
+    return {
+        "status": "success",
+        "message": "User provided the following answers:",
+        "answers": answers,
+        "paired": paired,
+    }
+
+
+def _check_context_budget(
+    budget_manager: Any,
+    stage_id: str,
+    messages: list[Any],
+    model: ChatOpenAI,
+) -> dict[str, Any]:
+    """Pre-call context budget check.
+
+    Returns dict with:
+      - allowed: bool
+      - messages: list (possibly compacted)
+      - reason: str (if not allowed)
+    """
+    from eng_loop.tools.context_budget import CompactionMode, ContextPressure
+    from eng_loop.tools.token_counter import TokenCounter
+
+    model_name = getattr(model, "model_name", getattr(model, "model", "unknown"))
+    token_counter = TokenCounter(model_name)
+
+    estimated_input = token_counter.estimate_messages_input(messages)
+    estimated_output = getattr(model, "max_tokens", 4096) or 4096
+
+    result = budget_manager.check_before_call(stage_id, estimated_input, estimated_output)
+
+    if not result.allowed:
+        # Try auto-compaction
+        if budget_manager._compaction_mode == CompactionMode.AUTO:
+            compacted, record = budget_manager.compact_messages(stage_id, messages, token_counter)
+            if record:
+                _dbg = __import__("logging").getLogger(__name__)
+                _dbg.warning(
+                    "[DEBUG] agent_runner: stage=%s COMPACTED %d→%d tokens (saved %d)",
+                    stage_id,
+                    record.tokens_before,
+                    record.tokens_after,
+                    record.tokens_saved,
+                )
+            # Re-check after compaction
+            new_estimate = token_counter.estimate_messages_input(compacted)
+            result = budget_manager.check_before_call(stage_id, new_estimate, estimated_output)
+            if not result.allowed:
+                return {
+                    "allowed": False,
+                    "messages": messages,
+                    "reason": result.reason,
+                }
+            return {
+                "allowed": True,
+                "messages": compacted,
+                "reason": "",
+            }
+        return {
+            "allowed": False,
+            "messages": messages,
+            "reason": result.reason,
+        }
+
+    # Check if compaction is needed proactively
+    if result.pressure == ContextPressure.PRESSURE:
+        compacted, record = budget_manager.compact_messages(stage_id, messages, token_counter)
+        if record:
+            _dbg = __import__("logging").getLogger(__name__)
+            _dbg.warning(
+                "[DEBUG] agent_runner: stage=%s PRESSURE — COMPACTED %d→%d tokens",
+                stage_id,
+                record.tokens_before,
+                record.tokens_after,
+            )
+        return {
+            "allowed": True,
+            "messages": compacted if compacted else messages,
+            "reason": "",
+        }
+
+    return {
+        "allowed": True,
+        "messages": messages,
+        "reason": "",
+    }
+
+
+def _record_context_budget(
+    stage_id: str,
+    response: Any,
+    messages: list[Any],
+    budget_manager: Any | None,
+) -> None:
+    """Record token usage in the context budget manager after an LLM call."""
+    if not budget_manager:
+        return
+
+    from eng_loop.tools.context_budget import CallBreakdown
+    from eng_loop.tools.token_counter import TokenCounter
+
+    try:
+        metadata = getattr(response, "response_metadata", None) or {}
+        usage = metadata.get("usage", {})
+        if not usage:
+            usage = metadata.get("token_usage", {})
+        if not usage:
+            llm_output = metadata.get("llm_output", {})
+            usage = llm_output.get("token_usage", {})
+
+        if not usage:
+            return
+
+        inp = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+        out = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+        cached_details = usage.get("prompt_tokens_details", {})
+        cached = cached_details.get("cached_tokens", 0)
+
+        # Build breakdown from messages
+        model_name = getattr(response, "response_metadata", {}).get("model_name", "unknown")
+        token_counter = TokenCounter(model_name)
+        breakdown = token_counter.count_messages(messages)
+
+        call_breakdown = CallBreakdown(
+            system_prompt=breakdown.system_prompt,
+            stage_instructions=breakdown.stage_instructions,
+            conversation=breakdown.conversation,
+            tool_results=breakdown.tool_results,
+            previous_outputs=breakdown.ai_output,
+            other=breakdown.other,
+            input_total=inp,
+            output_tokens=out,
+            cached_tokens=cached,
+        )
+        budget_manager.record_call(stage_id, call_breakdown)
+
+        # Also emit to HUD normalizer if active
+        if ui.is_hud_active() and ui._normalizer:
+            ui._normalizer.context_budget_record(
+                stage_id,
+                inp,
+                out,
+                cached,
+                breakdown={
+                    "system_prompt": breakdown.system_prompt,
+                    "stage_instructions": breakdown.stage_instructions,
+                    "conversation": breakdown.conversation,
+                    "tool_results": breakdown.tool_results,
+                    "previous_outputs": breakdown.ai_output,
+                    "other": breakdown.other,
+                },
+            )
     except Exception:
         pass
 

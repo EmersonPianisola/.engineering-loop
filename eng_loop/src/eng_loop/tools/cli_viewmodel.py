@@ -168,6 +168,53 @@ class ResumeInfo:
     preserved_stages: list[str] = field(default_factory=list)
 
 
+@dataclass
+class ContextBudgetInfo:
+    """Context budget state for the current LLM call and stage history.
+
+    Two metrics:
+    A. Per-call budget — safety metric, resets per call.
+    B. Per-stage history — behavioral metric, tracks accumulation.
+    """
+
+    model_name: str = ""
+    context_window: int = 0
+    # Current call budget
+    used_tokens: int = 0
+    remaining_tokens: int = 0
+    safe_remaining: int = 0
+    pressure: str = "safe"  # safe / watch / pressure / exhausted
+    # Breakdown
+    system_tokens: int = 0
+    stage_tokens: int = 0
+    conversation_tokens: int = 0
+    tool_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    # Tracking
+    tool_calls: int = 0
+    call_number: int = 0
+    # Compaction
+    compaction_suggested: bool = False
+    compaction_count: int = 0
+    tokens_compacted: int = 0
+    # Tokenizer
+    tokenizer_provider: str = ""
+    tokenizer_accuracy: str = "estimated"
+    # Stage history (per-call records)
+    stage_history: list[dict] = field(default_factory=list)
+
+    @property
+    def usage_percentage(self) -> float:
+        if self.context_window <= 0:
+            return 0.0
+        return self.used_tokens / self.context_window * 100
+
+    @property
+    def is_critical(self) -> bool:
+        return self.pressure in ("pressure", "exhausted")
+
+
 # ─── Aggregate root ────────────────────────────────────────────────
 
 
@@ -217,6 +264,9 @@ class ExecutionViewModel:
 
     # Diagnostics
     diagnostics: list[DiagnosticEntry] = field(default_factory=list)
+
+    # Context Budget
+    context_budget: ContextBudgetInfo | None = None
 
     # Timing
     total_elapsed_ms: int = 0

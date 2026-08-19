@@ -13,7 +13,7 @@ from eng_loop.tools.cli_viewmodel import PipelineStatus
 
 if TYPE_CHECKING:
     from eng_loop.tools.cli_events import PipelineEvent
-    from eng_loop.tools.cli_viewmodel import ExecutionViewModel
+    from eng_loop.tools.cli_viewmodel import ContextBudgetInfo, ExecutionViewModel
     from eng_loop.tools.event_bus import EventBus
 
 
@@ -58,6 +58,20 @@ _DIAGNOSTIC_COLORS: dict[str, str] = {
     "FATAL": "bold red",
 }
 
+_PRESSURE_COLORS: dict[str, str] = {
+    "safe": "green",
+    "watch": "yellow",
+    "pressure": "orange3",
+    "exhausted": "bold red",
+}
+
+_PRESSURE_SYMBOLS: dict[str, str] = {
+    "safe": "",
+    "watch": "",
+    "pressure": "\u26a0 ",  # ⚠
+    "exhausted": "\u2717 ",  # ✗
+}
+
 
 def _format_duration(ms: int) -> str:
     """Format milliseconds as HH:MM:SS or MM:SS."""
@@ -81,6 +95,24 @@ def _node_symbol(status: str) -> str:
 def _node_color(status: str) -> str:
     """Get the Rich color for a node status."""
     return _COLOR_MAP.get(status, "white")
+
+
+def _format_tokens(tokens: int) -> str:
+    """Format token count with K/M suffix."""
+    if tokens >= 1_000_000:
+        return f"{tokens / 1_000_000:.1f}M"
+    if tokens >= 1_000:
+        return f"{tokens / 1_000:.1f}k"
+    return str(tokens)
+
+
+def _context_bar(used: int, total: int, width: int = 16) -> str:
+    """Render a context usage bar."""
+    if total <= 0:
+        return "\u2591" * width
+    filled = int(width * used / total)
+    filled = min(filled, width)
+    return "\u2588" * filled + "\u2591" * (width - filled)
 
 
 class ConsoleRenderer:
@@ -210,12 +242,82 @@ class ConsoleRenderer:
             "",
             f"  [dim]Elapsed[/dim]    [{elapsed}]{attempt_info}",
             f"  [dim]Tools[/dim]      [{vm.current_tool_count}]",
-            "",
-            "  [bold]Progress[/bold]",
-            f"  [{bar}]  {progress_str}",
         ]
 
+        # Context budget line
+        budget_line = self._render_context_budget_compact(vm.context_budget)
+        if budget_line:
+            lines.append("")
+            lines.append(f"  {budget_line}")
+
+        lines.extend(
+            [
+                "",
+                "  [bold]Progress[/bold]",
+                f"  [{bar}]  {progress_str}",
+            ]
+        )
+
         self.console.print("\n".join(lines))
+
+    def _render_context_budget_compact(self, budget: ContextBudgetInfo | None) -> str:
+        """Render compact context budget line for live display."""
+        if not budget or budget.context_window <= 0:
+            return ""
+
+        pressure = budget.pressure or "safe"
+        color = _PRESSURE_COLORS.get(pressure, "white")
+        symbol = _PRESSURE_SYMBOLS.get(pressure, "")
+        pct = budget.usage_percentage
+        bar = _context_bar(budget.used_tokens, budget.context_window)
+
+        used_str = _format_tokens(budget.used_tokens)
+        total_str = _format_tokens(budget.context_window)
+        safe_str = _format_tokens(max(budget.safe_remaining, 0))
+
+        line = (
+            f"[{color}]{symbol}Context[/]  "
+            f"{used_str} / {total_str}  "
+            f"[{color}]{bar}[/{color}]  "
+            f"[{color}]{pct:.1f}%[/{color}]  "
+            f"[bold]{pressure.upper()}[/]"
+        )
+
+        if pressure in ("pressure", "exhausted"):
+            line += f"\n  Safe remaining: {safe_str}"
+            if pressure == "pressure":
+                line += "  [orange3]Compaction recommended[/]"
+
+        return line
+
+    def render_context_exhaustion(self, vm: ExecutionViewModel) -> None:
+        """Render context budget exhaustion panel with action options."""
+        budget = vm.context_budget
+        if not budget or budget.pressure != "exhausted":
+            return
+
+        used_str = _format_tokens(budget.used_tokens)
+        total_str = _format_tokens(budget.context_window)
+
+        content = (
+            f"[bold red]{used_str} / {total_str} tokens[/bold red]\n\n"
+            f"Next call may exceed context window.\n"
+            f"Execution paused to prevent context overflow.\n\n"
+            f"[bold]Action:[/bold]\n"
+            f"[1] Compact context\n"
+            f"[2] Reduce output budget\n"
+            f"[3] Retry with summarized history\n"
+            f"[4] Abort"
+        )
+
+        self.console.print(
+            Panel(
+                content,
+                title="[bold red]\u2717 CONTEXT BUDGET EXHAUSTED[/bold red]",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
 
     # ─── Execution History (PRD §10) ───────────────────────────────
 

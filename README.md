@@ -8,11 +8,12 @@ description: 'Comprehensive framework documentation.'
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads. **Dynamic Node Orchestration** — blueprint-driven meta-execution with typed validation, policy authorization, and immutable contracts.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads. **Context Budget Manager (P0)** — real tokenizer, per-call budget enforcement, auto-compaction at PRESSURE, overflow prevention, per-stage history, graph-level forecast. **Dynamic Node Orchestration** — blueprint-driven meta-execution with typed validation, policy authorization, and immutable contracts.
 
 | | |
 |---|---|
-| **Version** | 11.5.0 |
+| **Version** | 12.1.0 |
+| **Context Budget Manager** | Real tokenizer, per-call budget, auto-compaction, overflow prevention (P0) |
 | **Dynamic Orchestration** | Blueprint imutável, runtime desacoplado, validação tipada (v11.5) |
 | **Policy Resolver** | Autorização autoritativa de risco, sandbox de ferramentas |
 | **Meta-Executor** | Loop sequencial com cursor, auditoria por passo, retry estrito |
@@ -586,6 +587,250 @@ The `authorize_blueprint()` function transforms the LLM proposal into an authori
 |-------|------|---------|
 | `dynamic_plan` | `DynamicBlueprint` (dict) | Blueprint imutável gerado pelo Arquiteto |
 | `dynamic_runtime` | `DynamicRuntime` (dict) | Estado mutável: cursor, attempts, completed, failed, audit |
+
+---
+
+## Context Budget Manager (P0)
+
+Runtime protection for local models. Context window is a finite operational resource — like RAM, VRAM, CPU. The Context Budget Manager ensures the system never initiates an LLM call that it knows will overflow the context window.
+
+### Why P0
+
+For local models, context overflow is not a cosmetic metric — it's an operational failure. The previous interface showed "tokens used" but hid the relationship between **context available, context consumed, and context projected**. The result: the backend could silently fail with no prior warning.
+
+The Context Budget Manager is not observability. It's a **runtime protection mechanism** that:
+- Blocks calls that would overflow
+- Auto-compacts at PRESSURE
+- Projects next call feasibility
+- Provides per-stage history for diagnosis
+- Informs the Dynamic Architect with budget constraints
+
+### Architecture
+
+```
+                    Execution Engine
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+             ▼                           ▼
+       Domain Events               Context Budget Manager
+             │                           │
+             └─────────────┬─────────────┘
+                           ▼
+                    State Reducer
+                           │
+                           ▼
+                  Execution ViewModel
+                     │          │
+             ┌───────┴───┐  ┌───┴────────┐
+             ▼           ▼  ▼            ▼
+           Graph       Runtime       Context
+           State       State         State
+```
+
+### Two Metrics
+
+**A. Context Budget — per call** (safety metric, resets per call)
+
+```
+CURRENT CALL
+  24.8k / 32.8k    75.7%
+  Safe remaining: 5.9k
+```
+
+**B. Context History — per stage** (behavioral metric, tracks accumulation)
+
+```
+STAGE CONTEXT HISTORY
+  impl.code
+    #1   12.4k
+    #2   18.2k
+    #3   24.8k  ⚠
+    Trend: +6.2k avg/call
+    Compactions: 0
+```
+
+### Pressure States
+
+| State | Usage | Behavior |
+|-------|-------|----------|
+| **SAFE** | < 70% | Normal execution |
+| **WATCH** | 70-85% | Monitoring |
+| **PRESSURE** | 85-95% | Auto-compact |
+| **EXHAUSTED** | > 95% or `safe_remaining ≤ 0` | Block call |
+
+**Critical:** The blocking criterion is NOT percentage. It's:
+
+```
+input_tokens + reserved_output + safety_margin > context_window
+```
+
+### Pre-Call Check
+
+Before every LLM call, the agent runner checks:
+
+```
+input = 27,841
+reserved_output = 4,096
+safety_margin = 1,024
+─────────────────
+total = 32,961
+
+→ DOES NOT FIT → BLOCK
+```
+
+If blocked and compaction is `auto`, the system compacts messages (preserves system prompt, first human message, decisions, recent tool exchanges) and re-checks. If still blocked after compaction, the call is aborted.
+
+### Compaction
+
+Rule-based, message-level compaction. Preserves:
+- SystemMessage (always)
+- First HumanMessage (objective/work item)
+- Essence Gate answers / confirmed decisions
+- Last N tool exchanges (configurable, default 15)
+
+Reduces:
+- Older ToolMessage pairs → condensed summary with token count
+- Large tool results (>2000 chars) → head/tail truncation
+- Redundant outputs
+
+Every compaction emits a `CompactionRecord` for the audit trail. Never silently discards context.
+
+### Reserved Output
+
+Hierarchical configuration:
+
+```yaml
+context_budget:
+  reserved_output:
+    default: 4096
+    mode: fixed         # fixed | adaptive
+    min: 2048
+    max: 8192
+  stage_overrides:
+    impl.code:
+      reserved_output: 8192
+      mode: adaptive    # adjusts from historical output
+```
+
+In `adaptive` mode, the system calculates reserved output from historical data:
+- Average output × 1.2
+- Bounded by `[min, max]`
+- Uses max of average and observed peak
+
+### Tokenizer
+
+Real tokenizer, not 4-char/token estimation. Priority chain:
+
+```
+1. tiktoken (OpenAI-compatible endpoints)
+2. Model-native tokenizer if accessible
+3. Fallback: 4 chars/token estimate
+```
+
+The ViewModel reports tokenizer accuracy:
+
+```
+Tokenizer: tiktoken (exact)
+Tokenizer: fallback (estimated)
+```
+
+### Graph-Level Forecast
+
+The Dynamic Architect receives context budget constraints:
+
+```
+## CONTEXT BUDGET CONSTRAINTS
+Model context window: 32,768 tokens
+Effective input budget: 26,624 tokens (after reserving 4,096 + 2,048)
+Design a topology that can execute within these constraints.
+```
+
+The `forecast_graph()` method projects whether a proposed graph can execute within budget:
+
+```python
+ForecastResult(
+    total_projected=28000,
+    context_window=32768,
+    feasible=True,
+    peak_stage="impl.code",
+    peak_tokens=15000,
+)
+```
+
+### CLI Display
+
+Compact inline during execution:
+
+```
+● impl.code                                      01:24
+
+Context  24.8k / 32.8k  ████████████░░░░  75.7%  WATCH
+Safe     5.9k remaining   ·  3 tool calls · 7.9k tokens
+```
+
+Pressure states are color-coded: green (SAFE), yellow (WATCH), orange (PRESSURE), red (EXHAUSTED).
+
+When EXHAUSTED:
+
+```
+┌── ✗ CONTEXT BUDGET EXHAUSTED ─────────────────────────┐
+│                                                         │
+│  32.4k / 32.8k tokens                                  │
+│                                                         │
+│  Next call may exceed context window.                   │
+│  Execution paused to prevent context overflow.          │
+│                                                         │
+│  Action:                                                │
+│  [1] Compact context                                    │
+│  [2] Reduce output budget                               │
+│  [3] Retry with summarized history                      │
+│  [4] Abort                                              │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Configuration
+
+```yaml
+hardware:
+  context_budget:
+    enabled: true
+    safety_margin_tokens: 2048
+    compaction:
+      mode: auto          # auto | suggest | disabled
+      preserve_count: 15  # last N messages to keep
+      truncate_tool_result_chars: 2000
+    thresholds:
+      safe: 0.70
+      watch: 0.85
+      pressure: 0.95
+    reserved_output:
+      default: 4096
+      mode: fixed         # fixed | adaptive
+      min: 2048
+      max: 8192
+```
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| `tools/token_counter.py` | Tokenizer abstraction (tiktoken → fallback chain) |
+| `tools/context_budget.py` | BudgetManager, pressure states, compaction, forecast |
+| `schemas.py` | `ContextBudgetConstraint` for architect planning |
+| `execution_state.py` | `ContextBudgetEvent`, manager init, reducer |
+| `cli_viewmodel.py` | `ContextBudgetInfo` dataclass |
+| `event_normalizer.py` | `context_budget_record()` method |
+| `agent_runner.py` | Pre-call check, post-call record, auto-compaction |
+| `cli_renderer.py` | Compact budget display, pressure colors, exhaustion panel |
+| `nodes/dynamic_architect.py` | Budget constraint injection for planning |
+
+### Tests
+
+| File | Coverage |
+|------|----------|
+| `test_token_counter.py` | 14 tests: tokenizer resolution, counting, breakdown, fallback |
+| `test_context_budget.py` | 23 tests: budget math, pressure, history, compaction, forecast, overflow |
 
 ---
 
