@@ -12,7 +12,8 @@ from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.dynamic_validation import evaluate_validation_rules
 from eng_loop.tools.node_helpers import build_node_prompt
 from eng_loop.tools.policy_resolver import SAFE_TOOL_POOL, get_tools_by_names
-from eng_loop.tools.progress import log_stage_done, log_stage_fail
+from eng_loop.tools.progress import log_stage_done, log_stage_fail, ui
+from eng_loop.tools.timing import format_time, token_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,11 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
     model = create_model_from_config(config, step_id)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
+    # Emit step start event and console output
+    step_num = runtime["cursor"] + 1
+    total_steps = len(steps)
+    _log_step_start(step_id, step_num, total_steps, current_attempts, max_attempts)
+
     start_time = time.monotonic()
     agent_result: AgentResult = run_agent(
         model=model,
@@ -108,7 +114,9 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
     runtime["step_audit"].append(audit_entry)
 
     if not is_valid:
+        step_duration = finish_time - start_time
         if current_attempts < max_attempts:
+            _log_step_fail(step_id, step_num, total_steps, current_attempts, max_attempts, step_duration, err)
             log_stage_fail("meta.executor", f"Step '{step_id}' attempt {current_attempts}/{max_attempts} failed: {err}")
             return Command(
                 update={"dynamic_runtime": runtime, "errors": [err]},
@@ -117,6 +125,7 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
         else:
             runtime["failed"].append(step_id)
             runtime["status"] = "blocked"
+            _log_step_fail(step_id, step_num, total_steps, current_attempts, max_attempts, step_duration, err)
             log_stage_fail("meta.executor", f"Step '{step_id}' exhausted {current_attempts} attempts: {err}")
             return Command(
                 update={
@@ -127,6 +136,8 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
                 goto="__end__",
             )
 
+    step_duration = finish_time - start_time
+    _log_step_complete(step_id, step_num, total_steps, current_attempts, step_duration, agent_result.tool_calls_made)
     runtime["completed"].append(step_id)
     runtime["cursor"] += 1
     log_stage_done("meta.executor", f"Step '{step_id}' completed (attempt {current_attempts})")
@@ -188,3 +199,95 @@ def _build_step_prompt(
             "When finished, provide your final answer as a JSON object."
         ),
     )
+
+
+def _log_step_start(
+    step_id: str,
+    step_num: int,
+    total_steps: int,
+    attempt: int,
+    max_attempts: int,
+) -> None:
+    """Log step start with visibility info."""
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import attempt_started
+
+        ui._event_bus.emit(
+            attempt_started(
+                graph_id="",
+                node_id=step_id,
+                attempt=attempt,
+            )
+        )
+
+    # Console output — always visible
+    attempt_str = f" (attempt {attempt}/{max_attempts})" if attempt > 1 else ""
+    ui.console.print(
+        f"  [bold cyan]Step {step_num}/{total_steps}[/bold cyan] "
+        f">> [bold]{step_id}[/bold]{attempt_str}"
+    )
+
+
+def _log_step_complete(
+    step_id: str,
+    step_num: int,
+    total_steps: int,
+    attempt: int,
+    duration: float,
+    tool_calls: int,
+) -> None:
+    """Log step completion with visibility info."""
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_completed
+
+        ui._event_bus.emit(
+            node_completed(
+                graph_id="",
+                node_id=step_id,
+                duration_ms=int(duration * 1000),
+                tool_count=tool_calls,
+            )
+        )
+
+    # Console output — always visible
+    tok = token_tracker.get_stage_total(step_id)
+    tok_str = f" [yellow]{token_tracker._format_tokens(tok)} tokens[/yellow]" if tok else ""
+    ui.console.print(
+        f"  [bold green]Step {step_num}/{total_steps}[/bold green] "
+        f"done [green]{step_id}[/green] "
+        f"[dim]({format_time(duration)}, {tool_calls} tools{tok_str})[/dim]"
+    )
+
+
+def _log_step_fail(
+    step_id: str,
+    step_num: int,
+    total_steps: int,
+    attempt: int,
+    max_attempts: int,
+    duration: float,
+    error: str,
+) -> None:
+    """Log step failure with visibility info."""
+    # Emit event for CLI v2
+    if ui._event_bus:
+        from eng_loop.tools.cli_events import node_failed
+
+        ui._event_bus.emit(
+            node_failed(
+                graph_id="",
+                node_id=step_id,
+                error=error,
+            )
+        )
+
+    # Console output — always visible
+    ui.console.print(
+        f"  [bold red]Step {step_num}/{total_steps}[/bold red] "
+        f"fail [red]{step_id}[/red] "
+        f"[dim](attempt {attempt}/{max_attempts}, {format_time(duration)})[/dim]"
+    )
+    if error:
+        ui.console.print(f"         [dim]{error}[/dim]")

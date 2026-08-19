@@ -14,7 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
 
-from eng_loop.tools.timing import TimingTracker, format_time
+from eng_loop.tools.timing import TimingTracker, format_time, token_tracker
 
 if TYPE_CHECKING:
     from rich.status import Status as RichStatus
@@ -682,29 +682,63 @@ class UIManager:
             table.add_column("Stage", style="bold cyan", no_wrap=True)
             table.add_column("Total", style="cyan", justify="right")
             table.add_column("Attempts", justify="center")
+            table.add_column("Tokens", style="yellow", justify="right")
             table.add_column("Per Attempt", style="dim", justify="right")
 
             for row in timing_rows:
                 durations = row.get("durations", [])
                 per_attempt = ", ".join(format_time(d) for d in durations) if durations else ""
+                stage_id = row["stage_id"]
+                tok = token_tracker.get_stage_total(stage_id)
+                tok_str = token_tracker._format_tokens(tok) if tok else ""
                 table.add_row(
-                    row["stage_id"],
+                    stage_id,
                     row["total"],
                     str(row["attempts"]),
+                    tok_str,
                     per_attempt,
                 )
 
             # Total row
             total_str = format_time(tracker.get_total_seconds())
             loop_elapsed = tracker.get_loop_elapsed_formatted()
+            total_tok = token_tracker.get_total_all()
+            total_tok_str = token_tracker._format_tokens(total_tok) if total_tok else ""
             table.add_row(
                 "[bold]Total[/bold]",
                 f"[bold cyan]{total_str}[/bold cyan] [dim](wall: {loop_elapsed})[/dim]",
                 "",
+                f"[bold yellow]{total_tok_str}[/bold yellow]" if total_tok_str else "",
                 "",
             )
 
             self.console.print(Panel(table, title="[bold]Stage Timing[/bold]", border_style="blue"))
+
+            # Token summary
+            total_all = token_tracker.get_total_all()
+            if total_all:
+                tok_table = Table(show_header=False, box=None, padding=(0, 1))
+                tok_table.add_column("Metric", style="bold dim", width=16)
+                tok_table.add_column("Value", style="white")
+                tok_table.add_row(
+                    "Input",
+                    f"[yellow]{token_tracker._format_tokens(token_tracker.get_total_input())}[/yellow]",
+                )
+                tok_table.add_row(
+                    "Output",
+                    f"[yellow]{token_tracker._format_tokens(token_tracker.get_total_output())}[/yellow]",
+                )
+                tok_table.add_row(
+                    "Cached",
+                    f"[green]{token_tracker._format_tokens(token_tracker.get_total_cached())}[/green]",
+                )
+                tok_table.add_row(
+                    "[bold]Total[/bold]",
+                    f"[bold yellow]{token_tracker._format_tokens(total_all)}[/bold yellow]",
+                )
+                self.console.print(
+                    Panel(tok_table, title="[bold]Token Usage[/bold]", border_style="yellow")
+                )
 
     # ── Live Dashboard ─────────────────────────────────────────────
     def start_live(self, refresh_per_second: float = 2) -> None:
@@ -1119,7 +1153,35 @@ def log_stage_complete(
         if attempts > 1:
             title += f" [dim]({attempts}x)[/dim]"
         ui.console.print(Panel(table, title=title, border_style="green"))
-    # New console mode with event bus: silent (renderer consumes events)
+    else:
+        # Console mode with event bus: render compact completion panel
+        finalize_iteration_line()
+        finalize_live_indicator()
+        attempts = tracker.get_stage_attempts(stage_id)
+        prev = _rendered_panels.get(stage_id)
+        if prev is not None and prev == attempts:
+            return
+        _rendered_panels[stage_id] = attempts
+
+        tok = token_tracker.get_stage_total(stage_id)
+        tok_str = f" [yellow]{token_tracker._format_tokens(tok)} tokens[/yellow]" if tok else ""
+        iter_str = f", [cyan]{iterations} iter[/cyan]" if iterations else ""
+        att_str = f" [yellow]({attempts}x)[/yellow]" if attempts > 1 else ""
+        summary_str = ""
+        if summary:
+            truncated = summary[:100]
+            if len(summary) > 100:
+                truncated += "\u2026"
+            summary_str = f"\n[dim]{truncated}[/dim]"
+
+        ui.console.print(
+            Panel(
+                f"[dim]Duration[/dim] [cyan]{format_time(duration)}[/cyan]\n"
+                f"[dim]Tools[/dim] [cyan]{tool_calls}[/cyan] calls{iter_str}{tok_str}{summary_str}",
+                title=f"[bold green]\u2713 {stage_id.upper()}[/bold green]{att_str}",
+                border_style="green",
+            )
+        )
 
 
 def log_stage_skip(stage_id: str, reason: str = "") -> None:
@@ -1153,7 +1215,11 @@ def log_stage_skip(stage_id: str, reason: str = "") -> None:
         finalize_iteration_line()
         finalize_live_indicator()
         ui.console.print(f"[dim]  — skip   {stage_id}{reason_text}[/dim]")
-    # New console mode with event bus: silent (renderer consumes events)
+    else:
+        # Console mode with event bus: render skip line
+        finalize_iteration_line()
+        finalize_live_indicator()
+        ui.console.print(f"[dim]  — skip   {stage_id}{reason_text}[/dim]")
 
 
 def log_stage_cached(stage_id: str, source: str = "") -> None:
@@ -1218,7 +1284,17 @@ def log_stage_fail(stage_id: str, reason: str) -> None:
                 border_style="red",
             )
         )
-    # New console mode with event bus: silent (renderer consumes events)
+    else:
+        # Console mode with event bus: render failure panel
+        finalize_iteration_line()
+        finalize_live_indicator()
+        ui.console.print(
+            Panel(
+                f"[bold red]Execution failed.[/bold red]\n[dim]{reason}[/dim]",
+                title=f"[bold red]\u2717 {stage_id.upper()}[/bold red]",
+                border_style="red",
+            )
+        )
 
 
 def log_stage_retry(stage_id: str, attempt: int) -> None:

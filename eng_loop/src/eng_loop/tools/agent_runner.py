@@ -1195,7 +1195,7 @@ def run_agent_via_opencode(
 
                 # Progress heartbeat — only when no spinner callback
                 now = time.monotonic()
-                if now - last_progress > 30 and not effective_cb:
+                if now - last_progress > 5 and not effective_cb:
                     _print_progress(stage_id, now - t0)
                     last_progress = now
 
@@ -2102,16 +2102,7 @@ def _extract_tool_target(tool_name: str, tool_args: dict) -> str:
 
 
 def _report_token_usage(stage_id: str, response: Any) -> None:
-    """Extract token usage from LLM response and report to HUD normalizer."""
-    if not ui.is_hud_active():
-        return
-
-    normalizer = ui._normalizer
-    if not normalizer and ui._hud:
-        normalizer = getattr(ui._hud, "normalizer", None)
-    if not normalizer:
-        return
-
+    """Extract token usage from LLM response and report to HUD normalizer and global tracker."""
     try:
         metadata = getattr(response, "response_metadata", None) or {}
         usage = metadata.get("usage", {})
@@ -2120,11 +2111,25 @@ def _report_token_usage(stage_id: str, response: Any) -> None:
         if not usage:
             llm_output = metadata.get("llm_output", {})
             usage = llm_output.get("token_usage", {})
-        if usage:
-            inp = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
-            out = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
-            cached_details = usage.get("prompt_tokens_details", {})
-            cached = cached_details.get("cached_tokens", 0)
+        if not usage:
+            return
+        inp = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+        out = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+        cached_details = usage.get("prompt_tokens_details", {})
+        cached = cached_details.get("cached_tokens", 0)
+
+        # Always record to global token tracker (mode-agnostic)
+        from eng_loop.tools.timing import token_tracker
+
+        token_tracker.record(stage_id, inp, out, cached)
+
+        # Also report to HUD normalizer if active
+        if not ui.is_hud_active():
+            return
+        normalizer = ui._normalizer
+        if not normalizer and ui._hud:
+            normalizer = getattr(ui._hud, "normalizer", None)
+        if normalizer:
             normalizer.tokens_consumed(stage_id, inp, out, cached)
     except Exception:
         pass

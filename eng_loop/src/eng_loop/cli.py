@@ -1110,6 +1110,8 @@ def _format_size(nbytes: int) -> str:
 
 def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
     """Build a clean state dict for saving to JSON."""
+    from eng_loop.tools.timing import token_tracker
+
     return {
         "iteration": state.get("iteration", 0),
         "status": state.get("status", "running"),
@@ -1131,6 +1133,7 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "graph_topology": state.get("graph_topology", {}),
         "parallel_groups": state.get("parallel_groups", {}),
         "timing": tracker.to_json(),
+        "tokens": token_tracker.to_json(),
         "current_stage": state.get("current_stage", ""),
         "fix_tasks": state.get("fix_tasks", []),
         "fix_iteration": state.get("fix_iteration", 0),

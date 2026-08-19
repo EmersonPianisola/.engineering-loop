@@ -628,14 +628,29 @@ class TestLoggingFunctions:
     def _reset_ui(self):
         ui._hud = None
         ui._normalizer = None
+        import eng_loop.tools.progress as prog
+
+        prog._iter_count = 0
+        prog._iter_line = ""
+        prog._iter_stage = ""
+        prog._rendered_panels.clear()
+        prog._live_indicator = None
+        prog._live_done_count = 0
 
     def test_log_stage_enter(self):
         self._reset_ui()
-        with patch.object(ui.console, "print") as mock_print:
-            log_stage_enter("impl.code", 1)
+        # First stage entry (iteration 0) prints the entry message
+        with patch("eng_loop.tools.progress._iter_count", 0), patch.object(ui.console, "print") as mock_print:
+            log_stage_enter("impl.code", 0)
             mock_print.assert_called_once()
             assert "impl.code" in mock_print.call_args[0][0]
-            assert "iter 1" in mock_print.call_args[0][0]
+
+    def test_log_stage_enter_subsequent_is_silent(self):
+        self._reset_ui()
+        # Subsequent entries are silent — spinner handles visual feedback
+        with patch("eng_loop.tools.progress._iter_count", 5), patch.object(ui.console, "print") as mock_print:
+            log_stage_enter("impl.code", 1)
+            mock_print.assert_not_called()
 
     def test_log_model_invoke(self):
         self._reset_ui()
@@ -697,17 +712,20 @@ class TestLoggingFunctions:
         with patch.object(ui.console, "print") as mock_print:
             log_stage_fail("impl.code", "test failed")
             mock_print.assert_called_once()
-            assert "fail" in mock_print.call_args[0][0]
-            assert "impl.code" in mock_print.call_args[0][0]
-            assert "test failed" in mock_print.call_args[0][0]
+            # Now outputs a Panel — verify it's a Panel with correct properties
+            from rich.panel import Panel
+
+            panel = mock_print.call_args[0][0]
+            assert isinstance(panel, Panel)
+            # Check border style
+            assert panel.style == "red" or panel.border_style == "red"
 
     def test_log_stage_retry(self):
         self._reset_ui()
+        # log_stage_retry is now silent — retries are collapsed into completion panel
         with patch.object(ui.console, "print") as mock_print:
             log_stage_retry("impl.code", 2)
-            mock_print.assert_called_once()
-            assert "retry" in mock_print.call_args[0][0]
-            assert "attempt 2" in mock_print.call_args[0][0]
+            mock_print.assert_not_called()
 
     def test_log_artifact(self):
         self._reset_ui()
@@ -726,8 +744,11 @@ class TestLoggingFunctions:
         with patch.object(ui.console, "print") as mock_print:
             log_blocked("evidence gate failed")
             mock_print.assert_called_once()
-            assert "blocked" in mock_print.call_args[0][0]
-            assert "evidence gate failed" in mock_print.call_args[0][0]
+            from rich.panel import Panel
+
+            panel = mock_print.call_args[0][0]
+            assert isinstance(panel, Panel)
+            assert panel.border_style == "red"
 
     def test_log_decision(self):
         self._reset_ui()
@@ -740,16 +761,31 @@ class TestLoggingFunctions:
     def test_log_iteration(self):
         self._reset_ui()
         with patch.object(ui.console, "print") as mock_print:
+            # First iteration prints separator + counter (2 calls)
+            # + possibly 1 from clear_live_indicator if _live_indicator was active
+            log_iteration(1, "impl.code")
+            assert mock_print.call_count >= 2
+
+    def test_log_iteration_inplace(self):
+        self._reset_ui()
+        with patch.object(ui.console, "print") as mock_print:
+            # First iteration
+            log_iteration(1, "impl.code")
+            first_count = mock_print.call_count
+            # Second iteration updates in-place (still uses print but with \r)
             log_iteration(2, "impl.code")
-            assert mock_print.call_count == 2
+            assert mock_print.call_count > first_count
 
     def test_log_stall_warning(self):
         self._reset_ui()
         with patch.object(ui.console, "print") as mock_print:
             log_stall_warning("impl.code", "no progress for 30s")
             mock_print.assert_called_once()
-            assert "stall" in mock_print.call_args[0][0]
-            assert "impl.code" in mock_print.call_args[0][0]
+            from rich.panel import Panel
+
+            panel = mock_print.call_args[0][0]
+            assert isinstance(panel, Panel)
+            assert panel.border_style == "yellow"
 
 
 # ============================================================
@@ -795,9 +831,14 @@ class TestTraceNode:
             mock_ui.console = mock_console
             mock_ui.is_hud_active.return_value = False
             my_fn({"iteration": 3})
-            print_calls = [c[0][0] for c in mock_console.print.call_args_list]
-            entered = any("test.stage" in c and "iter 3" in c for c in print_calls)
-            assert entered
+            # Completion panel has stage ID in title
+            print_args = [c[0][0] for c in mock_console.print.call_args_list]
+            from rich.panel import Panel
+
+            panels = [p for p in print_args if isinstance(p, Panel)]
+            titles = [p.title for p in panels]
+            completed = any("TEST.STAGE" in t for t in titles)
+            assert completed
 
     def test_trace_node_records_timing(self):
         self._reset_ui()
@@ -849,8 +890,13 @@ class TestTraceNode:
             mock_ui.is_hud_active.return_value = False
             with pytest.raises(RuntimeError):
                 my_fn({"iteration": 1})
-            print_calls = [c[0][0] for c in mock_console.print.call_args_list]
-            fail_logged = any("fail" in c and "fail.stage" in c for c in print_calls)
+            # Fail panel has stage ID in title
+            print_args = [c[0][0] for c in mock_console.print.call_args_list]
+            from rich.panel import Panel
+
+            panels = [p for p in print_args if isinstance(p, Panel)]
+            titles = [p.title for p in panels]
+            fail_logged = any("FAIL.STAGE" in t for t in titles)
             assert fail_logged
 
     def test_trace_node_exception_records_timing(self):
