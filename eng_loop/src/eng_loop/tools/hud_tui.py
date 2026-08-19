@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import threading
 from typing import TYPE_CHECKING, Any
@@ -232,6 +233,7 @@ class QuestBar(Static):
         border: round $accent;
         padding: 0 1;
         height: 3;
+        grid-column-end: span 2;
     }
     """
 
@@ -818,7 +820,7 @@ class MAGEHUDApp(App):
 
     def compose(self) -> ComposeResult:
         # Row 1: Quest Bar (spans both columns)
-        yield QuestBar().data(below=0, span=2)
+        yield QuestBar()
 
         # Row 2: Graph + Party (side by side)
         yield NavigableGraph(id="graph")

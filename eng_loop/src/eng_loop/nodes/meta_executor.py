@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from typing import Any
@@ -8,6 +7,7 @@ from typing import Any
 from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
+from eng_loop.schemas import DynamicRuntime
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.dynamic_validation import evaluate_validation_rules
 from eng_loop.tools.node_helpers import build_node_prompt
@@ -44,33 +44,33 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
             goto="__end__",
         )
 
-    if runtime["cursor"] >= len(steps):
-        runtime["status"] = "completed"
+    if runtime.cursor >= len(steps):
+        runtime.status = "completed"
         return Command(
-            update={"dynamic_runtime": runtime},
+            update={"dynamic_runtime": runtime.model_dump()},
             goto="init",
         )
 
-    current_step = steps[runtime["cursor"]]
+    current_step = steps[runtime.cursor]
     step_id = current_step["step_id"]
     max_attempts = current_step.get("max_attempts", 3)
 
-    current_attempts = runtime["attempts"].get(step_id, 0) + 1
+    current_attempts = runtime.attempts.get(step_id, 0) + 1
 
     if current_attempts > max_attempts:
-        runtime["failed"].append(step_id)
-        runtime["status"] = "blocked"
+        runtime.failed.append(step_id)
+        runtime.status = "blocked"
         log_stage_fail("meta.executor", f"Step '{step_id}' exceeded max_attempts ({max_attempts})")
         return Command(
             update={
-                "dynamic_runtime": runtime,
+                "dynamic_runtime": runtime.model_dump(),
                 "status": "blocked",
                 "blocking_condition": f"Dynamic step '{step_id}' exceeded max_attempts ({max_attempts})",
             },
             goto="__end__",
         )
 
-    runtime["attempts"][step_id] = current_attempts
+    runtime.attempts[step_id] = current_attempts
 
     allowed_tools = _resolve_step_tools(current_step, state)
     prompt = _build_step_prompt(current_step, state)
@@ -80,7 +80,7 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 25)
 
     # Emit step start event and console output
-    step_num = runtime["cursor"] + 1
+    step_num = runtime.cursor + 1
     total_steps = len(steps)
     _log_step_start(step_id, step_num, total_steps, current_attempts, max_attempts)
 
@@ -111,7 +111,7 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
         "finished_at": finish_time,
         "error": err if not is_valid else None,
     }
-    runtime["step_audit"].append(audit_entry)
+    runtime.step_audit.append(audit_entry)
 
     if not is_valid:
         step_duration = finish_time - start_time
@@ -119,17 +119,17 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
             _log_step_fail(step_id, step_num, total_steps, current_attempts, max_attempts, step_duration, err)
             log_stage_fail("meta.executor", f"Step '{step_id}' attempt {current_attempts}/{max_attempts} failed: {err}")
             return Command(
-                update={"dynamic_runtime": runtime, "errors": [err]},
+                update={"dynamic_runtime": runtime.model_dump(), "errors": [err]},
                 goto="meta-executor",
             )
         else:
-            runtime["failed"].append(step_id)
-            runtime["status"] = "blocked"
+            runtime.failed.append(step_id)
+            runtime.status = "blocked"
             _log_step_fail(step_id, step_num, total_steps, current_attempts, max_attempts, step_duration, err)
             log_stage_fail("meta.executor", f"Step '{step_id}' exhausted {current_attempts} attempts: {err}")
             return Command(
                 update={
-                    "dynamic_runtime": runtime,
+                    "dynamic_runtime": runtime.model_dump(),
                     "status": "blocked",
                     "blocking_condition": f"Dynamic step '{step_id}' failed after {current_attempts} attempts: {err}",
                 },
@@ -138,29 +138,24 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
 
     step_duration = finish_time - start_time
     _log_step_complete(step_id, step_num, total_steps, current_attempts, step_duration, agent_result.tool_calls_made)
-    runtime["completed"].append(step_id)
-    runtime["cursor"] += 1
+    runtime.completed.append(step_id)
+    runtime.cursor += 1
     log_stage_done("meta.executor", f"Step '{step_id}' completed (attempt {current_attempts})")
 
     return Command(
-        update={"dynamic_runtime": runtime},
+        update={"dynamic_runtime": runtime.model_dump()},
         goto="meta-executor",
     )
 
 
-def _load_runtime(state: dict[str, Any]) -> dict[str, Any]:
-    """Load and deep-copy the dynamic runtime from state."""
+def _load_runtime(state: dict[str, Any]) -> DynamicRuntime:
+    """Load dynamic runtime from state, returning a validated DynamicRuntime."""
     raw = state.get("dynamic_runtime", {})
+    if isinstance(raw, DynamicRuntime):
+        return raw.model_copy(deep=True)
     if isinstance(raw, dict):
-        return copy.deepcopy(raw)
-    return {
-        "cursor": 0,
-        "attempts": {},
-        "completed": [],
-        "failed": [],
-        "status": "pending",
-        "step_audit": [],
-    }
+        return DynamicRuntime(**raw)
+    return DynamicRuntime()
 
 
 def _resolve_step_tools(
