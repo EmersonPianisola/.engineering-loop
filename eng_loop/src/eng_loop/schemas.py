@@ -130,6 +130,16 @@ class GraphTopologyProposal(BaseModel):
         }
         return mapping.get(v.lower(), v)
 
+    @field_validator("phase_groups", mode="before")
+    @classmethod
+    def coerce_phase_groups(cls, v: Any) -> Any:
+        """Coerce dict format {"phase_name": [stages]} to list of PhaseGroup."""
+        if isinstance(v, dict):
+            return [{"name": k, "stages": list(v.get(k, []))} for k in v]
+        if isinstance(v, list):
+            return v
+        return v or ()
+
     @field_validator("execution_policies", mode="before")
     @classmethod
     def coerce_execution_policies(cls, v: Any) -> Any:
