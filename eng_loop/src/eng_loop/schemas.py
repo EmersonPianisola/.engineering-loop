@@ -61,6 +61,14 @@ class PhaseGroup(BaseModel):
     name: str = Field(description="Phase label, e.g. 'INIT', 'IMPL', 'QA'")
     stages: tuple[str, ...] = Field(description="Stage IDs in this phase")
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_phase_to_name(cls, data: Any) -> Any:
+        """Coerce 'phase' field to 'name' for LLM compatibility."""
+        if isinstance(data, dict) and "phase" in data and "name" not in data:
+            data = {**data, "name": data["phase"]}
+        return data
+
 
 class ExecutionPolicy(BaseModel):
     """Runtime execution rules that apply to specific stages.
@@ -102,6 +110,25 @@ class GraphTopologyProposal(BaseModel):
         default_factory=tuple, description="Per-stage execution policies (retry, failure routing)"
     )
     rationale: str = Field(description="Explanation of why this topology is optimal for the task")
+
+    @field_validator("work_type", mode="before")
+    @classmethod
+    def coerce_work_type(cls, v: Any) -> Any:
+        """Coerce unknown work_type values to 'operational'.
+
+        The LLM may classify validation/audit tasks as 'validation', which is not
+        in the canonical set. Map known aliases and default to 'operational'.
+        """
+        if not isinstance(v, str):
+            return v
+        mapping = {
+            "validation": "operational",
+            "audit": "operational",
+            "maintenance": "operational",
+            "refactor": "bugfix",
+            "refactoring": "bugfix",
+        }
+        return mapping.get(v.lower(), v)
 
     @field_validator("execution_policies", mode="before")
     @classmethod
@@ -833,6 +860,28 @@ class EssenceOutput(BaseModel):
         description="Questions for user clarification (derived from significant findings)",
     )
     summary: str = Field(default="", description="One-line summary of findings")
+
+
+class TensionMemoryEntry(BaseModel):
+    """Persistent record of a Lens 4 tension resolution.
+
+    Enables learning: when a tension recurs, the system checks memory
+    for known resolutions before blocking. Over time, the keyword-based
+    auto-adjust logic is augmented by empirical evidence.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tension_hash: str = Field(description="SHA-256 prefix of normalized tension text")
+    tension_text: str = Field(description="Normalized tension text (lowercased, trimmed)")
+    resolution: str = Field(description="How it was resolved: auto_adjust, pass, blocked, clarified")
+    complexity_before: str = Field(default="", description="Complexity before resolution")
+    complexity_after: str = Field(default="", description="Complexity after resolution")
+    stage_id: str = Field(default="", description="Stage where tension occurred")
+    work_type: str = Field(default="", description="Work type context")
+    count: int = Field(default=1, ge=1, description="Times this pattern resolved this way")
+    first_seen: float = Field(description="Unix timestamp of first occurrence")
+    last_resolved: float = Field(description="Unix timestamp of last resolution")
 
 
 # ──────────────────────────────────────────────

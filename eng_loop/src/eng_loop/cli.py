@@ -253,6 +253,11 @@ def main():
     paths = resolve_paths(config, framework_root, loop_root, project_root)
     ensure_directories(paths)
 
+    # ── Initialize tension memory for learning-based essence resolution
+    from eng_loop.tools.essence_gate import init_tension_memory
+
+    init_tension_memory(paths.get("tension_memory_file"))
+
     # ── Surgical commands (exit immediately) ─────────────────────
     if args.command == "rollback":
         _cmd_rollback(args.stage_id, paths, config)

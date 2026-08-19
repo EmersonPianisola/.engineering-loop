@@ -64,6 +64,7 @@ def resolve_paths(
         "planning_artifacts_root": str(
             loop_root / config.get("planning_artifacts_root", "../_bmad-output/implementation-artifacts")
         ),
+        "tension_memory_file": str(loop_root / "tension-memory.json"),
     }
 
 

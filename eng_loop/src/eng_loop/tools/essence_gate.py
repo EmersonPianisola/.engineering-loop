@@ -14,11 +14,34 @@ from eng_loop.state import get_work_item_text
 from eng_loop.templates import load_skill
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.agent_tools import get_essence_tools
+from eng_loop.tools.tension_memory import TensionMemory
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+# ── Tension Memory singleton ───────────────────────────────────────────
+_tension_memory: TensionMemory | None = None
+
+
+def get_tension_memory() -> TensionMemory:
+    """Return global tension memory instance. Lazy-init if needed."""
+    global _tension_memory
+    if _tension_memory is None:
+        _tension_memory = TensionMemory()
+    return _tension_memory
+
+
+def init_tension_memory(storage_path: str | None = None) -> TensionMemory:
+    """Initialize tension memory with persistent storage path.
+
+    Call once at CLI startup with the project-specific path (.eng/tension-memory.json).
+    """
+    global _tension_memory
+    _tension_memory = TensionMemory(storage_path)
+    return _tension_memory
+
 
 # ── Severity policy ────────────────────────────────────────────────────
 SEVERITY_ORDER: dict[str, int] = {
@@ -281,10 +304,48 @@ def run_essence_gate(
                     auto_adjusted["old_complexity"],
                     auto_adjusted["new_complexity"],
                 )
+                # Record successful auto-adjust for future learning
+                get_tension_memory().record(
+                    tension_str,
+                    "auto_adjust",
+                    complexity_before=auto_adjusted["old_complexity"],
+                    complexity_after=auto_adjusted["new_complexity"],
+                    stage_id=stage_id,
+                    work_type=state.get("work_type", ""),
+                )
                 # Re-run essence check with updated complexity context
                 continue
 
+            # Learning-based resolution: check tension memory for past outcomes
+            memory_resolution = get_tension_memory().get_resolution(tension_str)
+            if memory_resolution == "auto_adjust":
+                logger.info(
+                    "Essence gate for %s: tension memory suggests auto_adjust (learned resolution)",
+                    stage_id,
+                )
+                # Force complexity bump based on learned pattern
+                forced_adjust = _try_auto_adjust_complexity_force(tensions, stage_id, state, config)
+                if forced_adjust:
+                    get_tension_memory().record(
+                        tension_str,
+                        "auto_adjust",
+                        complexity_before=forced_adjust["old_complexity"],
+                        complexity_after=forced_adjust["new_complexity"],
+                        stage_id=stage_id,
+                        work_type=state.get("work_type", ""),
+                    )
+                    continue
+
             # Not auto-adjustable — terminal block
+            # Record block for learning (future runs may resolve differently)
+            get_tension_memory().record(
+                tension_str,
+                "blocked",
+                complexity_before=state.get("complexity", ""),
+                stage_id=stage_id,
+                work_type=state.get("work_type", ""),
+            )
+
             capture_decision = essence_config.get("capture_decisions", True)
             context_file = essence_config.get("context_file", "context.md")
 
@@ -755,6 +816,17 @@ def _try_auto_adjust_complexity(
         "all flows",
         "all user flows",
         "production readiness",
+        # Learning-augmented patterns
+        "unbounded",
+        "significant time",
+        "phased approach",
+        "conflicts with",
+        "comprehensive validation",
+        "requires prioritization",
+        "large-scope",
+        "large scope",
+        "multiple feature",
+        "cross-cutting",
     ]
 
     tension_combined = " ".join(tensions).lower()
@@ -782,6 +854,56 @@ def _try_auto_adjust_complexity(
     state["_complexity_auto_adjust_count"] = auto_adjust_count + 1
 
     # Re-activate stages for new complexity
+    stages = dict(state.get("stages", {}))
+    stages = deactivate_inactive_stages(stages, new_complexity, state.get("ui_project", False))
+    state["stages"] = stages
+
+    return {
+        "old_complexity": current_complexity,
+        "new_complexity": new_complexity,
+    }
+
+
+def _try_auto_adjust_complexity_force(
+    tensions: list[str],
+    stage_id: str,
+    state: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Force complexity bump based on learned tension memory resolution.
+
+    Unlike _try_auto_adjust_complexity, this bypasses keyword matching and
+    trusts the empirical evidence from past resolutions. Used only when
+    tension memory returns a high-confidence 'auto_adjust' resolution.
+    """
+    from eng_loop.state import COMPLEXITY_ORDER
+    from eng_loop.tools.autosizing import deactivate_inactive_stages
+
+    current_complexity = state.get("complexity", "small")
+    complexity_order = COMPLEXITY_ORDER.get(current_complexity, 0)
+
+    # Prevent infinite loop
+    auto_adjust_count = state.get("_complexity_auto_adjust_count", 0)
+    if auto_adjust_count >= 2:
+        logger.warning("Auto-adjust complexity already attempted %d times, stopping", auto_adjust_count)
+        return None
+
+    complexity_ladder = ["small", "medium", "large", "complex"]
+    current_idx = complexity_ladder.index(current_complexity) if current_complexity in complexity_ladder else 0
+    if current_idx >= len(complexity_ladder) - 1:
+        return None  # Already at maximum
+
+    new_complexity = complexity_ladder[current_idx + 1]
+    logger.info(
+        "Essence gate (learned) at stage %s: '%s' → '%s'",
+        stage_id,
+        current_complexity,
+        new_complexity,
+    )
+
+    state["complexity"] = new_complexity
+    state["_complexity_auto_adjust_count"] = auto_adjust_count + 1
+
     stages = dict(state.get("stages", {}))
     stages = deactivate_inactive_stages(stages, new_complexity, state.get("ui_project", False))
     state["stages"] = stages
