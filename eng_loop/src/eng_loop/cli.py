@@ -144,6 +144,101 @@ def _show_execution_plan(
             state["_complexity_adjusted"] = True
 
 
+def _run_loop_with_recovery(
+    state: dict[str, Any],
+    graph: Any,
+    thread_config: dict[str, Any],
+    interrupt_nodes: list[str],
+    paths: dict[str, Any],
+    config: dict[str, Any],
+    exec_state: Any,
+    normalizer: Any,
+    hud: Any,
+    tui_controller: Any,
+    active_nodes_for_progress: list[str],
+    event_bus: Any,
+    args: Any,
+) -> dict[str, Any]:
+    """Run graph execution with recovery and essence clarification.
+
+    Designed to run as the orchestration callable in TUI mode (background thread).
+    Also used by main() in non-TUI mode for consistency.
+    """
+    final_state = _invoke_graph(
+        state,
+        graph,
+        thread_config,
+        interrupt_nodes,
+        paths,
+        config,
+        exec_state,
+        normalizer,
+        hud,
+        tui_controller,
+        active_nodes_for_progress,
+        event_bus=event_bus,
+    )
+
+    if not tui_controller:
+        _print_result(final_state, args.renderer, exec_state, args.work_item)
+    _save_state(final_state, paths, verbose=True)
+
+    # Auto-recovery loop
+    final_state_status = final_state.get("status", "unknown")
+    if final_state_status in ("blocked", "failed") and config.get("recovery", {}).get("enabled", True):
+        final_state = _recovery_loop(
+            final_state,
+            graph,
+            thread_config,
+            interrupt_nodes,
+            paths,
+            config,
+            exec_state,
+            normalizer,
+            hud,
+            tui_controller,
+            active_nodes_for_progress,
+            event_bus,
+        )
+        _save_state(final_state, paths, verbose=True)
+
+    # Handle essence clarification (waiting_for_input)
+    if final_state.get("status") == "waiting_for_input":
+        resumed = _handle_essence_clarification(final_state, paths, config)
+        if resumed:
+            # TTY: re-invoke graph with resumed state (NOT recursive)
+            if not tui_controller:
+                ui.console.print(
+                    Panel(
+                        "[green]Clarifications applied. Resuming pipeline...[/green]",
+                        title="[bold green]Resuming[/bold green]",
+                        border_style="green",
+                    )
+                )
+            # Re-invoke graph with resumed state
+            final_state = _invoke_graph(
+                resumed,
+                graph,
+                thread_config,
+                interrupt_nodes,
+                paths,
+                config,
+                exec_state,
+                normalizer,
+                hud,
+                tui_controller,
+                active_nodes_for_progress,
+                event_bus=event_bus,
+            )
+            _save_state(final_state, paths, verbose=True)
+        else:
+            # Non-TTY or cancelled: persist and exit
+            _save_state(final_state, paths, verbose=True)
+            raise SystemExit(EXIT_WAITING_FOR_INPUT)
+
+    return final_state
+
+
 def main():
     parser = argparse.ArgumentParser(description="Engineering Loop Orchestrator (LangGraph)")
 
@@ -590,6 +685,8 @@ def main():
 
     thread_config = {"configurable": {"thread_id": "eng-loop-run"}}
 
+    active_nodes_for_progress = state.get("active_nodes", [])
+
     # HUD initialization for --interactive mode
     hud = None
     tui_controller = None
@@ -621,12 +718,44 @@ def main():
 
         if use_tui:
             # Textual TUI (MAGE HUD v2.0)
+            # NOTE: In TUI mode, execution happens inside tui_controller.run_async()
             try:
+                # Silence logging to prevent stdout/stderr leakage that corrupts the TUI
+                import logging as _logging
+
                 from eng_loop.tools.hud_tui import TextualHUDController
 
-                tui_controller = TextualHUDController(exec_state, normalizer, args.work_item)
+                _logging.getLogger().addHandler(_logging.NullHandler())
+                _logging.getLogger().setLevel(_logging.CRITICAL)
+
+                # Build orchestration callable (runs in background thread)
+                def _run_orchestration() -> dict[str, Any]:
+                    return _run_loop_with_recovery(
+                        state,
+                        graph,
+                        thread_config,
+                        interrupt_nodes,
+                        paths,
+                        config,
+                        exec_state,
+                        normalizer,
+                        None,  # hud (not used with TUI)
+                        tui_controller,
+                        active_nodes_for_progress,
+                        event_bus,
+                        args,
+                    )
+
+                tui_controller = TextualHUDController(exec_state, normalizer, args.work_item, _run_orchestration)
                 tui_controller.start()
                 ui.set_normalizer(normalizer)
+
+                # Run TUI on main thread (Textual 8.x requires this to avoid terminal corruption)
+                final_state = tui_controller.run_async()
+
+                # Post-TUI cleanup
+                _print_result(final_state, cli_renderer, exec_state, args.work_item)
+                return
             except ImportError:
                 ui.console.print("[yellow]Warning: Textual not installed, falling back to Rich HUD.[/yellow]")
                 use_tui = False
@@ -668,9 +797,7 @@ def main():
 
     # ── Execute graph with interrupt support ─────────────────────
     try:
-        active_nodes_for_progress = state.get("active_nodes", [])
-
-        final_state = _invoke_graph(
+        final_state = _run_loop_with_recovery(
             state,
             graph,
             thread_config,
@@ -682,64 +809,9 @@ def main():
             hud,
             tui_controller,
             active_nodes_for_progress,
-            event_bus=event_bus,
+            event_bus,
+            args,
         )
-
-        if not tui_controller:
-            _print_result(final_state, cli_renderer, exec_state, args.work_item)
-        _save_state(final_state, paths, verbose=True)
-
-        # ── Auto-recovery loop ──────────────────────────────────
-        final_state_status = final_state.get("status", "unknown")
-        if final_state_status in ("blocked", "failed") and config.get("recovery", {}).get("enabled", True):
-            final_state = _recovery_loop(
-                final_state,
-                graph,
-                thread_config,
-                interrupt_nodes,
-                paths,
-                config,
-                exec_state,
-                normalizer,
-                hud,
-                tui_controller,
-                active_nodes_for_progress,
-                event_bus,
-            )
-            _save_state(final_state, paths, verbose=True)
-
-        # ── Handle essence clarification (waiting_for_input) ────
-        if final_state.get("status") == "waiting_for_input":
-            resumed = _handle_essence_clarification(final_state, paths, config)
-            if resumed:
-                # TTY: re-invoke graph with resumed state (NOT recursive)
-                ui.console.print(
-                    Panel(
-                        "[green]Clarifications applied. Resuming pipeline...[/green]",
-                        title="[bold green]Resuming[/bold green]",
-                        border_style="green",
-                    )
-                )
-                # Re-invoke graph with resumed state
-                final_state = _invoke_graph(
-                    resumed,
-                    graph,
-                    thread_config,
-                    interrupt_nodes,
-                    paths,
-                    config,
-                    exec_state,
-                    normalizer,
-                    hud,
-                    tui_controller,
-                    active_nodes_for_progress,
-                    event_bus=event_bus,
-                )
-                _save_state(final_state, paths, verbose=True)
-            else:
-                # Non-TTY or cancelled: persist and exit
-                _save_state(final_state, paths, verbose=True)
-                sys.exit(EXIT_WAITING_FOR_INPUT)
 
     except KeyboardInterrupt:
         state["status"] = "halted"

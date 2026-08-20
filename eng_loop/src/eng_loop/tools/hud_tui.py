@@ -220,6 +220,9 @@ class OutputRedirector:
     def flush(self) -> None:
         pass
 
+    def isatty(self) -> bool:
+        return False
+
     def _flush_buffer(self) -> None:
         if not self._buffer:
             return
@@ -826,6 +829,9 @@ class MAGEHUDApp(App):
         self._refresh_task: asyncio.Task | None = None
         self._running = True
         self._redirector = OutputRedirector(self)
+        # Callbacks set by TextualHUDController
+        self._on_mount: Any = None
+        self._on_unmount: Any = None
 
     def compose(self) -> ComposeResult:
         # Row 1: Quest Bar (spans both columns)
@@ -839,7 +845,7 @@ class MAGEHUDApp(App):
         yield BottomTabs(id="bottom-tabs")
 
         # Row 4: Status Bar
-        yield StatusBar(id="status-bar")
+        yield StatusBar()
 
     def on_mount(self) -> None:
         # Mount tab panes after BottomTabs is attached to the DOM
@@ -852,10 +858,16 @@ class MAGEHUDApp(App):
         self._refresh_task = self.set_interval(0.25, self._refresh_from_state)
         # Sequester stdout/stderr to prevent leakage that corrupts the TUI
         self._redirector.install()
+        # Run controller-provided mount callback (starts orchestration)
+        if self._on_mount:
+            self._on_mount()
 
     def on_exit(self) -> None:
         # Restore original stdout/stderr when TUI exits
         self._redirector.uninstall()
+        # Run controller-provided unmount callback
+        if self._on_unmount:
+            self._on_unmount()
 
     def _refresh_from_state(self) -> None:
         if not self.execution_state:
@@ -879,7 +891,7 @@ class MAGEHUDApp(App):
         narrative = self.query_one("#narrative", NarrativeLogPanel)
         narrative.update_snapshot(snapshot)
 
-        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar = self.query_one(StatusBar)
         status_bar.update_state(snapshot.is_paused, snapshot.step_mode)
 
     def action_quit(self) -> None:
@@ -1009,10 +1021,15 @@ def _wrap_text(text: str, max_width: int) -> list[str]:
 
 
 class TextualHUDController:
-    """Controls the Textual HUD from the CLI engine thread.
+    """Controls the Textual HUD, running on the main thread.
 
-    The engine calls methods on this controller, which schedules
-    updates on the Textual app's event loop.
+    Architecture (Textual 8.x):
+    - Textual app runs on the MAIN thread via run_async()
+    - Orchestration (graph execution) runs in a background thread
+    - Communication via shared ExecutionState (thread-safe)
+
+    This avoids terminal corruption caused by running Textual in a
+    background thread (raw escape codes leak to the terminal).
     """
 
     def __init__(
@@ -1020,43 +1037,85 @@ class TextualHUDController:
         execution_state: ExecutionState,
         normalizer: Any,
         work_item: str,
+        orchestration: Any | None = None,
     ) -> None:
         self.execution_state = execution_state
         self.normalizer = normalizer
         self.app = MAGEHUDApp(execution_state, normalizer)
         self._work_item = work_item
-        self._running = False
-        self._app_thread: threading.Thread | None = None
+        self._orchestration = orchestration
+        self._orchestration_result: Any = None
+        self._orchestration_error: Exception | None = None
+        self._orchestration_done = threading.Event()
+        self._orchestration_thread: threading.Thread | None = None
         self._current_stage: str | None = None
+        self._started = False
 
-    def _run_app_thread(self) -> None:
-        """Run the Textual app in a background thread."""
+    def _run_orchestration(self) -> None:
+        """Run the orchestration (graph execution) in a background thread."""
         try:
-            self.app.run()
-        except Exception:
-            pass
-        self._running = False
+            if self._orchestration:
+                self._orchestration_result = self._orchestration()
+        except Exception as e:
+            self._orchestration_error = e
+        finally:
+            self._orchestration_done.set()
 
-    def start(self) -> None:
-        """Start the HUD in a background thread."""
+    def _on_mount_start_orchestration(self) -> None:
+        """Start orchestration after the app is mounted."""
         from eng_loop.tools.progress import ui as progress_ui
 
         progress_ui.set_tui_active(True)
         progress_ui.set_hud(self)
-        self._running = True
-        self._app_thread = threading.Thread(target=self._run_app_thread, daemon=True)
-        self._app_thread.start()
+        self._started = True
+
+        if self._orchestration:
+            self._orchestration_thread = threading.Thread(target=self._run_orchestration, daemon=True)
+            self._orchestration_thread.start()
+
+    def _on_unmount_cleanup(self) -> None:
+        """Clean up on app exit."""
+        from eng_loop.tools.progress import ui as progress_ui
+
+        if self._orchestration_thread and self._orchestration_thread.is_alive():
+            self._orchestration_thread.join(timeout=3)
+        progress_ui.set_hud(None)
+        progress_ui.set_tui_active(False)
+
+    def start(self) -> None:
+        """Start the HUD.
+
+        Registers mount/unmount handlers, then signals the caller to
+        run app.run_async() on the main thread.
+        """
+        self.app._on_mount = self._on_mount_start_orchestration
+        self.app._on_unmount = self._on_unmount_cleanup
+
+    def run_async(self) -> Any:
+        """Run the HUD on the current (main) thread.
+
+        Blocks until the app exits. Returns the orchestration result
+        (final_state), or raises the orchestration error.
+
+        Must be called via asyncio.run(controller.run_async()).
+        """
+        import asyncio
+
+        async def _run():
+            await self.app.run_async()
+
+            # Wait for orchestration to complete (if it hasn't already)
+            self._orchestration_done.wait(timeout=2)
+
+            if self._orchestration_error:
+                raise self._orchestration_error
+            return self._orchestration_result
+
+        return asyncio.run(_run())
 
     def stop(self) -> None:
         """Stop the HUD."""
-        from eng_loop.tools.progress import ui as progress_ui
-
-        self._running = False
         self.app.exit()
-        if self._app_thread and self._app_thread.is_alive():
-            self._app_thread.join(timeout=5)
-        progress_ui.set_hud(None)
-        progress_ui.set_tui_active(False)
 
     def is_paused(self) -> bool:
         """Check if execution is paused (for engine to check)."""
@@ -1097,8 +1156,6 @@ class TextualHUDController:
 
     def log(self, level: str, message: str) -> None:
         """Append a log entry to the TUI narrative log."""
-        pass
 
     def update(self) -> None:
         """Trigger a TUI refresh."""
-        pass
