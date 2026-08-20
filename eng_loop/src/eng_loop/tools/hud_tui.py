@@ -198,17 +198,24 @@ class OutputRedirector:
         self._timer_token: Any = None
 
     def install(self) -> None:
-        """Replace sys.stdout/stderr with this redirector."""
-        self._original_stdout = sys.stdout
-        self._original_stderr = sys.stderr
+        """Replace sys.stdout/stderr with this redirector.
+
+        Uses sys.__stdout__/__stderr__ (true originals) to avoid
+        breaking Textual 8.x's internal I/O management, which may
+        have wrapped sys.stdout/stderr.
+        """
+        self._original_stdout = sys.__stdout__
+        self._original_stderr = sys.__stderr__
         sys.stdout = self
         sys.stderr = self
 
     def uninstall(self) -> None:
         """Restore original stdout/stderr, flush remaining buffer."""
+        # Flush first while we still have the buffer
+        self._flush_buffer()
+        # Restore to the true original streams (Textual 8.x compat)
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
-        self._flush_buffer()
 
     def write(self, message: str) -> int:
         if message.strip():
@@ -875,8 +882,11 @@ class MAGEHUDApp(App):
         try:
             snapshot = self.execution_state.get_snapshot()
             self._update_widgets(snapshot)
-        except Exception:
-            pass
+        except Exception as e:
+            # Log to stderr so we can diagnose TUI freezes
+            import sys as _sys
+            _sys.__stderr__.write(f"MAGEHUD refresh error: {e}\n")
+            _sys.__stderr__.flush()
 
     def _update_widgets(self, snapshot: HUDSnapshot) -> None:
         quest_bar = self.query_one("QuestBar")
