@@ -4,7 +4,7 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.1
+# Engineering Loop v12.2.0
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
@@ -12,7 +12,7 @@ Persistent **while-loop engine** for AI-assisted software development. **Dynamic
 
 | | |
 |---|---|
-| **Version** | 12.1.0 |
+| **Version** | 12.2.0 |
 | **Context Budget Manager** | Real tokenizer, per-call budget, auto-compaction, overflow prevention (P0) |
 | **Dynamic Orchestration** | Blueprint imutável, runtime desacoplado, validação tipada (v11.5) |
 | **Policy Resolver** | Autorização autoritativa de risco, sandbox de ferramentas |
@@ -88,7 +88,7 @@ The loop is enforced by a **dynamic LangGraph StateGraph** (Python) that is **co
 - **Structured output** — Every stage uses Pydantic schemas via `model.with_structured_output()` — no free-form JSON
 - **Evidence gates** — Every stage output is validated against quality criteria before advancing; failures trigger automatic retry
 - **Declarative routing** — `EdgeRule` rules define connections between nodes; resolved at build time
-- **Node registry** — 26 stages registered as `NodeSpec` with metadata (complexity, phase, parallel group)
+- **Node registry** — 34 stages registered as `NodeSpec` with metadata (complexity, phase, parallel group)
 - **Orchestrator is pure delegation** — never executes work directly (except `deploy.prepare` and `post-loop` finalize)
 - **Progressive disclosure** — stages, references, and skills loaded by ID only when needed
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
@@ -279,7 +279,7 @@ Classification uses two-tier keyword matching (multi-word phrases + single words
 
 | Component | Purpose |
 |-----------|---------|
-| `node_registry.py` | 26 stages registered as `NodeSpec` with metadata (complexity, phase, parallel group) |
+| `node_registry.py` | 34 stages registered as `NodeSpec` with metadata (complexity, phase, parallel group) |
 | `edge_rules.py` | Declarative `EdgeRule` connections between nodes (~40 rules) |
 | `graph_builder.py` | `GraphBuilder` class that builds and compiles the graph |
 | `graph.py` | Delegates to `GraphBuilder` when dynamic mode is enabled; static mode preserved |
@@ -982,11 +982,11 @@ This protects the context window from being flooded with stack traces while pres
 
 ```
 eng_loop/
-├── state.py                  # PipelineState schema, 26 stages, reducers (_merge_dict, _overwrite, rollback_to_stage)
+├── state.py                  # PipelineState schema, 34 stages, reducers (_merge_dict, _overwrite, rollback_to_stage)
 ├── config.py                 # YAML loader, deep merge, path resolution
 ├── graph.py                  # Delegates to GraphBuilder in dynamic mode; static mode preserved
 ├── graph_builder.py          # Dynamic graph construction, contract gate integration, parallel QA wiring
-├── node_registry.py          # NodeSpec + registry of 26 stages (+ init-setup, qa-dispatcher, qa-join)
+├── node_registry.py          # NodeSpec + registry of 34 stages (+ init-setup, qa-dispatcher, qa-join)
 ├── edge_rules.py             # Declarative edge rules (~40 rules), conditional blueprint validation, blocked-aware
 ├── routing.py                # Conditional edge functions (retry, block, advance)
 ├── model.py                  # Model factory (OpenAI-compatible local endpoints)
@@ -1183,7 +1183,7 @@ USER REQUEST (work item)
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
 │  │ State Engine  │  │ Constraint   │  │  Context Slicer       │ │
-│  │ 26 stages,    │  │ Monitor per- │  │  Token budgets,       │ │
+│  │ 34 stages,    │  │ Monitor per- │  │  Token budgets,       │ │
 │  │ iteration,    │  │ stage limits │  │  artifact selection   │ │
 │  │ decisions     │  │ Loop safety  │  │  Safety margins       │ │
 │  └──────────────┘  └──────────────┘  └──────────────────────┘ │
@@ -1939,7 +1939,7 @@ The orchestrator deep-merges: template → project. Project values win.
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `state-template.json` | `{framework-root}/` | Template (git-tracked, 26 stages) |
+| `state-template.json` | `{framework-root}/` | Template (git-tracked, 34 stages) |
 | `state.json` | `{loop-root}/` | Runtime state (gitignored) |
 | `STATE.md` | `{loop-root}/` | Human-readable state + decisions + handoff (gitignored) |
 | `.eng/history/*.json` | `{loop-root}/` | State snapshots per stage for time travel (v11.2, gitignored) |
@@ -2010,7 +2010,7 @@ See [Context Optimization](#context-optimization-v113) for details.
 ├── ORCHESTRATOR.md              # Main orchestrator instructions
 ├── CORE.md                      # Framework index: stages, references, skills
 ├── config-template.yaml         # Framework configuration defaults
-├── state-template.json          # Initial state for all 26 stages
+├── state-template.json          # Initial state for all 34 stages
 ├── skill-index.md               # Skill registry with improvement log
 ├── README.md                    # This file
 ├── .gitignore                   # Project file exclusions
@@ -2072,11 +2072,11 @@ See [Context Optimization](#context-optimization-v113) for details.
 ├── eng_loop/                    # LangGraph orchestrator (Python)
 │   ├── pyproject.toml           # Package config (langgraph, langchain-openai, pydantic)
 │   ├── src/eng_loop/
-│   │   ├── state.py             # PipelineState, 26 stages, reducers
+│   │   ├── state.py             # PipelineState, 34 stages, reducers
 │   │   ├── config.py            # YAML loader, deep merge, paths
 │   │   ├── graph.py             # Delegates to GraphBuilder in dynamic mode
 │   │   ├── graph_builder.py     # Dynamic graph construction per work item
-│   │   ├── node_registry.py     # NodeSpec + registry of 26 stages
+│   │   ├── node_registry.py     # NodeSpec + registry of 34 stages
 │   │   ├── edge_rules.py        # Declarative edge rules (~40 rules)
 │   │   ├── routing.py           # Conditional edge functions, iteration tracking
 │   │   ├── model.py             # Model factory (local OpenAI-compatible)
@@ -2389,7 +2389,7 @@ See [Context Optimization](#context-optimization-v113) for details.
 | `CORE.md` | Framework index — stage registry, references, skills |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |
 | `config-template.yaml` | Framework defaults — model config, constraints, paths |
-| `state-template.json` | State template — 26 stages with done/attempts/essence_checked |
+| `state-template.json` | State template — 34 stages with done/attempts/essence_checked |
 | `AGENTS.md` | Agent instructions — framework editing guidelines |
 | `README.md` | This file — comprehensive documentation |
 | `artifacts/graph-topology.md` | Generated execution plan (LLM mode) |

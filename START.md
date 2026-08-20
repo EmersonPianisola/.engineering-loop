@@ -142,7 +142,7 @@ Valida topologia, transições de estado e roteamento do grafo **sem chamadas LL
 
 ---
 
-## Context Budget Manager (P0, v12.1)
+## Context Budget Manager (P0, v12.2.0)
 
 Protecao de runtime para modelos locais. Janela de contexto é um recurso operacional limitado — como RAM, VRAM, CPU.
 
@@ -330,7 +330,7 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 
 | Arquivo | Versão |
 |---------|--------|
-| Framework | v12.1.0 |
+| Framework | v12.2.0 |
 | Context Budget | Tokenizer real, budget por chamada, auto-compaction, prevencao overflow (P0) |
 | Contract Gate | Middleware valida contratos entre stages (blueprint→code, code→verify) |
 | Parallel QA | Fan-out/fan-in com qa-dispatcher + qa-join, rollback para impl.code |
