@@ -959,3 +959,72 @@ def get_schema(stage_id: str) -> type[BaseModel] | None:
 
 def get_topology_proposal_schema() -> type[BaseModel]:
     return GraphTopologyProposal
+
+
+# ──────────────────────────────────────────────
+# AUTO-RECOVERY — LLM-driven error classification, fix planning, lessons
+# ──────────────────────────────────────────────
+
+ERROR_CATEGORIES = Literal["transient", "infrastructure", "schema", "logic", "contract", "context_overflow"]
+
+
+class ErrorClassification(BaseModel):
+    """Classified error with recovery strategy."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: ERROR_CATEGORIES = Field(
+        description="Error category: transient, infrastructure, schema, logic, contract, context_overflow"
+    )
+    severity: Literal["low", "medium", "high", "critical"] = Field(default="medium")
+    is_retryable: bool = Field(default=True, description="Whether this error can be retried with a fix")
+    description: str = Field(default="", description="Human-readable explanation of the error")
+    suggested_strategy: str = Field(
+        default="", description="Suggested recovery strategy (retry, rollback, skip, abort)"
+    )
+
+
+class Lesson(BaseModel):
+    """A lesson learned from a recovery attempt."""
+
+    model_config = ConfigDict(frozen=True)
+
+    lesson_id: str = Field(default="", description="Unique identifier, e.g. 'lesson_001'")
+    category: str = Field(default="", description="Error category this lesson addresses")
+    pattern: str = Field(default="", description="Error pattern to recognize, e.g. 'non-convergence in impl.code'")
+    fix_strategy: str = Field(default="", description="What worked to fix it")
+    context: str = Field(default="", description="Additional context for future reference")
+    confirmed: bool = Field(default=False, description="True if fix was verified successful")
+    times_applied: int = Field(default=0, ge=0, description="Number of times this lesson was applied successfully")
+
+
+class RecoveryPlan(BaseModel):
+    """Recovery plan proposed by the LLM recovery agent."""
+
+    model_config = ConfigDict(frozen=True)
+
+    root_cause: str = Field(description="Root cause analysis of the failure")
+    error_category: ERROR_CATEGORIES = Field(description="Classified error category")
+    fix_actions: list[str] = Field(description="Concrete actions to fix the issue")
+    stages_to_rollback: list[str] = Field(default_factory=list, description="Stages to reset before retry")
+    lessons: list[Lesson] = Field(default_factory=list, description="Lessons learned from this failure")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence in the fix (0-1)")
+    fix_prompt_injection: str = Field(default="", description="Text to inject into the retry prompt to guide the agent")
+
+
+class RecoveryEntry(BaseModel):
+    """Structured log entry for each recovery attempt."""
+
+    model_config = ConfigDict(frozen=True)
+
+    timestamp: float = Field(description="Unix timestamp of the attempt")
+    attempt_number: int = Field(ge=1, description="Recovery attempt number (1-based)")
+    stage_id: str = Field(description="Stage that failed")
+    error_message: str = Field(description="Original error or blocking condition")
+    error_category: str = Field(description="Classified error category")
+    root_cause: str = Field(default="", description="LLM-analyzed root cause")
+    fix_actions: list[str] = Field(default_factory=list, description="Fix actions applied")
+    lessons_generated: list[Lesson] = Field(default_factory=list, description="Lessons from this attempt")
+    outcome: Literal["success", "failed", "exhausted"] = Field(description="Outcome of this recovery attempt")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Agent confidence in the fix")
+    duration_ms: float = Field(default=0.0, description="Time taken for recovery attempt in ms")

@@ -679,6 +679,25 @@ def main():
             _print_result(final_state, cli_renderer, exec_state, args.work_item)
         _save_state(final_state, paths, verbose=True)
 
+        # ── Auto-recovery loop ──────────────────────────────────
+        final_state_status = final_state.get("status", "unknown")
+        if final_state_status in ("blocked", "failed") and config.get("recovery", {}).get("enabled", True):
+            final_state = _recovery_loop(
+                final_state,
+                graph,
+                thread_config,
+                interrupt_nodes,
+                paths,
+                config,
+                exec_state,
+                normalizer,
+                hud,
+                tui_controller,
+                active_nodes_for_progress,
+                event_bus,
+            )
+            _save_state(final_state, paths, verbose=True)
+
         # ── Handle essence clarification (waiting_for_input) ────
         if final_state.get("status") == "waiting_for_input":
             resumed = _handle_essence_clarification(final_state, paths, config)
@@ -843,6 +862,228 @@ def _invoke_graph(
             finalize_live_indicator()
 
     return final_state
+
+
+def _recovery_loop(
+    state: dict[str, Any],
+    graph: Any,
+    thread_config: dict[str, Any],
+    interrupt_nodes: list[str],
+    paths: dict[str, Any],
+    config: dict[str, Any],
+    exec_state: Any,
+    normalizer: Any,
+    hud: Any,
+    tui_controller: Any,
+    active_nodes_for_progress: list[str],
+    event_bus: Any,
+) -> dict[str, Any]:
+    """Auto-recovery loop: classify error, LLM analysis, apply fix, retry.
+
+    Runs up to max_attempts times. On each iteration:
+    1. Classify the error
+    2. LLM analyzes root cause and proposes fix plan
+    3. Apply fix plan (selective rollback, inject lessons)
+    4. Re-invoke graph
+    5. If success, return; if failure, loop
+
+    Returns final state (either successful or exhausted).
+    """
+    import time as _time
+
+    from eng_loop.schemas import RecoveryEntry
+    from eng_loop.tools.cli_events import diagnostic_error, diagnostic_info
+    from eng_loop.tools.error_classifier import classify_error
+    from eng_loop.tools.fix_applier import apply_recovery_plan
+    from eng_loop.tools.recovery_agent import analyze_and_propose, generate_lessons
+    from eng_loop.tools.recovery_logger import RecoveryLogger
+
+    recovery_config = config.get("recovery", {})
+    max_attempts = recovery_config.get("max_attempts", 3)
+    log_file = recovery_config.get("log_file", "artifacts/recovery.jsonl")
+    artifact_root = paths.get("artifact_root", "artifacts")
+
+    logger = RecoveryLogger(str(Path(artifact_root) / Path(log_file).name))
+    previous_plans = []
+
+    current_stage = state.get("current_stage", "")
+    error_message = state.get("blocking_condition", "")
+
+    if not tui_controller:
+        ui.console.print()
+        ui.console.print(
+            Panel(
+                f"[bold yellow]Pipeline blocked at {current_stage}[/bold yellow]\n"
+                f"[dim]{error_message[:300]}[/dim]\n"
+                f"[bold]Attempting auto-recovery (max {max_attempts} attempts)...[/bold]",
+                title="[bold yellow]Auto-Recovery[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+
+    if event_bus:
+        event_bus.emit(diagnostic_info(node_id="recovery", message=f"Starting recovery loop for {current_stage}"))
+
+    for attempt in range(1, max_attempts + 1):
+        attempt_start = _time.monotonic()
+
+        if not tui_controller:
+            ui.console.print(f"\n[bold cyan]Recovery attempt {attempt}/{max_attempts}[/bold cyan]")
+
+        # 1. Classify error
+        classification = classify_error(error_message, state)
+
+        if not tui_controller:
+            ui.console.print(
+                f"  [dim]Error category: {classification.category} → {classification.suggested_strategy}[/dim]"
+            )
+
+        # 2. LLM analysis
+        plan = analyze_and_propose(state, classification, config, previous_plans)
+
+        if not tui_controller:
+            ui.console.print(f"  [dim]Root cause: {plan.root_cause[:200]}[/dim]")
+            ui.console.print(f"  [dim]Confidence: {plan.confidence:.0%}[/dim]")
+            for i, action in enumerate(plan.fix_actions[:3], 1):
+                ui.console.print(f"  [dim]  Fix {i}: {action[:150]}[/dim]")
+
+        # 3. Apply fix plan
+        fixed_state = apply_recovery_plan(state, plan)
+        fixed_state["recovery_attempts"] = attempt
+        fixed_state["recovery_history"] = state.get("recovery_history", []) + [
+            {
+                "attempt": attempt,
+                "timestamp": _time.time(),
+                "error_category": classification.category,
+                "root_cause": plan.root_cause[:300],
+                "confidence": plan.confidence,
+            }
+        ]
+
+        # 4. Re-invoke graph
+        attempt_state = _invoke_graph(
+            fixed_state,
+            graph,
+            thread_config,
+            interrupt_nodes,
+            paths,
+            config,
+            exec_state,
+            normalizer,
+            hud,
+            tui_controller,
+            active_nodes_for_progress,
+            event_bus,
+        )
+
+        attempt_duration = (_time.monotonic() - attempt_start) * 1000
+        attempt_status = attempt_state.get("status", "unknown")
+
+        # 5. Evaluate outcome
+        if attempt_status == "done":
+            # Success!
+            lessons = generate_lessons(state, classification, plan, True)
+
+            entry = RecoveryEntry(
+                timestamp=_time.time(),
+                attempt_number=attempt,
+                stage_id=current_stage,
+                error_message=error_message[:500],
+                error_category=classification.category,
+                root_cause=plan.root_cause[:500],
+                fix_actions=plan.fix_actions,
+                lessons_generated=lessons,
+                outcome="success",
+                confidence=plan.confidence,
+                duration_ms=attempt_duration,
+            )
+            logger.log_attempt(entry)
+
+            if recovery_config.get("learn_from_failures", True):
+                logger.log_lessons(lessons, artifact_root)
+
+            if not tui_controller:
+                ui.console.print()
+                ui.console.print(
+                    Panel(
+                        f"[green]Recovery successful on attempt {attempt}![/green]\n"
+                        f"[dim]Root cause: {plan.root_cause[:200]}[/dim]",
+                        title="[bold green]Recovered[/bold green]",
+                        border_style="green",
+                    )
+                )
+
+            if event_bus:
+                event_bus.emit(diagnostic_info(node_id="recovery", message=f"Recovery succeeded on attempt {attempt}"))
+
+            return attempt_state
+
+        # Failed — prepare for next attempt
+        lessons = generate_lessons(state, classification, plan, False)
+
+        entry = RecoveryEntry(
+            timestamp=_time.time(),
+            attempt_number=attempt,
+            stage_id=current_stage,
+            error_message=error_message[:500],
+            error_category=classification.category,
+            root_cause=plan.root_cause[:500],
+            fix_actions=plan.fix_actions,
+            lessons_generated=lessons,
+            outcome="failed",
+            confidence=plan.confidence,
+            duration_ms=attempt_duration,
+        )
+        logger.log_attempt(entry)
+
+        if recovery_config.get("learn_from_failures", True):
+            logger.log_lessons(lessons, artifact_root)
+
+        previous_plans.append(plan)
+        state = attempt_state
+        error_message = state.get("blocking_condition", error_message)
+        current_stage = state.get("current_stage", current_stage)
+
+    # Exhausted all attempts
+    entry = RecoveryEntry(
+        timestamp=_time.time(),
+        attempt_number=max_attempts,
+        stage_id=current_stage,
+        error_message=error_message[:500],
+        error_category=classification.category,
+        root_cause="Recovery exhausted after " + str(max_attempts) + " attempts",
+        fix_actions=[],
+        lessons_generated=[],
+        outcome="exhausted",
+        confidence=0.0,
+        duration_ms=0.0,
+    )
+    logger.log_attempt(entry)
+
+    summary = logger.get_summary()
+
+    if not tui_controller:
+        ui.console.print()
+        ui.console.print(
+            Panel(
+                f"[red]Recovery exhausted after {max_attempts} attempts[/red]\n"
+                f"[dim]Final error: {error_message[:300]}[/dim]\n\n"
+                f"[bold]Recovery Summary:[/bold]\n"
+                f"  Total attempts: {summary['total_attempts']}\n"
+                f"  Successful: {summary['successful']}\n"
+                f"  Failed: {summary['failed']}\n"
+                f"  Categories: {summary['categories']}",
+                title="[bold red]Recovery Failed[/bold red]",
+                border_style="red",
+            )
+        )
+
+    if event_bus:
+        event_bus.emit(
+            diagnostic_error(node_id="recovery", message=f"Recovery exhausted after {max_attempts} attempts")
+        )
+
+    return state
 
 
 def _stream_with_interrupts(

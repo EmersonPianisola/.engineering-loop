@@ -259,6 +259,9 @@ class PipelineState(dict[str, Any]):
     essence_clarifying_questions: Annotated[list[dict[str, Any]], _last_write_wins] = []
     # Audit trail of ask_user interactions during agent execution
     user_interactions: Annotated[list[dict[str, Any]], _overwrite] = []
+    # Auto-recovery state
+    recovery_attempts: Annotated[int, _max_int] = 0
+    recovery_history: Annotated[list[dict[str, Any]], add] = []
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -313,6 +316,8 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         },
         "essence_clarifying_questions": [],
         "user_interactions": [],
+        "recovery_attempts": 0,
+        "recovery_history": [],
     }
 
 
@@ -465,6 +470,8 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
                 "step_audit": [],
             },
         ),
+        "recovery_attempts": data.get("recovery_attempts", 0),
+        "recovery_history": data.get("recovery_history", []),
     }
     return defaults
 

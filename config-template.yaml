@@ -284,3 +284,13 @@ compliance:
   mode: "gate"               # "gate" = blocking, "advisory" = warning only
   check_before_stage: true   # Run --check-compliance before each stage
   enforce_tool_scope: true   # Block tool calls not permitted for current stage
+
+# ============================================================
+# AUTO-RECOVERY — LLM-driven error analysis and self-healing
+# ============================================================
+recovery:
+  enabled: true              # Enable automatic recovery on pipeline failure
+  max_attempts: 3            # Max recovery attempts per error before blocking
+  log_file: "artifacts/recovery.jsonl"  # Structured recovery log
+  auto_rollback: true        # Selective rollback of affected stages
+  learn_from_failures: true  # Generate and persist lessons from failures
