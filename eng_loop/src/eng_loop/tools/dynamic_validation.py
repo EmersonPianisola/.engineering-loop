@@ -73,12 +73,14 @@ def _eval_tests_pass(
             cwd=workspace_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             check=False,
         )
         if result.returncode == 0:
             return True, None
-        return False, f"tests_pass({suite}): exit code {result.returncode}: {result.stderr[:500]}"
+        return False, f"tests_pass({suite}): exit code {result.returncode}: {(result.stderr or '')[:500]}"
     except subprocess.TimeoutExpired:
         return False, f"tests_pass({suite}): timed out after 120s"
     except Exception as e:

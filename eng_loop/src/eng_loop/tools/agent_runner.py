@@ -1060,6 +1060,8 @@ def run_agent_via_opencode(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # Merge stderr→stdout to avoid _readerthread exceptions on Windows when proc.kill() is called
                 cwd=str(project_root),
+                encoding="utf-8",
+                errors="replace",
             )
 
             last_activity = time.monotonic()

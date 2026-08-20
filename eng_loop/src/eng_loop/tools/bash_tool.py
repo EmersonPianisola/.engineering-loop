@@ -28,6 +28,8 @@ def _run_command(command: str, cwd: str, timeout: int) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     else:
@@ -40,6 +42,8 @@ def _run_command(command: str, cwd: str, timeout: int) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
 
