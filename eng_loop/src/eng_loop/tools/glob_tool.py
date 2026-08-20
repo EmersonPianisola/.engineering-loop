@@ -12,7 +12,7 @@ class GlobInput(BaseModel):
     path: str = Field(default=".", description="Directory to search in")
 
 
-def _glob(pattern: str, path: str = ".") -> str:
+def _glob(pattern: str = "", path: str = ".") -> str:
     if not pattern:
         return "Error: pattern is required"
     base = Path(path)

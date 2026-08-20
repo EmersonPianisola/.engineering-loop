@@ -127,29 +127,39 @@ def route_smoke_result(state: dict[str, Any]) -> str:
 
 
 def _post_verify_route(state: dict[str, Any]) -> str:
-    ui_project = state.get("ui_project", False)
-    complexity = state.get("complexity", "small")
-    if ui_project:
-        return "e2e-execute"
-    if complexity in ("medium", "large", "complex"):
-        return "qa-security"
-    return "deploy-prepare"
+    return "qa-static"
 
 
 def _post_e2e_route(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
         return "qa-security"
-    return "deploy-prepare"
+    return "qa-human-flow"
 
 
 def _next_qa_or_deploy(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     current = state.get("current_stage", "")
-    if current == "qa.security" and complexity in ("medium", "large", "complex"):
-        return "qa-api-contract"
-    if current == "qa.api-contract" and complexity == "complex":
+    if current == "qa.static":
+        return "qa-unit"
+    if current == "qa.unit" and complexity in ("medium", "large", "complex"):
+        return "qa-integration"
+    if current == "qa.unit":
+        return "e2e-execute"
+    if current == "qa.integration":
+        return "e2e-execute"
+    if current == "qa.security" and complexity == "complex":
         return "qa-performance"
+    if current == "qa.security":
+        return "qa-human-flow"
+    if current == "qa.performance":
+        return "qa-human-flow"
+    if current == "qa.human-flow" and state.get("ui_project", False):
+        return "qa-human-ux"
+    if current == "qa.human-flow":
+        return "deploy-prepare"
+    if current == "qa.human-ux":
+        return "deploy-prepare"
     return "deploy-prepare"
 
 

@@ -16,7 +16,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `ideation` | `bmad-ideation` | Design | init.ideate | Party Mode (9 roles), Brainstorming (62 techniques), Hourglass Framework, idea evaluation matrix, SDD extraction, impact-gated decomposition |
 | `bridge` | `bmad-integration` | Bridge | init | BMad → universal work item transformation + auto-size |
 | `bdd-journey` | `bmad-bdd-mapper` | Design | init.bdd | Gherkin scenarios, Scenario Outlines, hooks, data-driven testing, tag strategy, traceability matrix (large+) |
-| `refine` | essence + `bmad-brainstorming` | Design | init.refine | Iterative refinement of ad-hoc work items |
+| `refine` | `essence` | Design | init.refine | Iterative refinement of ad-hoc work items |
 | `design-user-research` | `bmad-user-research` | Design | design.user-research | User research: interviews, contextual studies, usability testing |
 | `design-personas` | `bmad-personas` | Design | design.personas | Personas and journey maps from research |
 | `design-info-arch` | `bmad-info-arch` | Design | design.info-arch | Information architecture: sitemaps, wireframes, navigation |
@@ -29,6 +29,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `impl-arch` | `implementation-architect` | Design | impl.design | Implementation blueprint: files, contracts, data flows, execution order, testing strategy, CI/CD pipeline, rollback plan |
 | `impl-domain` | Domain Skill | Execute | impl.code | TDD code implementation (self-constructed from internet best practices) |
 | `verifier` | `verifier` | Verify | verify | Spec-anchored check + discrimination sensor + equivalent mutant filtering + mutation feedback loop (4-iter plateau) + coverage audit |
+| `e2e-playwright` | `e2e-playwright` | Validate | e2e.execute | Playwright E2E testing with visual regression, trace debugging, MCP integration |
 | `sec-review` | Security Reviewer | Validate | qa.security | OWASP WSTG-based security audit (self-constructed from OWASP) |
 | `api-contract` | API Contract Validator | Validate | qa.api-contract | OpenAPI contract compliance (DEPRECATED, use qa.integration) |
 | `perf-check` | Performance Checker | Validate | qa.performance | Load targets, bundle size, response time (self-constructed) |
@@ -42,7 +43,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
-| `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
+| `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect (node in `nodes/dynamic_architect.py`) — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
 
 ## Self-Constructed Skills
 

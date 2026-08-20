@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 from eng_loop.tools.cli_events import (
     PipelineEvent,
     attempt_completed,
@@ -47,7 +49,7 @@ class TestPipelineEvent:
         event = PipelineEvent.new("test", status="ok")
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             event.status = "changed"  # type: ignore
 
     def test_default_metadata(self):

@@ -405,17 +405,11 @@ def _check_e2e_prerequisites(paths: dict[str, Any]) -> str | None:
 
 
 def _post_verify(state: dict[str, Any]) -> str:
-    ui_project = state.get("ui_project", False)
-    complexity = state.get("complexity", "small")
-    if ui_project:
-        return resolve_next("e2e-execute", state)
-    if complexity in ("medium", "large", "complex"):
-        return resolve_next("qa-security", state)
-    return resolve_next("deploy-prepare", state)
+    return resolve_next("qa-static", state)
 
 
 def _post_e2e(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
         return resolve_next("qa-security", state)
-    return resolve_next("deploy-prepare", state)
+    return resolve_next("qa-human-flow", state)

@@ -4,7 +4,7 @@ type: entry-point
 description: 'Start the engineering loop — quick reference for CLI and prompt mode.'
 ---
 
-# Engineering Loop v12.1 — Start Here
+# Engineering Loop v12.2.0 — Start Here
 
 ## Iniciar o Loop
 
@@ -269,10 +269,10 @@ O grafo é construído baseado na complexidade e tipo de trabalho do work item:
 
 | Nível | Stages Ativas | Design | Arch | QA | Exemplo |
 |-------|--------------|--------|------|----|---------|
-| **Small** | ~9/26 | Skip | Skip | Skip | Bug fix, 1-3 arquivos |
-| **Medium** | ~20/26 | Inline | Requirements + Solution | Security + API contract | Feature clara, <8 tarefas |
-| **Large** | ~24/26 | 6 stages formais | + Review | Full | Multi-componente, novas APIs |
-| **Complex** | 26/26 | Formal + Discuss | Full + Review | Full + Performance | Novo domínio, ambiguidade |
+| **Small** | ~9/34 | Skip | Skip | Skip | Bug fix, 1-3 arquivos |
+| **Medium** | ~20/34 | Inline | Requirements + Solution | Security + API contract | Feature clara, <8 tarefas |
+| **Large** | ~24/34 | 6 stages formais | + Review | Full | Multi-componente, novas APIs |
+| **Complex** | 34/34 | Formal + Discuss | Full + Review | Full + Performance | Novo domínio, ambiguidade |
 
 ### Tipos de Trabalho (v11.1)
 
@@ -282,6 +282,7 @@ O tipo de trabalho determina quais fases sao ativas:
 |------|-----------|-------------------|
 | **feature** | Nova funcionalidade | Nenhuma (loop completo) |
 | **bugfix** | Corrigir comportamento | Design stages (6 stages) |
+| **documentation** | Escrever/gerar documentos | design, verify, deploy, arch |
 | **operational** | Rodar codigo existente (testes, deploy) | impl, design, arch, verify |
 
 Exemplo: `"Execute todos os testes E2E contra Firebase"` → `operational` → 7 stages (init → e2e → deploy → smoke → post)

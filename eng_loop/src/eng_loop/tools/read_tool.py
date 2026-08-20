@@ -13,7 +13,12 @@ class ReadInput(BaseModel):
     limit: int = Field(default=500, description="Maximum number of lines to read")
 
 
-def _read(file_path: str, offset: int = 1, limit: int = 500) -> str:
+def _read(file_path: str = "", offset: int = 1, limit: int = 500, **kwargs) -> str:
+    fp = kwargs.get("filePath", file_path)
+    if fp:
+        file_path = fp
+    if not file_path:
+        return "Error: file_path is required"
     p = Path(file_path)
     if not p.exists():
         return f"Error: path not found: {file_path}"

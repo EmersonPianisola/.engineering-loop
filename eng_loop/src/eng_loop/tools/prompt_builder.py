@@ -206,7 +206,7 @@ class SystemPrefix:
             str(self._state.get("project_map", {}).get("tree", "")[:500]),
             str(self._paths),
         )
-        return hashlib.md5(str(hashable).encode()).hexdigest()
+        return hashlib.md5(str(hashable).encode(), usedforsecurity=False).hexdigest()
 
 
 class StageContext:

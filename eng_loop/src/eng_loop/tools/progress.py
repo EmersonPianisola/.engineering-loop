@@ -736,9 +736,7 @@ class UIManager:
                     "[bold]Total[/bold]",
                     f"[bold yellow]{token_tracker._format_tokens(total_all)}[/bold yellow]",
                 )
-                self.console.print(
-                    Panel(tok_table, title="[bold]Token Usage[/bold]", border_style="yellow")
-                )
+                self.console.print(Panel(tok_table, title="[bold]Token Usage[/bold]", border_style="yellow"))
 
     # ── Live Dashboard ─────────────────────────────────────────────
     def start_live(self, refresh_per_second: float = 2) -> None:

@@ -579,6 +579,9 @@ class StaticOutput(BaseModel):
     execution_command: str = Field(default="", description="Lint/type-check command executed")
     exit_code: int = Field(default=-1, description="Exit code from tool")
     findings: list[QAFinding] = Field(default_factory=list)
+    critical_findings: list[str] = Field(
+        default_factory=list, description="Critical issues requiring immediate attention"
+    )
     evidence: QAEvidence = Field(default_factory=QAEvidence)
     execution: QAExecution = Field(default_factory=QAExecution)
     complete: bool = Field(default=True)
@@ -606,6 +609,9 @@ class UnitOutput(BaseModel):
     execution_command: str = Field(default="", description="Test runner command")
     exit_code: int = Field(default=-1, description="Exit code from test runner")
     findings: list[QAFinding] = Field(default_factory=list)
+    critical_findings: list[str] = Field(
+        default_factory=list, description="Critical issues requiring immediate attention"
+    )
     evidence: QAEvidence = Field(default_factory=QAEvidence)
     execution: QAExecution = Field(default_factory=QAExecution)
     complete: bool = Field(default=True)
@@ -640,6 +646,9 @@ class IntegrationOutput(BaseModel):
     failed: int = Field(default=0, description="Number of failing integration tests")
     artifacts: list[str] = Field(default_factory=list, description="Produced artifacts")
     findings: list[QAFinding] = Field(default_factory=list)
+    critical_findings: list[str] = Field(
+        default_factory=list, description="Critical issues requiring immediate attention"
+    )
     evidence: QAEvidence = Field(default_factory=QAEvidence)
     execution: QAExecution = Field(default_factory=QAExecution)
     complete: bool = Field(default=True)
@@ -698,6 +707,8 @@ class HumanUxOutput(BaseModel):
     step_bloat: int = Field(default=0, description="Number of unnecessary steps in critical flows")
     navigation_issues: list[str] = Field(default_factory=list, description="Navigation problems")
     accessibility_issues: list[str] = Field(default_factory=list, description="Accessibility concerns")
+    confusion_points: list[str] = Field(default_factory=list, description="Where user would get confused")
+    jargon_found: list[str] = Field(default_factory=list, description="Technical jargon exposed to user")
     recommendations: list[str] = Field(default_factory=list, description="UX improvement suggestions")
     findings: list[QAFinding] = Field(default_factory=list)
     evidence: QAEvidence = Field(default_factory=QAEvidence)

@@ -13,7 +13,16 @@ class EditInput(BaseModel):
     new_string: str = Field(description="Replacement string. If empty, deletes old_string.")
 
 
-def _edit(file_path: str, old_string: str, new_string: str = "") -> str:
+def _edit(file_path: str = "", old_string: str = "", new_string: str = "", **kwargs) -> str:
+    fp = kwargs.get("filePath", file_path)
+    if fp:
+        file_path = fp
+    os_ = kwargs.get("oldString", old_string)
+    if os_:
+        old_string = os_
+    ns = kwargs.get("newString", new_string)
+    if ns or "newString" in kwargs:
+        new_string = ns
     if not file_path:
         return "Error: file_path is required"
     if not old_string:

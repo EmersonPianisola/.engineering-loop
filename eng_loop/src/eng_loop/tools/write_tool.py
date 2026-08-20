@@ -12,7 +12,10 @@ class WriteInput(BaseModel):
     content: str = Field(description="Content to write to the file")
 
 
-def _write(file_path: str, content: str) -> str:
+def _write(file_path: str = "", content: str = "", **kwargs) -> str:
+    fp = kwargs.get("filePath", file_path)
+    if fp:
+        file_path = fp
     if not file_path:
         return "Error: file_path is required"
     if not content:

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from eng_loop.tools.token_counter import (
-    MessageBreakdown,
     TokenAccuracy,
     TokenCounter,
-    TokenCounterInfo,
 )
-
 
 # ── Resolution tests ──────────────────────────────────────────
 

@@ -1,11 +1,11 @@
 ---
 name: engineering-loop
-version: 12.1.0
+version: 12.2.0
 type: framework
-description: 'Dynamic graph orchestrator. Topology proposed by LLM architect, authorized by 5-layer policy firewall, compiled by deterministic builder. LLM proposes, Policy authorizes, Builder compiles, Runtime executes. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution. 5 new topology schemas (frozen, validated). Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule.'
+description: 'Dynamic graph orchestrator. Topology proposed by LLM architect, authorized by 5-layer policy firewall, compiled by deterministic builder. LLM proposes, Policy authorizes, Builder compiles, Runtime executes. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution. 5 new topology schemas (frozen, validated). Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule. Declarative QA: static → unit → integration → E2E → security/performance → human.flow/human.ux.'
 ---
 
-# Engineering Loop v12.1
+# Engineering Loop v12.2.0
 
 **Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
 
@@ -16,7 +16,7 @@ Persistent while-loop engine with **AI-proposed graph topology** — the LLM arc
 **Orchestrator:** `eng_loop/` (LangGraph Python, Graph Architect + Policy Firewall + Dual-Path Builder, CLI: `eng-loop --dynamic-graph`)
 **Legacy:** `ORCHESTRATOR.md` (prompt-based, deprecated)
 **Model:** Any OpenAI-compatible local endpoint (llama.cpp, vLLM, Ollama)
-**Structured Output:** 31 Pydantic schemas (5 topology + 26 stage), enforced via `model.with_structured_output()`
+**Structured Output:** 48 Pydantic schemas (5 topology + 43 stage), enforced via `model.with_structured_output()`
 **Evidence Gates:** Quality validation after every stage; failures trigger automatic retry
 **Dynamic Graph:** `eng_loop/graph_builder.py` — dual-path compilation (proposal or deterministic). Enable via `--dynamic-graph` or `config.dynamic_graph.enabled`
 
@@ -78,7 +78,7 @@ The execution graph is no longer determined by hardcoded rules. Instead, a three
 
 ```
                      ┌───────────────┐
-                     │  Node Catalog │  (29 stages, 10 phases)
+                     │  Node Catalog │  (34 stages, 11 phases)
                      └───────┬───────┘
                              │
 Task ──→ Dynamic Architect ──┤  (LLM proposes topology)
@@ -172,10 +172,14 @@ The LLM may only reference **allowed conditions** (e.g., `stage_done`, `complexi
 | 6 | `impl.code` | Implementation > Code (TDD) | domain (self-constructed) | `{stage-root}/impl-code.md` | — |
 | 6.5 | `doc.update` | Doc > Update Project Files | Project Doc Updater (self-constructed) | `{stage-root}/doc-update.md` | — |
 | 7 | `verify` | Verify | `verifier` | `{stage-root}/verify.md` | — |
+| 7.1 | `qa.static` | QA > Static Analysis | `linter-agent` | `{stage-root}/qa-static.md` | — |
+| 7.2 | `qa.unit` | QA > Unit Testing | `tester-unit` | `{stage-root}/qa-unit.md` | — |
+| 7.3 | `qa.integration` | QA > Integration | `integration-tester` | `{stage-root}/qa-integration.md` | `medium` |
 | 7.5 | `e2e.execute` | E2E Browser Testing | `e2e-playwright` | `{stage-root}/e2e-execute.md` | — (UI projects) |
 | 8 | `qa.security` | QA > Security | OWASP WSTG (self-constructed) | `{stage-root}/qa-security.md` | `medium` |
-| 9 | `qa.api-contract` | QA > API Contract | OpenAPI (self-constructed) | `{stage-root}/qa-api-contract.md` | `medium` |
-| 10 | `qa.performance` | QA > Performance | self-constructed | `{stage-root}/qa-performance.md` | `complex` |
+| 9 | `qa.performance` | QA > Performance | self-constructed | `{stage-root}/qa-performance.md` | `complex` |
+| 9.5 | `qa.human-flow` | QA > Human Flow | `persona-simulator` | `{stage-root}/qa-human-flow.md` | — |
+| 9.6 | `qa.human-ux` | QA > UX Audit | `ux-auditor` | `{stage-root}/qa-human-ux.md` | — (UI projects) |
 | 11 | `deploy.prepare` | Deploy > Prepare | — | `{stage-root}/deploy-prepare.md` | — |
 | 11.5 | `smoke.test` | Smoke Test (User Journey) | `e2e-playwright` | `{stage-root}/smoke-test.md` | — (UI projects) |
 | 12 | `doc.decisions` | Doc > Decision Log | MADR + C4 Model (self-constructed) | `{stage-root}/doc-decisions.md` | `medium` |

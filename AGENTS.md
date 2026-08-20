@@ -38,10 +38,10 @@ ruff config: `target-version = "py310"`, `line-length = 120` (in `eng_loop/pypro
 eng_loop/src/eng_loop/
 ├── cli.py              # Entry point (eng-loop command, pre-build architect)
 ├── graph_builder.py    # Dual-path builder (proposal or deterministic)
-├── node_registry.py    # 20 registered NodeSpec stages
+├── node_registry.py    # 34 registered NodeSpec stages
 ├── edge_rules.py       # Declarative edge rules + proposal compiler
 ├── state.py            # PipelineState schema + reducers + node catalog
-├── schemas.py          # 40 Pydantic schemas (topology + stage output)
+├── schemas.py          # 48 Pydantic schemas (topology + stage output)
 ├── config.py           # YAML loader, deep merge
 ├── graph.py            # Delegates to GraphBuilder in dynamic mode
 ├── routing.py          # Conditional edge functions (retry, block, advance)
@@ -50,11 +50,11 @@ eng_loop/src/eng_loop/
 ├── nodes/              # One module per stage group
 │   ├── dynamic_architect.py  # Pre-build topology + runtime augmentation
 │   └── meta_executor.py      # Sequential cursor-based executor
-└── tools/              # 37 tool modules
+└── tools/              # 48 tool modules
     └── policy_resolver.py    # 5-layer topology firewall + tool sandboxing
 ```
 
-Tests: 57 files, 1858 tests.
+Tests: 70 files, 2094 tests.
 
 ## Stage Files (`stages/`)
 

@@ -16,7 +16,7 @@ class GrepInput(BaseModel):
     )
 
 
-def _grep(pattern: str, path: str = ".", include: str = "*") -> str:
+def _grep(pattern: str = "", path: str = ".", include: str = "*") -> str:
     if not pattern:
         return "Error: pattern is required"
     base = Path(path)

@@ -17,7 +17,7 @@ SIMILARITY_THRESHOLD = 0.85
 
 def compute_text_hash(text: str) -> str:
     """Fast hash for content deduplication."""
-    return hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+    return hashlib.md5(text.encode("utf-8", errors="replace"), usedforsecurity=False).hexdigest()[:12]
 
 
 def estimate_similarity(text_a: str, text_b: str) -> float:

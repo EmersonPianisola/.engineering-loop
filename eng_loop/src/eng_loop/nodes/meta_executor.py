@@ -218,10 +218,7 @@ def _log_step_start(
 
     # Console output — always visible
     attempt_str = f" (attempt {attempt}/{max_attempts})" if attempt > 1 else ""
-    ui.console.print(
-        f"  [bold cyan]Step {step_num}/{total_steps}[/bold cyan] "
-        f">> [bold]{step_id}[/bold]{attempt_str}"
-    )
+    ui.console.print(f"  [bold cyan]Step {step_num}/{total_steps}[/bold cyan] >> [bold]{step_id}[/bold]{attempt_str}")
 
 
 def _log_step_complete(

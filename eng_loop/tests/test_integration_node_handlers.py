@@ -181,7 +181,7 @@ class TestVerifyNode:
             state = _mark_done(state, "doc.update")
             result = verify_node(state)
             assert isinstance(result, Command)
-            assert result.goto == "deploy-prepare"
+            assert result.goto == "qa-static"
 
     def test_verify_fail_routes_to_impl_code(self):
         mock_result = AgentResult(

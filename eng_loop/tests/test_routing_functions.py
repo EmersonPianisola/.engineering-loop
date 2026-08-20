@@ -63,8 +63,8 @@ class TestRouteAfterEssence:
         assert route_after_essence(state) == "init-ideate"
 
     def test_returns_node_name_underscores_to_hyphens(self):
-        state = _make_state(current_stage="qa.api_contract")
-        assert route_after_essence(state) == "qa-api-contract"
+        state = _make_state(current_stage="qa.human_flow")
+        assert route_after_essence(state) == "qa-human-flow"
 
     def test_returns_node_name_simple_stage(self):
         state = _make_state(current_stage="verify")
@@ -119,10 +119,10 @@ class TestRouteAfterStage:
 
     def test_converts_stage_id_to_node_name(self):
         state = _make_state(
-            current_stage="qa.api-contract",
-            stages={"qa.api-contract": {"done": False, "attempts": 0}},
+            current_stage="qa.human.flow",
+            stages={"qa.human.flow": {"done": False, "attempts": 0}},
         )
-        assert route_after_stage(state) == "qa-api-contract"
+        assert route_after_stage(state) == "qa-human-flow"
 
 
 class TestRouteCheckLoop:
@@ -252,23 +252,23 @@ class TestRouteVerifyResult:
             ui_project=False,
             stages={"verify": {"done": True}},
         )
-        assert route_verify_result(state) == "deploy-prepare"
+        assert route_verify_result(state) == "qa-static"
 
-    def test_returns_e2e_for_ui_project(self):
+    def test_returns_qa_static_for_ui_project(self):
         state = _make_state(
             complexity="small",
             ui_project=True,
             stages={"verify": {"done": True}},
         )
-        assert route_verify_result(state) == "e2e-execute"
+        assert route_verify_result(state) == "qa-static"
 
-    def test_returns_qa_security_for_medium(self):
+    def test_returns_qa_static_for_medium(self):
         state = _make_state(
             complexity="medium",
             ui_project=False,
             stages={"verify": {"done": True}},
         )
-        assert route_verify_result(state) == "qa-security"
+        assert route_verify_result(state) == "qa-static"
 
 
 class TestRouteE2eResult:
@@ -276,12 +276,12 @@ class TestRouteE2eResult:
         state = _make_state(stages={"e2e.execute": {"done": False}})
         assert route_e2e_result(state) == "impl-code"
 
-    def test_returns_post_e2e_route_when_done(self):
+    def test_returns_qa_human_flow_for_small(self):
         state = _make_state(
             complexity="small",
             stages={"e2e.execute": {"done": True}},
         )
-        assert route_e2e_result(state) == "deploy-prepare"
+        assert route_e2e_result(state) == "qa-human-flow"
 
     def test_returns_qa_security_for_medium(self):
         state = _make_state(
@@ -312,31 +312,31 @@ class TestRouteQaResult:
             complexity="medium",
             stages={"qa.security": {"done": True}},
         )
-        assert route_qa_result(state) == "qa-api-contract"
+        assert route_qa_result(state) == "qa-human-flow"
 
-    def test_returns_deploy_prepare_for_small(self):
+    def test_returns_human_flow_for_small(self):
         state = _make_state(
             current_stage="qa.security",
             complexity="small",
             stages={"qa.security": {"done": True}},
         )
-        assert route_qa_result(state) == "deploy-prepare"
+        assert route_qa_result(state) == "qa-human-flow"
 
-    def test_returns_qa_performance_from_api_contract_complex(self):
+    def test_returns_qa_performance_from_security_complex(self):
         state = _make_state(
-            current_stage="qa.api-contract",
+            current_stage="qa.security",
             complexity="complex",
-            stages={"qa.api-contract": {"done": True}},
+            stages={"qa.security": {"done": True}},
         )
         assert route_qa_result(state) == "qa-performance"
 
-    def test_returns_deploy_from_api_contract_not_complex(self):
+    def test_returns_human_flow_from_performance(self):
         state = _make_state(
-            current_stage="qa.api-contract",
-            complexity="medium",
-            stages={"qa.api-contract": {"done": True}},
+            current_stage="qa.performance",
+            complexity="complex",
+            stages={"qa.performance": {"done": True}},
         )
-        assert route_qa_result(state) == "deploy-prepare"
+        assert route_qa_result(state) == "qa-human-flow"
 
 
 class TestRouteDeployResult:
@@ -389,29 +389,29 @@ class TestRouteSmokeResult:
 
 
 class TestPostVerifyRoute:
-    def test_returns_e2e_execute_for_ui_project(self):
+    def test_returns_qa_static_for_ui_project(self):
         state = _make_state(ui_project=True, complexity="small")
-        assert _post_verify_route(state) == "e2e-execute"
+        assert _post_verify_route(state) == "qa-static"
 
-    def test_returns_e2e_execute_for_ui_project_regardless_complexity(self):
+    def test_returns_qa_static_for_ui_project_regardless_complexity(self):
         state = _make_state(ui_project=True, complexity="complex")
-        assert _post_verify_route(state) == "e2e-execute"
+        assert _post_verify_route(state) == "qa-static"
 
-    def test_returns_qa_security_for_medium(self):
+    def test_returns_qa_static_for_medium(self):
         state = _make_state(ui_project=False, complexity="medium")
-        assert _post_verify_route(state) == "qa-security"
+        assert _post_verify_route(state) == "qa-static"
 
-    def test_returns_qa_security_for_large(self):
+    def test_returns_qa_static_for_large(self):
         state = _make_state(ui_project=False, complexity="large")
-        assert _post_verify_route(state) == "qa-security"
+        assert _post_verify_route(state) == "qa-static"
 
-    def test_returns_qa_security_for_complex(self):
+    def test_returns_qa_static_for_complex(self):
         state = _make_state(ui_project=False, complexity="complex")
-        assert _post_verify_route(state) == "qa-security"
+        assert _post_verify_route(state) == "qa-static"
 
-    def test_returns_deploy_prepare_for_small(self):
+    def test_returns_qa_static_for_small(self):
         state = _make_state(ui_project=False, complexity="small")
-        assert _post_verify_route(state) == "deploy-prepare"
+        assert _post_verify_route(state) == "qa-static"
 
 
 class TestPostE2eRoute:
@@ -427,38 +427,50 @@ class TestPostE2eRoute:
         state = _make_state(complexity="complex")
         assert _post_e2e_route(state) == "qa-security"
 
-    def test_returns_deploy_prepare_for_small(self):
+    def test_returns_qa_human_flow_for_small(self):
         state = _make_state(complexity="small")
-        assert _post_e2e_route(state) == "deploy-prepare"
+        assert _post_e2e_route(state) == "qa-human-flow"
 
 
 class TestNextQaOrDeploy:
-    def test_from_qa_security_medium_returns_api_contract(self):
-        state = _make_state(current_stage="qa.security", complexity="medium")
-        assert _next_qa_or_deploy(state) == "qa-api-contract"
+    def test_from_qa_static_returns_qa_unit(self):
+        state = _make_state(current_stage="qa.static", complexity="medium")
+        assert _next_qa_or_deploy(state) == "qa-unit"
 
-    def test_from_qa_security_large_returns_api_contract(self):
-        state = _make_state(current_stage="qa.security", complexity="large")
-        assert _next_qa_or_deploy(state) == "qa-api-contract"
+    def test_from_qa_unit_medium_returns_integration(self):
+        state = _make_state(current_stage="qa.unit", complexity="medium")
+        assert _next_qa_or_deploy(state) == "qa-integration"
 
-    def test_from_qa_security_complex_returns_api_contract(self):
+    def test_from_qa_unit_small_returns_e2e(self):
+        state = _make_state(current_stage="qa.unit", complexity="small")
+        assert _next_qa_or_deploy(state) == "e2e-execute"
+
+    def test_from_qa_integration_returns_e2e(self):
+        state = _make_state(current_stage="qa.integration", complexity="medium")
+        assert _next_qa_or_deploy(state) == "e2e-execute"
+
+    def test_from_qa_security_complex_returns_performance(self):
         state = _make_state(current_stage="qa.security", complexity="complex")
-        assert _next_qa_or_deploy(state) == "qa-api-contract"
-
-    def test_from_qa_security_small_returns_deploy(self):
-        state = _make_state(current_stage="qa.security", complexity="small")
-        assert _next_qa_or_deploy(state) == "deploy-prepare"
-
-    def test_from_api_contract_complex_returns_performance(self):
-        state = _make_state(current_stage="qa.api-contract", complexity="complex")
         assert _next_qa_or_deploy(state) == "qa-performance"
 
-    def test_from_api_contract_medium_returns_deploy(self):
-        state = _make_state(current_stage="qa.api-contract", complexity="medium")
+    def test_from_qa_security_medium_returns_human_flow(self):
+        state = _make_state(current_stage="qa.security", complexity="medium")
+        assert _next_qa_or_deploy(state) == "qa-human-flow"
+
+    def test_from_qa_performance_returns_human_flow(self):
+        state = _make_state(current_stage="qa.performance", complexity="complex")
+        assert _next_qa_or_deploy(state) == "qa-human-flow"
+
+    def test_from_qa_human_flow_ui_returns_ux(self):
+        state = _make_state(current_stage="qa.human-flow", ui_project=True)
+        assert _next_qa_or_deploy(state) == "qa-human-ux"
+
+    def test_from_qa_human_flow_non_ui_returns_deploy(self):
+        state = _make_state(current_stage="qa.human-flow", ui_project=False)
         assert _next_qa_or_deploy(state) == "deploy-prepare"
 
-    def test_from_other_stage_returns_deploy(self):
-        state = _make_state(current_stage="qa.performance", complexity="complex")
+    def test_from_qa_human_ux_returns_deploy(self):
+        state = _make_state(current_stage="qa.human-ux", ui_project=True)
         assert _next_qa_or_deploy(state) == "deploy-prepare"
 
     def test_from_empty_stage_returns_deploy(self):

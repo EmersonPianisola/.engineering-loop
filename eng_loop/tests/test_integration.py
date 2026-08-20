@@ -188,11 +188,22 @@ def test_small_feature_flow():
 
             result = verify_node(state6)
             assert isinstance(result, Command)
-            assert result.goto == "deploy-prepare"
+            assert result.goto == "qa-static"
+
+        from eng_loop.nodes.qa import qa_node
+
+        state6a = _apply_update(state6, result.update or {})
+        result = qa_node("qa.static")(state6a)
+        assert isinstance(result, Command)
+        assert result.goto == "qa-unit"
+
+        state6b = _apply_update(state6a, result.update or {})
+        result = qa_node("qa.unit")(state6b)
+        assert isinstance(result, Command)
 
         from eng_loop.nodes.deploy import deploy_prepare_node
 
-        state7 = _apply_update(state6, result.update or {})
+        state7 = _apply_update(state6b, result.update or {})
         result = deploy_prepare_node(state7)
         assert isinstance(result, Command)
         assert result.goto == "post"
@@ -242,7 +253,9 @@ def test_medium_feature_flow():
         assert "arch.requirements" in active
         assert "arch.solution" in active
         assert "qa.security" in active
-        assert "qa.api-contract" in active
+        assert "qa.static" in active
+        assert "qa.unit" in active
+        assert "qa.integration" in active
         assert "doc.decisions" in active
         assert "doc.project" in active
         assert "arch.review" not in active
@@ -251,19 +264,19 @@ def test_medium_feature_flow():
         state_verify = _make_state("medium", False)
         state_verify = _mark_done(state_verify, "verify")
         route = route_verify_result(state_verify)
-        assert route == "qa-security"
+        assert route == "qa-static"
 
         state_qa = _make_state("medium", False)
-        state_qa = _mark_done(state_qa, "qa.security")
-        state_qa["current_stage"] = "qa.security"
+        state_qa = _mark_done(state_qa, "qa.static")
+        state_qa["current_stage"] = "qa.static"
         route = route_qa_result(state_qa)
-        assert route == "qa-api-contract"
+        assert route == "qa-unit"
 
-        state_deploy = _make_state("medium", False)
-        state_deploy = _mark_done(state_deploy, "qa.api-contract")
-        state_deploy["current_stage"] = "qa.api-contract"
-        route = route_qa_result(state_deploy)
-        assert route == "deploy-prepare"
+        state_qa2 = _make_state("medium", False)
+        state_qa2 = _mark_done(state_qa2, "qa.unit")
+        state_qa2["current_stage"] = "qa.unit"
+        route = route_qa_result(state_qa2)
+        assert route == "qa-integration"
 
         state_doc = _make_state("medium", False)
         state_doc = _mark_done(state_doc, "deploy.prepare")

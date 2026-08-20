@@ -174,7 +174,7 @@ class StallDetector:
         """Compute a normalized hash of tool call for exact-repeat detection."""
         normalized = {k: v for k, v in tool_args.items() if k not in IGNORED_ARG_KEYS}
         raw = json.dumps({"tool": tool_name, "args": normalized}, sort_keys=True)
-        return hashlib.md5(raw.encode()).hexdigest()
+        return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
     def _detect_exact_repeat(self, window: list[_ToolCall]) -> StallReport | None:
         """Detect when the same tool with same args is called repeatedly."""

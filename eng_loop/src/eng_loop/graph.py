@@ -135,9 +135,41 @@ def build_graph() -> StateGraph:
         route_verify_result,
         {
             "impl-code": "impl-code",
+            "qa-static": "qa-static",
             "e2e-execute": "e2e-execute",
             "qa-security": "qa-security",
             "deploy-prepare": "deploy-prepare",
+        },
+    )
+
+    # --- QA: Static Analysis ---
+    builder.add_conditional_edges(
+        "qa-static",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-unit": "qa-unit",
+        },
+    )
+
+    # --- QA: Unit Testing ---
+    builder.add_conditional_edges(
+        "qa-unit",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-integration": "qa-integration",
+            "e2e-execute": "e2e-execute",
+        },
+    )
+
+    # --- QA: Integration ---
+    builder.add_conditional_edges(
+        "qa-integration",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "e2e-execute": "e2e-execute",
         },
     )
 
@@ -148,33 +180,47 @@ def build_graph() -> StateGraph:
         {
             "impl-code": "impl-code",
             "qa-security": "qa-security",
+            "qa-human-flow": "qa-human-flow",
             "deploy-prepare": "deploy-prepare",
         },
     )
 
-    # --- QA chain ---
+    # --- QA chain (post-E2E) ---
     builder.add_conditional_edges(
         "qa-security",
         route_qa_result,
         {
             "impl-code": "impl-code",
-            "qa-api-contract": "qa-api-contract",
-            "deploy-prepare": "deploy-prepare",
-        },
-    )
-
-    builder.add_conditional_edges(
-        "qa-api-contract",
-        route_qa_result,
-        {
-            "impl-code": "impl-code",
             "qa-performance": "qa-performance",
+            "qa-human-flow": "qa-human-flow",
             "deploy-prepare": "deploy-prepare",
         },
     )
 
     builder.add_conditional_edges(
         "qa-performance",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-human-flow": "qa-human-flow",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
+
+    # --- QA: Human Flow ---
+    builder.add_conditional_edges(
+        "qa-human-flow",
+        route_qa_result,
+        {
+            "impl-code": "impl-code",
+            "qa-human-ux": "qa-human-ux",
+            "deploy-prepare": "deploy-prepare",
+        },
+    )
+
+    # --- QA: Human UX ---
+    builder.add_conditional_edges(
+        "qa-human-ux",
         route_qa_result,
         {
             "impl-code": "impl-code",

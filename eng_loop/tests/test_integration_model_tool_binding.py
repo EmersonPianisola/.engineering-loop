@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.tools import Tool
+from langchain_core.tools import StructuredTool, Tool
 from pydantic import BaseModel
 
 from eng_loop.model import (
@@ -439,6 +439,6 @@ class TestToolRegistryIntegration:
         """get_tools_for_stage returns actual Tool instances."""
         tools = get_tools_for_stage("impl.code", {"project_root": "."})
         for tool in tools:
-            assert isinstance(tool, Tool)
+            assert isinstance(tool, StructuredTool)
             assert callable(tool.func)
             assert len(tool.description) > 5

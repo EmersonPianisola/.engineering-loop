@@ -31,6 +31,9 @@ def _run_command(command: str, cwd: str, timeout: int) -> str:
             timeout=timeout,
         )
     else:
+        # shell=True required for shell pipeline support (|, &&, ;;).
+        # Commands are sandboxed; user operates in controlled workspace.
+        # nosec B602
         result = subprocess.run(
             command,
             shell=True,
@@ -56,7 +59,10 @@ def create_bash_tool(
 ) -> StructuredTool:
     bash_exe_info = _BASH_EXE if _BASH_EXE else "fallback to cmd.exe"
 
-    def _bash(command: str) -> str:
+    def _bash(command: str = "", **kwargs) -> str:
+        cmd = kwargs.get("cmd", command)
+        if cmd:
+            command = cmd
         if not command:
             return "Error: command is required"
         workdir_path = Path(workdir)

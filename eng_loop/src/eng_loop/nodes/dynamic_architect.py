@@ -66,64 +66,64 @@ def propose_topology(
         f"{context_budget_text}\n"
         if context_budget_text
         else ""
-        f"## CRITICAL: HAPPY-PATH ONLY\n"
-        f"You propose ONLY the happy-path (forward-progress) edges.\n"
-        f"Failure routing (loopback on retry, terminal on blocked) is AUTOMATICALLY\n"
-        f"injected by the framework. NEVER propose loopback or terminal edges.\n"
-        f"Proposing a loopback edge (e.g., verify -> impl.code) creates a cycle\n"
-        f"and will be REJECTED by the policy firewall.\n\n"
-        f"## CRITICAL RULES\n"
-        f"1. Include 'init' (entry) and 'post' (exit) — they are MANDATORY.\n"
-        f"2. All stages in required_stages must exist in the catalog above.\n"
-        f"3. All edges must connect stages in required_stages (or __start__/__end__).\n"
-        f"4. The graph must be a DAG (Directed Acyclic Graph). NO CYCLES.\n"
-        f"5. 'post' must be reachable from 'init' via forward edges.\n"
-        f"6. No duplicate edges.\n"
-        f"7. Use edge_type='fixed' for unconditional transitions (default).\n"
-        f"8. Use edge_type='conditional' with an allowed condition for branching.\n"
-        f"9. DO NOT use edge_type='loopback' — failure routing is automatic.\n"
-        f"10. DO NOT use edge_type='terminal' — blocked routing is automatic.\n"
-        f"11. Minimize stages — only include what the task genuinely needs.\n"
-        f"12. DO NOT include design/arch/verify/QA/deploy stages for documentation tasks.\n"
-        f"13. DO NOT include impl.design/impl.code/verify/deploy for operational tasks.\n"
-        f"14. For bugfix tasks, skip design stages but keep impl + verify.\n"
-        f"15. Each stage should have exactly ONE outgoing edge (or two for branching).\n"
-        f"16. Edges should flow forward: init -> ... -> impl -> ... -> post.\n\n"
-        f"## DOCUMENTATION TASK RULES (CRITICAL)\n"
-        f"For documentation tasks that produce NEW files (summary, report, new doc):\n"
-        f"  - MUST include 'impl.code' stage (this is where files are actually written)\n"
-        f"  - DO NOT use 'doc.update' — it requires impl.code.done=true as prerequisite\n"
-        f"  - Pattern: init -> init.ideate -> init.refine -> impl.code -> post\n\n"
-        f"For documentation tasks that only UPDATE existing files (README, CHANGELOG):\n"
-        f"  - Use 'doc.update' stage\n"
-        f"  - Pattern: init -> init.ideate -> init.refine -> impl.code -> doc.update -> post\n\n"
-        f"NEVER propose a topology with 'doc.update' but without 'impl.code'.\n\n"
-        f"## EXAMPLE (documentation task — new file)\n"
-        f"required_stages: [init, init.ideate, init.refine, impl.code, post]\n"
-        f"edges:\n"
-        f"  - init -> init.ideate (fixed)\n"
-        f"  - init.ideate -> init.refine (fixed)\n"
-        f"  - init.refine -> impl.code (fixed)\n"
-        f"  - impl.code -> post (fixed)\n"
-        f"  - post -> __end__ (fixed)\n\n"
-        f"## OUTPUT FORMAT\n"
-        f"Return a JSON object matching this schema:\n"
-        f"{{\n"
-        f'  "plan_id": "unique-id",\n'
-        f'  "work_type": "feature|bugfix|documentation|operational",\n'
-        f'  "complexity": "small|medium|large|complex",\n'
-        f'  "required_stages": ["stage.id", ...],\n'
-        f'  "edges": [\n'
-        f'    {{"from_stage": "A", "to_stage": "B", "edge_type": "fixed", "condition": "always", "description": "..."}},\n'
-        f"    ...\n"
-        f"  ],\n"
-        f'  "phase_groups": [\n'
-        f'    {{"name": "INIT", "stages": ["init", "init.ideate", ...]}},\n'
-        f"    ...\n"
-        f"  ],\n"
-        f'  "execution_policies": [],\n'
-        f'  "rationale": "Why this topology is optimal for the task"\n'
-        f"}}\n"
+        "## CRITICAL: HAPPY-PATH ONLY\n"
+        "You propose ONLY the happy-path (forward-progress) edges.\n"
+        "Failure routing (loopback on retry, terminal on blocked) is AUTOMATICALLY\n"
+        "injected by the framework. NEVER propose loopback or terminal edges.\n"
+        "Proposing a loopback edge (e.g., verify -> impl.code) creates a cycle\n"
+        "and will be REJECTED by the policy firewall.\n\n"
+        "## CRITICAL RULES\n"
+        "1. Include 'init' (entry) and 'post' (exit) — they are MANDATORY.\n"
+        "2. All stages in required_stages must exist in the catalog above.\n"
+        "3. All edges must connect stages in required_stages (or __start__/__end__).\n"
+        "4. The graph must be a DAG (Directed Acyclic Graph). NO CYCLES.\n"
+        "5. 'post' must be reachable from 'init' via forward edges.\n"
+        "6. No duplicate edges.\n"
+        "7. Use edge_type='fixed' for unconditional transitions (default).\n"
+        "8. Use edge_type='conditional' with an allowed condition for branching.\n"
+        "9. DO NOT use edge_type='loopback' — failure routing is automatic.\n"
+        "10. DO NOT use edge_type='terminal' — blocked routing is automatic.\n"
+        "11. Minimize stages — only include what the task genuinely needs.\n"
+        "12. DO NOT include design/arch/verify/QA/deploy stages for documentation tasks.\n"
+        "13. DO NOT include impl.design/impl.code/verify/deploy for operational tasks.\n"
+        "14. For bugfix tasks, skip design stages but keep impl + verify.\n"
+        "15. Each stage should have exactly ONE outgoing edge (or two for branching).\n"
+        "16. Edges should flow forward: init -> ... -> impl -> ... -> post.\n\n"
+        "## DOCUMENTATION TASK RULES (CRITICAL)\n"
+        "For documentation tasks that produce NEW files (summary, report, new doc):\n"
+        "  - MUST include 'impl.code' stage (this is where files are actually written)\n"
+        "  - DO NOT use 'doc.update' — it requires impl.code.done=true as prerequisite\n"
+        "  - Pattern: init -> init.ideate -> init.refine -> impl.code -> post\n\n"
+        "For documentation tasks that only UPDATE existing files (README, CHANGELOG):\n"
+        "  - Use 'doc.update' stage\n"
+        "  - Pattern: init -> init.ideate -> init.refine -> impl.code -> doc.update -> post\n\n"
+        "NEVER propose a topology with 'doc.update' but without 'impl.code'.\n\n"
+        "## EXAMPLE (documentation task — new file)\n"
+        "required_stages: [init, init.ideate, init.refine, impl.code, post]\n"
+        "edges:\n"
+        "  - init -> init.ideate (fixed)\n"
+        "  - init.ideate -> init.refine (fixed)\n"
+        "  - init.refine -> impl.code (fixed)\n"
+        "  - impl.code -> post (fixed)\n"
+        "  - post -> __end__ (fixed)\n\n"
+        "## OUTPUT FORMAT\n"
+        "Return a JSON object matching this schema:\n"
+        "{\n"
+        '  "plan_id": "unique-id",\n'
+        '  "work_type": "feature|bugfix|documentation|operational",\n'
+        '  "complexity": "small|medium|large|complex",\n'
+        '  "required_stages": ["stage.id", ...],\n'
+        '  "edges": [\n'
+        '    {"from_stage": "A", "to_stage": "B", "edge_type": "fixed", "condition": "always", "description": "..."},\n'
+        "    ...\n"
+        "  ],\n"
+        '  "phase_groups": [\n'
+        '    {"name": "INIT", "stages": ["init", "init.ideate", ...]},\n'
+        "    ...\n"
+        "  ],\n"
+        '  "execution_policies": [],\n'
+        '  "rationale": "Why this topology is optimal for the task"\n'
+        "}\n"
     )
 
     prompt = build_node_prompt(
@@ -284,7 +284,7 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
         '  "proposed_complexity": "standard" or "adaptive" or "restricted",\n'
         '  "rationale": "explanation",\n'
         '  "steps": [\n'
-        '    {\n'
+        "    {\n"
         '      "step_id": "lowercase-hyphenated-id",\n'
         '      "role_description": "cognitive agent role for this step (REQUIRED)",\n'
         '      "requested_capabilities": ["read_files", "write_files"],\n'

@@ -64,6 +64,9 @@ def _eval_tests_pass(
         command = suite_commands.get(suite, "pytest --tb=short -q")
 
     try:
+        # shell=True required for shell pipeline support (|, &&, ;;).
+        # Test commands are sandboxed within project workspace.
+        # nosec B602
         result = subprocess.run(
             command,
             shell=True,

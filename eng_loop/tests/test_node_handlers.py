@@ -392,19 +392,19 @@ class TestVerificationHelpers:
         from eng_loop.nodes.verification import _post_verify
 
         state = _make_state("small", ui_project=True)
-        assert _post_verify(state) == "e2e-execute"
+        assert _post_verify(state) == "qa-static"
 
     def test_post_verify_small_no_ui(self):
         from eng_loop.nodes.verification import _post_verify
 
         state = _make_state("small", ui_project=False)
-        assert _post_verify(state) == "deploy-prepare"
+        assert _post_verify(state) == "qa-static"
 
     def test_post_verify_medium_no_ui(self):
         from eng_loop.nodes.verification import _post_verify
 
         state = _make_state("medium", ui_project=False)
-        assert _post_verify(state) == "qa-security"
+        assert _post_verify(state) == "qa-static"
 
     def test_post_e2e_small(self):
         from eng_loop.nodes.verification import _post_e2e

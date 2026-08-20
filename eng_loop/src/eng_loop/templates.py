@@ -47,7 +47,7 @@ STAGE_FILE_MAP: dict[str, str] = {
     "smoke.test": "smoke-test",
     "doc.decisions": "doc-decisions",
     "doc.project": "doc-project",
-    "post": "post-loop",
+    "post": "post",
 }
 
 

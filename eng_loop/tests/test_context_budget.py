@@ -5,10 +5,8 @@ from eng_loop.tools.context_budget import (
     CompactionMode,
     ContextBudgetManager,
     ContextPressure,
-    ForecastResult,
     ReservedOutputConfig,
 )
-
 
 # ── Budget math ───────────────────────────────────────────────
 
@@ -134,6 +132,7 @@ def test_adaptive_reserved_output():
 
 def test_compaction_preserves_critical():
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
     from eng_loop.tools.token_counter import TokenCounter
 
     mgr = ContextBudgetManager(
@@ -165,6 +164,7 @@ def test_compaction_preserves_critical():
 
 def test_compaction_audit_trail():
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
     from eng_loop.tools.token_counter import TokenCounter
 
     mgr = ContextBudgetManager(
@@ -193,6 +193,7 @@ def test_compaction_audit_trail():
 
 def test_compaction_no_op_when_short():
     from langchain_core.messages import HumanMessage, SystemMessage
+
     from eng_loop.tools.token_counter import TokenCounter
 
     mgr = ContextBudgetManager(

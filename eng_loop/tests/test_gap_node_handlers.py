@@ -5,9 +5,11 @@ from __future__ import annotations
 Covers: init.bdd, 6 design stages, 3 arch stages, e2e.execute, qa.performance, smoke.test
 """
 
+import shutil
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
 from langgraph.types import Command
 
 from eng_loop.node_registry import build_registry
@@ -195,6 +197,7 @@ class TestE2eExecuteNode:
         result = spec.handler(s)
         assert isinstance(result, Command)
 
+    @pytest.mark.skipif(shutil.which("npx") is None, reason="npx not in PATH")
     def test_fail_loops(self):
         with tempfile.TemporaryDirectory() as tmp:
             spec = build_registry().get("e2e.execute")
@@ -210,7 +213,10 @@ class TestE2eExecuteNode:
                     "complete": False,
                 }
             )
-            with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock):
+            with (
+                patch("eng_loop.tools.agent_runner.run_agent", return_value=mock),
+                patch("eng_loop.nodes.verification._check_e2e_prerequisites", return_value=None),
+            ):
                 result = spec.handler(s)
             assert result.goto == "impl-code"
 
