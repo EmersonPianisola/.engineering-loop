@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import threading
-import time
 
-from eng_loop.tools.cli_events import PipelineEvent, node_completed, node_started
+from eng_loop.tools.cli_events import node_completed, node_started
 from eng_loop.tools.event_bus import EventBus
 
 

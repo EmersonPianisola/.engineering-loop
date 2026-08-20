@@ -55,7 +55,7 @@ Before any work, ensure paths are resolved:
 3. Locate work item:
    - Explicit path → load
    - BMad → invoke `bmad-integration` skill
-   - Ad-hoc → auto-structure or request from user
+   - Ad-hoc → auto-structure or use `ask_user` tool to request clarification
 4. Validate: title, acceptance criteria, scope, intent present.
 5. If fails → `status: blocked`, `blocking_condition: input not ready`. **EXIT.**
 6. Store in `state.work_item`.
@@ -69,7 +69,7 @@ When the work item is ad-hoc (no explicit path, no BMad spec):
 1. **Absorb the user's request as-is** — treat the raw user message as the seed work item.
 2. Run essence validation on the raw intent:
    - Apply Four Lenses to identify ambiguities, hidden assumptions, literal traps, conflicting priorities.
-   - Report findings back to the user with specific clarifications.
+   - Use the `ask_user` tool to present clarifying questions to the user.
 3. Store preliminary work item in `state.work_item`.
 4. Set `state.work_item_type = "ad-hoc"`.
 5. **Delegar para `init.ideate`** — the BMAD Ideation stage (Phase 0.25) will:

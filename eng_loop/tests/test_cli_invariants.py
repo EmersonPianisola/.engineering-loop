@@ -18,7 +18,6 @@ from eng_loop.tools.cli_viewmodel import (
     EssenceGateInfo,
     EssenceQuestion,
     ExecutionViewModel,
-    NodeVisualStatus,
     PipelineMetrics,
     PipelineStatus,
     ProgressInfo,
@@ -56,7 +55,7 @@ class TestCompletedLessThanOrEqualTotal:
                 total_nodes=5,
                 completed_nodes=5,
                 total_executions=7,  # 2 retries
-                total_attempts=11,   # 6 retries total
+                total_attempts=11,  # 6 retries total
                 retries=6,
             ),
             progress=ProgressInfo(current=5, total=5),
@@ -99,9 +98,7 @@ class TestCompletedImpliesNoWaiting:
     def test_completed_with_questions_violates(self):
         vm = ExecutionViewModel(
             pipeline_status=PipelineStatus.COMPLETED,
-            essence_gate=EssenceGateInfo(
-                questions=[EssenceQuestion(id="q1", severity="high", question="What?")]
-            ),
+            essence_gate=EssenceGateInfo(questions=[EssenceQuestion(id="q1", severity="high", question="What?")]),
         )
         violations = vm.assert_consistent()
         assert any("COMPLETED with pending" in v for v in violations)
@@ -133,9 +130,7 @@ class TestWaitingForInputRequiresQuestions:
     def test_waiting_with_questions_ok(self):
         vm = ExecutionViewModel(
             pipeline_status=PipelineStatus.WAITING_FOR_INPUT,
-            essence_gate=EssenceGateInfo(
-                questions=[EssenceQuestion(id="q1", severity="high", question="What?")]
-            ),
+            essence_gate=EssenceGateInfo(questions=[EssenceQuestion(id="q1", severity="high", question="What?")]),
             metrics=PipelineMetrics(running_nodes=0),
         )
         assert vm.assert_consistent() == []
@@ -218,9 +213,7 @@ class TestMutualExclusion:
         # If all nodes done but gate waiting, status should be WAITING_FOR_INPUT
         vm = ExecutionViewModel(
             metrics=PipelineMetrics(total_nodes=5, completed_nodes=5),
-            essence_gate=EssenceGateInfo(
-                questions=[EssenceQuestion(id="q1", severity="high", question="What?")]
-            ),
+            essence_gate=EssenceGateInfo(questions=[EssenceQuestion(id="q1", severity="high", question="What?")]),
             pipeline_status=PipelineStatus.COMPLETED,
         )
         violations = vm.assert_consistent()
@@ -236,4 +229,4 @@ class TestMutualExclusion:
         # This is technically possible if a retry is running after all nodes completed
         # The invariant is about the status being wrong, not the progress
         # If running_nodes > 0, completed should be < total
-        pass  # This case is allowed — retry after completion is valid
+        # This case is allowed — retry after completion is valid

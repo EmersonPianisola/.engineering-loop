@@ -39,16 +39,20 @@ This stage exists for documentation only — mark done immediately and proceed.
    - Lens 3: Flag literal traps
    - Lens 4: Detect conflicting priorities
 3. **Propose refinements**:
-   - For each Lens 1-3 finding: rewrite the affected section with concrete language
-   - For each Lens 4 finding: present options to the user
-   - Add missing sections: `edge_cases`, `non_goals`, `success_metrics`
-4. **Present to user**:
-   - Show the refined work item
-   - Ask: "Should we adjust X, or is this accurate?"
-5. **User response**:
-   - If adjustments requested → go to step 2 with updated work item
-   - If confirmed → proceed to Phase 1 (Skill Discovery)
-   - If 5 iterations reached → proceed with current state
+    - For each Lens 1-3 finding: rewrite the affected section with concrete language
+    - For each Lens 4 finding: use `ask_user` tool to present options
+    - Add missing sections: `edge_cases`, `non_goals`, `success_metrics`
+4. **Present to user** (use `ask_user` tool):
+    - Show the refined work item
+    - Ask: "Should we adjust X, or is this accurate?"
+    - `questions`: ["Is this refined work item accurate, or should we adjust specific sections?"]
+    - `context`: The refined work item summary
+5. **User response** (from `ask_user` tool result):
+    - If adjustments requested → go to step 2 with updated work item
+    - If confirmed → proceed to Phase 1 (Skill Discovery)
+    - If 5 iterations reached → proceed with current state
+
+> **IMPORTANT:** You have the `ask_user` tool available. Use it whenever you need information only the user can provide. Do NOT invent answers or assume user preferences.
 6. **On confirmation**:
    - Set `state.work_item_type = "confirmed"`.
    - Set `state.stages.init.refine.done = true`.

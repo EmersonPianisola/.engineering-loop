@@ -79,12 +79,14 @@ After the skill completes decomposition:
 
 1. Check for **Critical** impact items.
 2. IF critical items exist:
-   - Present to user: "The following items require your confirmation:"
-   - List each critical item with rationale
-   - AWAIT user response
-   - IF confirmed: record in `state.ideation.critical_confirmed`, proceed
-   - IF rejected: set `status: blocked`, `blocking_condition: critical items rejected`, EXIT
+   - Use the `ask_user` tool to present critical items for confirmation:
+     - `questions`: ["Do you confirm the following critical items: {list items with rationale}? (yes/no)"]
+     - `context`: "These items were flagged as critical impact during decomposition."
+   - IF user confirms (yes): record in `state.ideation.critical_confirmed`, proceed
+   - IF user rejects (no): set `status: blocked`, `blocking_condition: critical items rejected`, EXIT
 3. IF no critical items: proceed automatically.
+
+> **IMPORTANT:** You have the `ask_user` tool available. Use it whenever you need information only the user can provide. Do NOT invent answers or assume user preferences.
 
 ### Step 5: Update State
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.tools import Tool
 
+from eng_loop.tools.ask_user_tool import create_ask_user_tool
 from eng_loop.tools.bash_tool import create_bash_tool
 from eng_loop.tools.edit_tool import create_edit_tool
 from eng_loop.tools.glob_tool import create_glob_tool
@@ -14,24 +15,24 @@ from eng_loop.tools.write_tool import create_write_tool
 
 # Which tools each stage needs
 STAGE_TOOLS: dict[str, list[str]] = {
-    # Init stages — explore project structure
-    "init": ["read", "glob"],
-    "init.ideate": ["read"],
-    "init.bdd": ["read"],
-    "init.refine": ["read"],
-    # Design stages — read existing code/docs for context
-    "design.user-research": ["read", "glob"],
-    "design.personas": ["read", "glob"],
-    "design.info-arch": ["read", "glob", "grep"],
-    "design.interaction": ["read", "glob", "grep"],
-    "design.design-system": ["read", "glob", "grep"],
-    "design.visual-design": ["read", "glob"],
-    # Architecture — read codebase for context
-    "arch.requirements": ["read", "glob", "grep"],
-    "arch.solution": ["read", "glob", "grep"],
-    "arch.review": ["read", "glob", "grep"],
+    # Init stages — explore project structure, may need user input
+    "init": ["read", "glob", "ask_user"],
+    "init.ideate": ["read", "ask_user"],
+    "init.bdd": ["read", "ask_user"],
+    "init.refine": ["read", "ask_user"],
+    # Design stages — read existing code/docs for context, may need user input
+    "design.user-research": ["read", "glob", "ask_user"],
+    "design.personas": ["read", "glob", "ask_user"],
+    "design.info-arch": ["read", "glob", "grep", "ask_user"],
+    "design.interaction": ["read", "glob", "grep", "ask_user"],
+    "design.design-system": ["read", "glob", "grep", "ask_user"],
+    "design.visual-design": ["read", "glob", "ask_user"],
+    # Architecture — read codebase for context, may need user input
+    "arch.requirements": ["read", "glob", "grep", "ask_user"],
+    "arch.solution": ["read", "glob", "grep", "ask_user"],
+    "arch.review": ["read", "glob", "grep", "ask_user"],
     # Implementation — full toolkit
-    "impl.design": ["read", "glob", "grep"],
+    "impl.design": ["read", "glob", "grep", "ask_user"],
     "impl.code": ["read", "write", "edit", "bash", "glob", "grep"],
     "doc.update": ["read", "write", "edit", "glob", "grep"],
     # Verification — read code, run tests
@@ -93,6 +94,8 @@ def get_tools_for_stage(
             tools.append(create_glob_tool())
         elif name == "grep":
             tools.append(create_grep_tool())
+        elif name == "ask_user":
+            tools.append(create_ask_user_tool())
 
     # Add graphify tools if knowledge graph was built
     graphify_tools = get_graphify_tools(state, paths)

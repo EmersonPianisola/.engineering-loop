@@ -42,6 +42,16 @@
     "post": { "done": false, "attempts": 0, "essence_checked": false, "verdict": "", "status": "", "findings": [], "evidence": {} }
   },
   "decisions": [],
+  "essence": {
+    "checked": false,
+    "blocked_stage": null,
+    "decision": null,
+    "clarification_attempts": 0,
+    "auto_adjust_attempts": 0,
+    "pending_questions": [],
+    "resolved_findings": []
+  },
+  "essence_clarifying_questions": [],
   "graph_topology": {},
   "active_nodes": [],
   "parallel_groups": {},

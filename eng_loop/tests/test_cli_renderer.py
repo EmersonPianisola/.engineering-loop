@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from eng_loop.tools.cli_renderer import (
-    _format_duration,
-    _node_color,
-    _node_symbol,
     ConsoleRenderer,
+    _format_duration,
+    _node_symbol,
 )
 from eng_loop.tools.cli_viewmodel import (
     DiagnosticEntry,
@@ -26,6 +23,7 @@ from eng_loop.tools.cli_viewmodel import (
 
 def make_console():
     from rich.console import Console
+
     return Console(force_terminal=True, width=80)
 
 
@@ -101,15 +99,9 @@ class TestConsoleRendererTopology:
         renderer = ConsoleRenderer(console)
 
         nodes = {
-            "init": GraphNodeInfo(
-                id="init", phase="INIT", visual_status=NodeVisualStatus.SUCCESS
-            ),
-            "impl.code": GraphNodeInfo(
-                id="impl.code", phase="IMPL", visual_status=NodeVisualStatus.RUNNING
-            ),
-            "post": GraphNodeInfo(
-                id="post", phase="POST", visual_status=NodeVisualStatus.PENDING
-            ),
+            "init": GraphNodeInfo(id="init", phase="INIT", visual_status=NodeVisualStatus.SUCCESS),
+            "impl.code": GraphNodeInfo(id="impl.code", phase="IMPL", visual_status=NodeVisualStatus.RUNNING),
+            "post": GraphNodeInfo(id="post", phase="POST", visual_status=NodeVisualStatus.PENDING),
         }
         vm = make_vm(
             nodes=nodes,
@@ -256,16 +248,22 @@ class TestConsoleRendererTiming:
                     id="init",
                     total_duration_ms=6000,
                     executions=[
-                        type("NodeExecution", (), {
-                            "attempts": [
-                                type("AttemptRecord", (), {
-                                    "attempt_num": 1, "duration_ms": 3000, "result": "retry"
-                                })(),
-                                type("AttemptRecord", (), {
-                                    "attempt_num": 2, "duration_ms": 3000, "result": "success"
-                                })(),
-                            ]
-                        })(),
+                        type(
+                            "NodeExecution",
+                            (),
+                            {
+                                "attempts": [
+                                    type(
+                                        "AttemptRecord", (), {"attempt_num": 1, "duration_ms": 3000, "result": "retry"}
+                                    )(),
+                                    type(
+                                        "AttemptRecord",
+                                        (),
+                                        {"attempt_num": 2, "duration_ms": 3000, "result": "success"},
+                                    )(),
+                                ]
+                            },
+                        )(),
                     ],
                 ),
             ],
@@ -342,8 +340,10 @@ class TestConsoleRendererFinal:
         vm = make_vm(
             pipeline_status=PipelineStatus.COMPLETED,
             metrics=PipelineMetrics(
-                total_nodes=5, completed_nodes=5,
-                total_executions=5, total_attempts=5,
+                total_nodes=5,
+                completed_nodes=5,
+                total_executions=5,
+                total_attempts=5,
             ),
             nodes={"init": GraphNodeInfo(id="init", total_duration_ms=1000)},
             history=[GraphNodeInfo(id="init", total_duration_ms=1000)],

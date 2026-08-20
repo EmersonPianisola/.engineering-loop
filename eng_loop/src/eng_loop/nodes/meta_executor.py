@@ -7,7 +7,7 @@ from typing import Any
 from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
-from eng_loop.schemas import DynamicRuntime
+from eng_loop.schemas import DynamicRuntime, ValidationRule
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.dynamic_validation import evaluate_validation_rules
 from eng_loop.tools.node_helpers import build_node_prompt
@@ -97,7 +97,7 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
 
     is_valid, err = evaluate_validation_rules(
         agent_result.data,
-        tuple(current_step.get("validation_rules", [])),
+        tuple(ValidationRule.model_validate(r) for r in current_step.get("validation_rules", [])),
         state.get("paths", {}).get("project_root", "."),
         state,
     )

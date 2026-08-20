@@ -280,7 +280,7 @@ def _is_ui_project(state: dict[str, Any]) -> bool:
 
 
 def _is_blocked(state: dict[str, Any]) -> bool:
-    return state.get("status") == "blocked"
+    return state.get("status") in ("blocked", "waiting_for_input")
 
 
 def _blueprint_valid(state: dict[str, Any]) -> bool:

@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import time
-
 from eng_loop.tools.cli_events import (
-    EVENT_NODE_COMPLETED,
-    EVENT_NODE_STARTED,
     PipelineEvent,
     attempt_completed,
     attempt_started,
@@ -19,14 +15,14 @@ from eng_loop.tools.cli_events import (
     node_failed,
     node_skipped,
     node_started,
-    planning_completed,
-    planning_started,
     pipeline_cancelled,
     pipeline_completed,
     pipeline_failed,
     pipeline_paused,
     pipeline_resuming,
     pipeline_started,
+    planning_completed,
+    planning_started,
 )
 
 

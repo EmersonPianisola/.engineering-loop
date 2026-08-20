@@ -5,9 +5,6 @@ from __future__ import annotations
 from eng_loop.tools.cli_viewmodel import (
     CheckpointInfo,
     ExecutionViewModel,
-    GraphNodeInfo,
-    NodeExecution,
-    NodeVisualStatus,
     PipelineMetrics,
     PipelineStatus,
     ProgressInfo,

@@ -39,9 +39,7 @@ def test_load_skill_returns_content_for_existing():
         if not content:
             empty.append(f"{stage_id} -> {skill_name}")
 
-    assert not empty, "SKILL.md files exist but return empty content:\n" + "\n".join(
-        f"  - {e}" for e in empty
-    )
+    assert not empty, "SKILL.md files exist but return empty content:\n" + "\n".join(f"  - {e}" for e in empty)
 
 
 def test_load_skill_returns_empty_for_missing(caplog):
@@ -95,9 +93,7 @@ def test_qa_skills_exist_on_disk():
         if not skill_file.exists():
             missing.append(f"{stage_id} -> {skill_name}")
 
-    assert not missing, "QA skills missing on disk:\n" + "\n".join(
-        f"  - {m}" for m in missing
-    )
+    assert not missing, "QA skills missing on disk:\n" + "\n".join(f"  - {m}" for m in missing)
 
 
 def test_design_skills_exist_on_disk():
@@ -124,9 +120,7 @@ def test_design_skills_exist_on_disk():
         if not skill_file.exists():
             missing.append(f"{stage_id} -> {skill_name}")
 
-    assert not missing, "Design skills missing on disk:\n" + "\n".join(
-        f"  - {m}" for m in missing
-    )
+    assert not missing, "Design skills missing on disk:\n" + "\n".join(f"  - {m}" for m in missing)
 
 
 def test_essence_skill_exists():

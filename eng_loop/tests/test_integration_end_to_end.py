@@ -114,7 +114,10 @@ class TestEndToEndDocumentationPipeline:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "done"
@@ -126,7 +129,10 @@ class TestEndToEndDocumentationPipeline:
 
         mock_result = self._mock_agent_result({}, "agent_stalled: read loop detected")
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "failed"
@@ -152,7 +158,10 @@ class TestEndToEndDocumentationPipeline:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})

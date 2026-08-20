@@ -1,21 +1,25 @@
 ---
 name: essence
 id: essence
-version: 1.0.0
+version: 2.0.0
 type: skill
 stage: all
 ---
 
-# Essence Sidecar — Four Lenses Validation
+# Essence Sidecar — Four Lenses Validation (v2.0)
 
 ## Objective
 Validate that stage inputs are sound before any work begins. Apply four lenses to detect subjective language, hidden assumptions, literal traps, and conflicting priorities. This is a PRE-STAGE gate — it validates inputs, not outputs.
+
+**Critical change in v2.0:** Findings now carry severity based on IMPACT on the solution, not finding type. Significant findings (severity >= threshold) generate clarifying questions for the user. The LLM detects; the policy engine decides.
 
 ## Inputs
 - Stage inputs for the upcoming stage (per essence input table)
 - Work item description
 - Relevant artifacts (blueprint, architecture, decisions)
 - Stage context: `state.stages.{stage_id}`
+- Previous clarifications (if any): `state.work_item.clarifications`
+- Resolved findings (if any): `state.essence.resolved_findings`
 
 ## Permitted Tools
 - `read`: Read stage inputs, artifacts, work item
@@ -35,12 +39,16 @@ Detect ambiguous language disguised as requirements. Flag terms that have no sha
 **Protocol:**
 1. Scan stage inputs for subjective terms
 2. For each term, propose 2-3 concrete interpretations
-3. Flag for clarification if the term cannot be anchored to observable criteria
+3. Assign severity based on IMPACT of ambiguity on the solution
+4. Assign a `finding_id` like `lens1_subject_cake`
 
-**Example:**
-- Input: "Make the API robust"
-- Finding: "robust" → network resilience? data integrity? error recovery? load handling?
-- Action: Flag for Lens 4 if multiple interpretations are plausible
+**Severity classification (based on IMPACT, NOT finding type):**
+
+| Severity | Definition | Examples |
+|----------|-----------|----------|
+| `high` | Interpretation fundamentally changes the solution or architecture | "login" = OAuth vs session vs SSO; "database" = SQL vs NoSQL; "cake" with dietary restrictions |
+| `medium` | Meaningful decision exists, but a reasonable default is available | "cache" = in-memory vs distributed; "logging" level/format |
+| `low` | Decision doesn't significantly change the outcome | "nice UI" aesthetic preference; "clean code" stylistic |
 
 ### Lens 2 — Hidden Assumptions
 
@@ -50,7 +58,8 @@ Extract unstated dependencies and implicit requirements.
 1. Read stage inputs as if you know nothing about the project
 2. For each statement, ask: "What does this assume?"
 3. State each assumption plainly
-4. Flag assumptions that could invalidate the entire approach
+4. Assign severity based on risk if assumption is false
+5. Assign a `finding_id` like `lens2_assump_no_allergies`
 
 **Common patterns:**
 - Unstated dependencies: "This needs service X" (without saying so)
@@ -68,7 +77,8 @@ Detect phrasing that invites wrong LLM interpretation. Ambiguous wording that lo
 1. Read each instruction literally
 2. Identify multiple plausible interpretations
 3. Flag the misinterpretation an LLM is likely to make
-4. Propose the correct interpretation
+4. Assign severity based on impact of misinterpretation
+5. Assign a `finding_id` like `lens3_trap_receipt_recipe`
 
 **Common traps:**
 - "Fix X" — fix what about X? (bug? performance? UX?)
@@ -96,24 +106,44 @@ Identify competing goals that need human resolution.
 - Security vs. usability
 - Performance vs. maintainability
 
+## Clarifying Questions
+
+For findings with severity >= threshold, generate clarifying questions.
+
+**Format:**
+```json
+{
+  "id": "essence_q_001",
+  "finding_id": "lens1_subject_cake",
+  "lens": "lens_1",
+  "finding_summary": "'cake' is ambiguous — could be any type",
+  "question": "What type of cake?",
+  "options": ["vanilla", "chocolate", "carrot", "cheesecake", "other"],
+  "severity": "high"
+}
+```
+
+**Invariants:**
+- Every question MUST reference an existing `finding_id`
+- Every significant finding MUST have a corresponding question
+- Question `severity` mirrors the finding's severity
+- Max `max_questions_per_request` questions (default: 5)
+
 ## Execution Protocol
 
 ### Step 1: Gather Inputs
 Read the stage inputs specified for this stage (per essence input table below).
+Check for previous clarifications and resolved findings — do not re-ask resolved items.
 
 ### Step 2: Apply Four Lenses
-Apply each lens to the gathered inputs. Record findings.
+Apply each lens to the gathered inputs. Record findings with severity and finding_id.
 
-### Step 3: Classify Findings
-
-| Lens | Action |
-|------|--------|
-| Lenses 1-3 | Auto-adjust inline, re-run essence |
-| Lens 4 | Escalate to user, await resolution |
-| No findings | Mark clean, proceed |
+### Step 3: Generate Clarifying Questions
+For findings with severity >= threshold, generate clarifying questions.
+The policy engine will decide whether to auto-adjust, ask user, or block.
 
 ### Step 4: Output Results
-Return structured output with findings per lens.
+Return structured output with findings, questions, and adjustments.
 
 ## Essence Input Per Stage
 
@@ -150,38 +180,54 @@ Return structured output with findings per lens.
 {
   "lens_1_subjective_terms": [
     {
-      "term": "robust",
-      "context": "Make the API robust",
-      "interpretations": ["network resilience", "data integrity", "error recovery"]
+      "finding_id": "lens1_subject_cake",
+      "term": "cake",
+      "context": "Write a cake recipe",
+      "interpretations": ["vanilla", "chocolate", "carrot", "cheesecake"],
+      "severity": "high"
     }
   ],
   "lens_2_hidden_assumptions": [
     {
-      "assumption": "The payment service is always available",
-      "risk": "If payment service is down, entire checkout flow fails",
-      "severity": "high"
+      "finding_id": "lens2_assump_no_allergies",
+      "assumption": "No dietary restrictions or allergies",
+      "risk": "Recipe may contain allergens user wants to avoid",
+      "severity": "medium"
     }
   ],
   "lens_3_literal_traps": [
     {
-      "phrasing": "Fix the login",
-      "ambiguity": "Fix bug? Improve UX? Add authentication method?",
-      "likely_misinterpretation": "LLM will fix the most obvious bug, not the root cause"
+      "finding_id": "lens3_trap_receipt",
+      "phrasing": "receipt",
+      "ambiguity": "Likely means 'recipe', not a financial receipt",
+      "likely_misinterpretation": "LLM could write a financial document instead of a cooking recipe",
+      "severity": "low"
     }
   ],
-  "lens_4_conflicts": [
-    {
-      "goal_a": "Complete in 2 weeks",
-      "goal_b": "Comprehensive test coverage (90%+)",
-      "tension": "Speed vs. thoroughness — achieving 90% coverage in 2 weeks requires more engineers or reduced scope",
-      "requires_user_resolution": true
-    }
-  ],
+  "lens_4_conflicts": [],
   "clean": false,
-  "adjustments": [
-    "Clarified 'robust' to mean 'error recovery with retry logic'"
+  "adjustments": [],
+  "clarifying_questions": [
+    {
+      "id": "essence_q_001",
+      "finding_id": "lens1_subject_cake",
+      "lens": "lens_1",
+      "finding_summary": "'cake' is ambiguous — could be any type",
+      "question": "What type of cake?",
+      "options": ["vanilla", "chocolate", "carrot", "cheesecake", "other"],
+      "severity": "high"
+    },
+    {
+      "id": "essence_q_002",
+      "finding_id": "lens2_assump_no_allergies",
+      "lens": "lens_2",
+      "finding_summary": "No dietary restrictions stated",
+      "question": "Any dietary restrictions or allergies to consider?",
+      "options": ["none", "gluten-free", "dairy-free", "vegan", "nut-free", "other"],
+      "severity": "medium"
+    }
   ],
-  "summary": "Found 1 subjective term, 1 hidden assumption, 1 literal trap, 1 priority conflict. Lens 4 conflict requires user resolution."
+  "summary": "Found 1 subjective term (high), 1 hidden assumption (medium), 1 literal trap (low). 2 clarifying questions generated."
 }
 ```
 
@@ -189,11 +235,14 @@ Return structured output with findings per lens.
 
 - **Never skip** — every stage must pass the Four Lenses before invocation
 - **Never increment attempts** — essence loop is internal to the pre-stage gate
-- **Never escalate Lenses 1-3** — auto-adjust inline, re-validate
-- **Always escalate Lens 4** — human resolution required for priority tensions
-- **Always capture Lens 4 in context.md** — user decisions recorded for traceability
+- **Never escalate Lens 4** — always escalate to user, never resolve yourself
+- **Always assign severity** — based on IMPACT of ambiguity, not finding type
+- **Always assign finding_id** — unique, descriptive, stable across retries
+- **Always link questions to findings** — every question references a finding_id
 - **Always run BEFORE stage** — essence validates inputs, not outputs
 - **Bound retries** — max 5 essence retries per stage (configurable)
+- **Do not re-ask resolved findings** — check `state.essence.resolved_findings`
+- **Do not re-ask clarified items** — check `state.work_item.clarifications.answers`
 
 ## Anti-Patterns
 
@@ -201,4 +250,6 @@ Return structured output with findings per lens.
 - **Never invent your own definition** for a subjective term and proceed
 - **Never resolve conflicting priorities yourself** — ask the user
 - **Never use the check as a delay tactic** — keep it tight, move fast
-- **Never ask more than 3 clarifying questions at once** — batch, then wait
+- **Never ask more than max_questions_per_request questions** — batch, then wait
+- **Never downgrade severity in questions** — question severity must mirror finding severity
+- **Never generate a question without a finding_id** — every question must reference a finding

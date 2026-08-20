@@ -553,9 +553,7 @@ def test_classify_work_type_validation():
 
 
 def test_classify_work_type_validation_portuguese():
-    assert classify_work_type(
-        "Valide o sistema atual para ser executado em producao"
-    ) == "validation"
+    assert classify_work_type("Valide o sistema atual para ser executado em producao") == "validation"
 
 
 def test_classify_work_type_validation_readiness():

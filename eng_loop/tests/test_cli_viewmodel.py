@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from eng_loop.tools.cli_viewmodel import (
     CheckpointInfo,
     DiagnosticEntry,
@@ -9,12 +7,10 @@ from eng_loop.tools.cli_viewmodel import (
     EssenceQuestion,
     ExecutionViewModel,
     GraphNodeInfo,
-    NodeExecution,
     NodeVisualStatus,
     PipelineMetrics,
     PipelineStatus,
     ProgressInfo,
-    AttemptRecord,
     ResumeInfo,
 )
 
@@ -97,9 +93,7 @@ class TestExecutionViewModel:
     def test_completed_with_questions_violates(self):
         vm = ExecutionViewModel(
             pipeline_status=PipelineStatus.COMPLETED,
-            essence_gate=EssenceGateInfo(
-                questions=[EssenceQuestion(id="q1", severity="high", question="What?")]
-            ),
+            essence_gate=EssenceGateInfo(questions=[EssenceQuestion(id="q1", severity="high", question="What?")]),
         )
         violations = vm.assert_consistent()
         assert any("COMPLETED with pending" in v for v in violations)
@@ -130,9 +124,7 @@ class TestExecutionViewModel:
     def test_waiting_with_active_nodes_violates(self):
         vm = ExecutionViewModel(
             pipeline_status=PipelineStatus.WAITING_FOR_INPUT,
-            essence_gate=EssenceGateInfo(
-                questions=[EssenceQuestion(id="q1", severity="high", question="What?")]
-            ),
+            essence_gate=EssenceGateInfo(questions=[EssenceQuestion(id="q1", severity="high", question="What?")]),
             metrics=PipelineMetrics(running_nodes=1),
         )
         violations = vm.assert_consistent()

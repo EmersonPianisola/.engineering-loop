@@ -34,7 +34,7 @@ def route_after_stage(state: dict[str, Any]) -> str:
 
 
 def route_check_loop(state: dict[str, Any]) -> Literal["continue_loop", "__end__"]:
-    if state.get("status") in ("blocked", "halted"):
+    if state.get("status") in ("blocked", "halted", "waiting_for_input"):
         return "__end__"
     if all_active_stages_done(state):
         return "__end__"
@@ -51,6 +51,15 @@ def route_blocked(state: dict[str, Any]) -> Literal["__end__"]:
     return "__end__"
 
 
+def route_waiting_for_input(state: dict[str, Any]) -> Literal["__end__"]:
+    """Waiting for user input is a terminal graph state.
+
+    The CLI handles the interaction loop outside the graph.
+    On resume, the graph is re-invoked from the blocked stage.
+    """
+    return "__end__"
+
+
 def _find_next_stage(state: dict[str, Any]) -> str:
     next_sid = next_incomplete_stage(state)
     if not next_sid:
@@ -59,7 +68,7 @@ def _find_next_stage(state: dict[str, Any]) -> str:
 
 
 def route_init_complete(state: dict[str, Any]) -> str:
-    if state.get("status") == "blocked":
+    if state.get("status") in ("blocked", "waiting_for_input"):
         return "__end__"
     return "init-ideate"
 

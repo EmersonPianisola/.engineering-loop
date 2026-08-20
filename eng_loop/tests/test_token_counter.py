@@ -65,10 +65,7 @@ def test_count_messages_breakdown():
     assert breakdown.ai_output > 0
     assert breakdown.tool_results > 0
     assert breakdown.total == (
-        breakdown.system_prompt
-        + breakdown.conversation
-        + breakdown.ai_output
-        + breakdown.tool_results
+        breakdown.system_prompt + breakdown.conversation + breakdown.ai_output + breakdown.tool_results
     )
 
 

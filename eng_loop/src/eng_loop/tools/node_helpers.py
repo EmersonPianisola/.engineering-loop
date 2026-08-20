@@ -9,11 +9,13 @@ from eng_loop.tools.prompt_builder import PromptBuilder
 
 # Deterministic and meta nodes don't have (or need) stage procedure templates.
 # Skipping them avoids spurious "Missing markdown file" warnings.
-_NO_PROCEDURE_STAGES = frozenset({
-    "init.setup",
-    "dynamic.architect",
-    "meta.executor",
-})
+_NO_PROCEDURE_STAGES = frozenset(
+    {
+        "init.setup",
+        "dynamic.architect",
+        "meta.executor",
+    }
+)
 
 
 def build_node_prompt(

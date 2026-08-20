@@ -55,7 +55,10 @@ class TestPostNodeHonestStatus:
         state, tmp = self._make_state()
         mock_result = self._mock_agent_result({}, "agent_stalled: read loop detected")
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "failed"
@@ -74,7 +77,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "done"
@@ -95,7 +101,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "partial"
@@ -115,7 +124,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         assert cmd.update["status"] == "done_with_warnings"
@@ -149,7 +161,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})
@@ -174,7 +189,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             cmd = post_node(state)
 
         evidence = cmd.update.get("artifact_evidence", {})
@@ -195,7 +213,10 @@ class TestPostNodeHonestStatus:
             }
         )
 
-        with patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result), patch("eng_loop.nodes.post.create_model_from_config"):
+        with (
+            patch("eng_loop.tools.agent_runner.run_agent", return_value=mock_result),
+            patch("eng_loop.nodes.post.create_model_from_config"),
+        ):
             post_node(state)
 
         summary_path = os.path.join(artifact_root, "post-loop-summary.md")

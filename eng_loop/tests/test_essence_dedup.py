@@ -109,28 +109,19 @@ class TestBuildClarificationQuestions:
         assert len(result) == 0
 
     def test_max_five_questions(self):
-        findings = [
-            {"finding_id": f"f{i}", "term": f"term{i}", "severity": "high"}
-            for i in range(10)
-        ]
+        findings = [{"finding_id": f"f{i}", "term": f"term{i}", "severity": "high"} for i in range(10)]
         result = _build_clarification_questions(findings, [])
         assert len(result) == 5
 
     def test_auto_generated_questions(self):
-        findings = [
-            {"finding_id": "lens1_x", "term": "ambiguous", "severity": "high"}
-        ]
+        findings = [{"finding_id": "lens1_x", "term": "ambiguous", "severity": "high"}]
         result = _build_clarification_questions(findings, [])
         assert len(result) == 1
         assert result[0]["finding_id"] == "lens1_x"
         assert "Please clarify" in result[0]["question"]
 
     def test_severity_preserved(self):
-        findings = [
-            {"finding_id": "f1", "term": "x", "severity": "high"}
-        ]
-        llm_questions = [
-            {"id": "q1", "finding_id": "f1", "question": "What?"}
-        ]
+        findings = [{"finding_id": "f1", "term": "x", "severity": "high"}]
+        llm_questions = [{"id": "q1", "finding_id": "f1", "question": "What?"}]
         result = _build_clarification_questions(findings, llm_questions)
         assert result[0]["severity"] == "high"
