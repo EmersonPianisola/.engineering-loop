@@ -7,7 +7,7 @@ from typing import Any
 from langgraph.types import Command
 
 from eng_loop.model import create_model_from_config
-from eng_loop.schemas import DynamicRuntime, ValidationRule
+from eng_loop.schemas import DynamicAuditEntry, DynamicRuntime, ValidationRule
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.dynamic_validation import evaluate_validation_rules
 from eng_loop.tools.node_helpers import build_node_prompt
@@ -102,15 +102,15 @@ def meta_node_executor_node(state: dict[str, Any]) -> Command[str]:
         state,
     )
 
-    audit_entry = {
-        "plan_id": plan.get("plan_id", ""),
-        "step_id": step_id,
-        "attempt": current_attempts,
-        "status": "success" if is_valid else "failed",
-        "started_at": start_time,
-        "finished_at": finish_time,
-        "error": err if not is_valid else None,
-    }
+    audit_entry = DynamicAuditEntry(
+        plan_id=plan.get("plan_id", ""),
+        step_id=step_id,
+        attempt=current_attempts,
+        status="success" if is_valid else "failed",
+        started_at=start_time,
+        finished_at=finish_time,
+        error=err if not is_valid else None,
+    )
     runtime.step_audit.append(audit_entry)
 
     if not is_valid:
