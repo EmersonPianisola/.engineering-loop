@@ -827,7 +827,9 @@ class MAGEHUDApp(App):
         yield PartyStatusPanel(id="party")
 
         # Row 3: Bottom tabs (Narrative + Inspector + Captured Output)
-        yield BottomTabs(id="bottom-tabs").compose(
+        bottom_tabs = BottomTabs(id="bottom-tabs")
+        yield bottom_tabs
+        bottom_tabs.mount(
             TabPane("Narrative Log", NarrativeLogPanel(id="narrative")),
             TabPane("Node Inspector", NodeInspectorPanel(id="inspector")),
             TabPane("Captured Output", CapturedOutputLog(id="captured-output")),
