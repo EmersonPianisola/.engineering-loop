@@ -25,6 +25,8 @@ def _build_fix_tasks(
     evidence: list[str],
 ) -> list[dict[str, Any]]:
     """Map verifier gaps into structured FixTask objects."""
+    if isinstance(evidence, dict):
+        evidence = list(evidence.values())
     fix_tasks = []
     for i, gap in enumerate(gaps):
         ev = evidence[i] if i < len(evidence) else ""

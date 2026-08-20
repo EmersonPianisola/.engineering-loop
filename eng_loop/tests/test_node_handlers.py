@@ -418,6 +418,38 @@ class TestVerificationHelpers:
         state = _make_state("medium", ui_project=True)
         assert _post_e2e(state) == "qa-security"
 
+    def test_build_fix_tasks_list_evidence(self):
+        from eng_loop.nodes.verification import _build_fix_tasks
+
+        gaps = ["missing login test", "no error handling"]
+        evidence = ["src/login.py:42", "src/error.py:10"]
+        result = _build_fix_tasks("verify", gaps, evidence)
+        assert len(result) == 2
+        assert result[0]["gap"] == "missing login test"
+        assert result[0]["evidence"] == "src/login.py:42"
+        assert result[1]["evidence"] == "src/error.py:10"
+
+    def test_build_fix_tasks_dict_evidence(self):
+        from eng_loop.nodes.verification import _build_fix_tasks
+
+        gaps = ["missing login test", "no error handling"]
+        evidence = {"0": "src/login.py:42", "1": "src/error.py:10"}
+        result = _build_fix_tasks("verify", gaps, evidence)
+        assert len(result) == 2
+        assert result[0]["gap"] == "missing login test"
+        assert result[0]["evidence"] == "src/login.py:42"
+
+    def test_build_fix_tasks_short_evidence(self):
+        from eng_loop.nodes.verification import _build_fix_tasks
+
+        gaps = ["gap one", "gap two", "gap three"]
+        evidence = ["only one"]
+        result = _build_fix_tasks("verify", gaps, evidence)
+        assert len(result) == 3
+        assert result[0]["evidence"] == "only one"
+        assert result[1]["evidence"] == ""
+        assert result[2]["evidence"] == ""
+
 
 # ============================================================
 # QA NODE HANDLERS
