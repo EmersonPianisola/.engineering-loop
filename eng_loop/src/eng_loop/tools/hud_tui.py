@@ -233,7 +233,7 @@ class QuestBar(Static):
         border: round $accent;
         padding: 0 1;
         height: 3;
-        grid-column-end: span 2;
+        column-span: 2;
     }
     """
 
@@ -827,18 +827,19 @@ class MAGEHUDApp(App):
         yield PartyStatusPanel(id="party")
 
         # Row 3: Bottom tabs (Narrative + Inspector + Captured Output)
-        bottom_tabs = BottomTabs(id="bottom-tabs")
-        yield bottom_tabs
+        yield BottomTabs(id="bottom-tabs")
+
+        # Row 4: Status Bar
+        yield StatusBar()
+
+    def on_mount(self) -> None:
+        # Mount tab panes after BottomTabs is attached to the DOM
+        bottom_tabs = self.query_one("#bottom-tabs", BottomTabs)
         bottom_tabs.mount(
             TabPane("Narrative Log", NarrativeLogPanel(id="narrative")),
             TabPane("Node Inspector", NodeInspectorPanel(id="inspector")),
             TabPane("Captured Output", CapturedOutputLog(id="captured-output")),
         )
-
-        # Row 4: Status Bar
-        yield StatusBar(id="status-bar")
-
-    def on_mount(self) -> None:
         self._refresh_task = self.set_interval(0.25, self._refresh_from_state)
         # Sequester stdout/stderr to prevent leakage that corrupts the TUI
         self._redirector.install()
@@ -1017,6 +1018,7 @@ class TextualHUDController:
         self._work_item = work_item
         self._running = False
         self._app_thread: threading.Thread | None = None
+        self._current_stage: str | None = None
 
     def _run_app_thread(self) -> None:
         """Run the Textual app in a background thread."""
@@ -1031,6 +1033,7 @@ class TextualHUDController:
         from eng_loop.tools.progress import ui as progress_ui
 
         progress_ui.set_tui_active(True)
+        progress_ui.set_hud(self)
         self._running = True
         self._app_thread = threading.Thread(target=self._run_app_thread, daemon=True)
         self._app_thread.start()
@@ -1043,6 +1046,7 @@ class TextualHUDController:
         self.app.exit()
         if self._app_thread and self._app_thread.is_alive():
             self._app_thread.join(timeout=5)
+        progress_ui.set_hud(None)
         progress_ui.set_tui_active(False)
 
     def is_paused(self) -> bool:
@@ -1071,3 +1075,21 @@ class TextualHUDController:
     def has_intervention(self, node_name: str) -> str | None:
         """Check for and retrieve intervention text for a node."""
         return self.execution_state.get_intervention(node_name)
+
+    # ── HUD interface (expected by progress.py) ──────────────────
+
+    def set_current_stage(self, stage_id: str) -> None:
+        """Update the current stage displayed in the TUI."""
+        self._current_stage = stage_id
+
+    def clear_current_stage(self) -> None:
+        """Clear the current stage display."""
+        self._current_stage = None
+
+    def log(self, level: str, message: str) -> None:
+        """Append a log entry to the TUI narrative log."""
+        pass
+
+    def update(self) -> None:
+        """Trigger a TUI refresh."""
+        pass
