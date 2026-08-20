@@ -1,0 +1,7 @@
+[cosmic-ray]
+module-path = "src/eng_loop"
+test-command = "pytest tests -x -k 'not test_fail_loops'"
+timeout = 300
+
+[cosmic-ray.distributor]
+name = "local"
