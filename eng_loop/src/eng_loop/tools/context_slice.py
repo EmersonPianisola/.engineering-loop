@@ -253,9 +253,14 @@ def _get_reference_path(key: str, artifact_root: str) -> str | None:
 
 
 def _enforce_token_limit(text: str, token_limit: int) -> str:
-    estimated_chars = token_limit * 4
-    if len(text) > estimated_chars:
-        return text[:estimated_chars] + "\n\n... [truncated — context limit reached] ..."
+    """Enforce token limit on context slice.
+
+    DEPRECATED: Hard truncation replaced by agent lifecycle management.
+    When an agent's budget is exhausted, a new agent is spawned with distilled context.
+    This function now returns text unchanged.
+    """
+    # Agent lifecycle handles budget enforcement via spawn transitions.
+    # Returning full text preserves all context.
     return text
 
 

@@ -352,11 +352,11 @@ class TestContextConsolidatorIntegration:
         compressed = compress_handoff(handoff, max_tokens=125)
         assert compressed == handoff
 
-    def test_compress_handoff_over_budget(self):
+    def test_compress_handoff_preserves_content(self):
+        # NEW BEHAVIOR: no truncation
         handoff = "x" * 10000
         compressed = compress_handoff(handoff, max_tokens=125)
-        assert len(compressed) < len(handoff)
-        assert "truncated" in compressed
+        assert compressed == handoff
 
     def test_compute_state_diff(self):
         old = {"a": 1, "b": 2, "c": 3}

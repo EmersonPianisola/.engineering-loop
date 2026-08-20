@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # CONTEXT CONSOLIDATOR — Dedup, compression, incremental diff
 # ============================================================
 
-SIMILARITY_THRESHOLD = 0.85
+SIMILARITY_THRESHOLD = 0.98  # Only dedup near-identical content (was 0.85, too aggressive)
 
 
 def compute_text_hash(text: str) -> str:
@@ -86,13 +86,11 @@ def deduplicate_stage_artifacts(
 def compress_handoff(handoff: str, max_tokens: int = 125) -> str:
     """Compress a handoff summary to stay within token budget.
 
-    Simple truncation with ellipsis for now. Could be replaced with
-    LLM-assisted summarization in future.
+    DEPRECATED: Hard truncation removed. Handoffs are now passed by reference
+    (artifact paths) rather than inline content. The agent reads what it needs.
     """
-    max_chars = max_tokens * 4
-    if len(handoff) <= max_chars:
-        return handoff
-    return handoff[:max_chars] + "\n... [truncated]"
+    # Return full content — no truncation. Budget is managed by agent lifecycle, not content limits.
+    return handoff
 
 
 def compute_state_diff(
@@ -137,14 +135,14 @@ def build_handoff_summary(
     )
     if output:
         output_str = str(output)
-        if len(output_str) > 200:
-            output_str = output_str[:200] + "..."
+        # No truncation — budget managed by agent lifecycle, not content limits
         parts.append(f"Output: {output_str}")
 
     if decisions:
         parts.append(f"Decisions: {len(decisions)} recorded")
-        for d in decisions[:3]:
-            parts.append(f"  - {d[:100]}")
+        # Include all decisions — no arbitrary cap
+        for d in decisions:
+            parts.append(f"  - {d}")
 
     artifacts = stage_result.get("artifacts", stage_result.get("files_created", []))
     if artifacts:
@@ -153,8 +151,9 @@ def build_handoff_summary(
     errors = stage_result.get("gaps", stage_result.get("critical_findings", []))
     if errors:
         parts.append(f"Alerts: {len(errors)} issues found")
-        for e in errors[:3]:
-            parts.append(f"  ! {str(e)[:100]}")
+        # Include all alerts — no arbitrary cap
+        for e in errors:
+            parts.append(f"  ! {str(e)}")
 
     summary = "\n".join(parts)
     return compress_handoff(summary, max_tokens)

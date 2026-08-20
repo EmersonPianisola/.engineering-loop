@@ -703,21 +703,22 @@ class TestGetReferencePath:
 
 
 class TestEnforceTokenLimit:
-    def test_truncates_when_exceeds_limit(self):
+    def test_returns_unchanged_regardless_of_length(self):
+        # NEW BEHAVIOR: _enforce_token_limit is now a no-op
         long_text = "x" * 50000
         result = _enforce_token_limit(long_text, 1000)
-        assert len(result) > 4000
-        assert "[truncated" in result
+        assert result == long_text
 
     def test_returns_unchanged_when_under_limit(self):
         short_text = "short text"
         result = _enforce_token_limit(short_text, 1000)
         assert result == short_text
 
-    def test_truncation_includes_ellipsis(self):
+    def test_long_text_preserved(self):
+        # NEW BEHAVIOR: no truncation
         long_text = "y" * 100000
         result = _enforce_token_limit(long_text, 100)
-        assert result.endswith("... [truncated — context limit reached] ...")
+        assert result == long_text
 
 
 class TestGetAvailableArtifacts:
@@ -882,16 +883,17 @@ class TestCompressHandoff:
         short = "Brief summary"
         assert compress_handoff(short, 125) == short
 
-    def test_long_handoff_truncated(self):
+    def test_long_handoff_preserved(self):
+        # NEW BEHAVIOR: no truncation
         long_text = "x" * 10000
         result = compress_handoff(long_text, 100)
-        assert len(result) > 400
-        assert "[truncated]" in result
+        assert result == long_text
 
     def test_truncation_includes_ellipsis(self):
+        # NEW BEHAVIOR: compress_handoff no longer truncates
         long_text = "y" * 5000
         result = compress_handoff(long_text, 50)
-        assert result.endswith("\n... [truncated]")
+        assert result == long_text
 
 
 # ============================================================
@@ -952,10 +954,11 @@ class TestBuildHandoffSummary:
         assert "Output:" in summary
         assert "Implementation complete" in summary
 
-    def test_output_truncated_when_long(self):
+    def test_output_preserved_when_long(self):
+        # NEW BEHAVIOR: no truncation of output
         result = {"output": "x" * 500}
         summary = build_handoff_summary("impl.code", result, [])
-        assert "..." in summary
+        assert "x" * 500 in summary
 
     def test_includes_decision_count(self):
         result = {}
@@ -970,13 +973,14 @@ class TestBuildHandoffSummary:
         assert "AD-001: First decision" in summary
         assert "AD-002: Second decision" in summary
 
-    def test_limits_decisions_to_three(self):
+    def test_includes_all_decisions(self):
+        # NEW BEHAVIOR: no arbitrary cap on decisions
         result = {}
         decisions = [f"Decision {i}" for i in range(5)]
         summary = build_handoff_summary("impl.code", result, decisions)
         assert "Decisions: 5 recorded" in summary
         assert "Decision 0" in summary
-        assert "Decision 3" not in summary
+        assert "Decision 3" in summary  # all decisions included
 
     def test_includes_artifact_count(self):
         result = {"artifacts": ["file1.py", "file2.py"]}
@@ -1003,10 +1007,11 @@ class TestBuildHandoffSummary:
         summary = build_handoff_summary("qa.security", result, [])
         assert "Alerts: 1 issues found" in summary
 
-    def test_compressed_when_exceeds_max_tokens(self):
+    def test_preserved_when_exceeds_max_tokens(self):
+        # NEW BEHAVIOR: no truncation based on token budget
         result = {"output": "x" * 2000}
         summary = build_handoff_summary("impl.code", result, [], max_tokens=50)
-        assert "[truncated]" in summary
+        assert "x" * 2000 in summary
 
 
 # ============================================================

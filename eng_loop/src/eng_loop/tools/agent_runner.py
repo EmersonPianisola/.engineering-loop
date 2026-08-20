@@ -27,10 +27,31 @@ from eng_loop.tools.progress import (
     log_stage_fail,
     ui,
 )
+from eng_loop.tools.agent_lifecycle import AgentLifecycleManager, AgentState, DistilledState
 from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
 
 if TYPE_CHECKING:
     ProgressCallback = Callable[[str, str], None]
+
+
+# Global lifecycle manager — shared across all agent invocations in a run
+_lifecycle_manager: AgentLifecycleManager | None = None
+
+
+def get_lifecycle_manager(config: dict[str, Any] | None = None) -> AgentLifecycleManager:
+    """Get or create the global lifecycle manager."""
+    global _lifecycle_manager
+    if _lifecycle_manager is None and config:
+        _lifecycle_manager = AgentLifecycleManager(config)
+    elif _lifecycle_manager is None:
+        _lifecycle_manager = AgentLifecycleManager({})
+    return _lifecycle_manager
+
+
+def reset_lifecycle_manager() -> None:
+    """Reset the global lifecycle manager (called between runs)."""
+    global _lifecycle_manager
+    _lifecycle_manager = None
 
 
 class AgentResult:
@@ -313,6 +334,17 @@ def run_agent(
     # Ask-user rate limiter — prevent spam of user input requests
     _ask_user_count = 0
     _ASK_USER_MAX = 3  # Max 3 ask_user calls per stage
+
+    # Agent lifecycle management — track token budget, orchestrate spawn transitions
+    lifecycle = get_lifecycle_manager(config)
+    agent_id = lifecycle.register_agent(stage_id)
+    _dbg.debug(
+        "[LIFECYCLE] Registered agent %s for stage %s (limit=%d tokens, parallel=%d)",
+        agent_id,
+        stage_id,
+        lifecycle.config.agent_context_limit,
+        lifecycle.config.max_parallel_agents,
+    )
 
     for iteration in range(1, max_iterations + 1):
         iter_start = time.monotonic()
@@ -705,9 +737,42 @@ def run_agent(
                     )
                     _read_only_answer_injected = True
 
-                # Compact messages if conversation is getting too long
-                if len(messages) > 80:
-                    messages = _compact_messages(messages)
+                # Agent lifecycle check — track budget and decide whether to continue or distill+spawn
+                is_prod = tool_name in ("write", "edit", "bash") if "tool_name" in dir() else False
+                action, agent_stats = lifecycle.record_iteration(
+                    stage_id,
+                    input_tokens=0,  # estimated; real count comes from model response metadata
+                    output_tokens=0,
+                    tool_call_name=tool_name if "tool_name" in dir() else "",
+                    is_productive=is_prod,
+                )
+
+                if action == "distill_and_spawn":
+                    _dbg.warning(
+                        "[LIFECYCLE] Agent %s budget exhausted (iterations=%d). Distilling and spawning.",
+                        agent_stats.agent_id,
+                        agent_stats.iterations,
+                    )
+                    distilled = lifecycle.build_distilled_state(stage_id, messages, tool_cache.get_stats())
+                    new_agent_id, new_agent = lifecycle.spawn_next_agent(stage_id, distilled)
+
+                    # Inject distilled state as context for the new agent
+                    distilled_prompt = _build_distilled_context(distilled, stage_id)
+                    messages.append(HumanMessage(content=distilled_prompt))
+                    # Reset message list to just the distilled context + system + original objective
+                    # This gives the new agent a clean budget
+                    messages = [m for m in messages if isinstance(m, (SystemMessage, HumanMessage))]
+                    # Re-inject the original work item
+                    messages.append(HumanMessage(content=distilled_prompt))
+                    agent_id = new_agent_id
+                    _read_streak = 0
+                    stall_detector.reset()
+                    cmd_history.reset()
+                    tool_cache.clear()
+
+                # Legacy compaction is now disabled — lifecycle manager handles context overflow
+                # if len(messages) > 80:
+                #     messages = _compact_messages(messages)
             else:
                 # No more tool calls — agent has its final answer
                 _dbg.debug(
@@ -1914,6 +1979,50 @@ def _compact_skill(skill_text: str, max_lines: int = 50) -> str:
     return compacted
 
 
+def _build_distilled_context(distilled: DistilledState, stage_id: str) -> str:
+    """Build a prompt section from distilled agent state.
+
+    This is injected into the new agent's context as a HumanMessage,
+    giving it full awareness of what the predecessor accomplished.
+    """
+    parts = [
+        f"[LIFECYCLE HANDOFF from agent {distilled.predecessor_agent_id}]",
+        f"Stage: {stage_id}",
+        f"Tokens consumed by predecessor: {distilled.total_tokens_consumed}",
+    ]
+
+    if distilled.work_completed:
+        parts.append("Work completed by predecessor:")
+        for item in distilled.work_completed:
+            parts.append(f"  [DONE] {item}")
+
+    if distilled.files_modified:
+        parts.append("Files touched by predecessor:")
+        for fp in distilled.files_modified:
+            parts.append(f"  {fp}")
+
+    if distilled.errors_encountered:
+        parts.append("Errors encountered (predecessor worked around these):")
+        for err in distilled.errors_encountered:
+            parts.append(f"  [ERROR] {err}")
+
+    if distilled.key_findings:
+        parts.append("Key findings from predecessor:")
+        for finding in distilled.key_findings:
+            parts.append(f"  [FINDING] {finding}")
+
+    if distilled.remaining_work:
+        parts.append("Remaining work (carry over):")
+        for item in distilled.remaining_work:
+            parts.append(f"  [TODO] {item}")
+
+    parts.append("")
+    parts.append("Continue the work from where the predecessor left off. "
+                 "Do NOT re-do work that is marked [DONE].")
+
+    return "\n".join(parts)
+
+
 def _inject_compact_skill(prompt: str, max_skill_lines: int = 50) -> str:
     """Replace the ## SKILL section in a prompt with a compacted version.
 
@@ -2250,6 +2359,8 @@ def _check_context_budget(
         }
 
     # Check if compaction is needed proactively
+    # NOTE: compact_messages now returns messages unchanged (lifecycle manager handles overflow).
+    # This block is kept for API compatibility but is a no-op.
     if result.pressure == ContextPressure.PRESSURE:
         compacted, record = budget_manager.compact_messages(stage_id, messages, token_counter)
         if record:
@@ -2260,9 +2371,11 @@ def _check_context_budget(
                 record.tokens_before,
                 record.tokens_after,
             )
+        # Bug fix: use is not None check instead of truthiness
+        # (empty list [] is falsy in Python, which would incorrectly fall back to original messages)
         return {
             "allowed": True,
-            "messages": compacted if compacted else messages,
+            "messages": compacted if compacted is not None else messages,
             "reason": "",
         }
 

@@ -158,8 +158,10 @@ def test_compaction_preserves_critical():
     # First human preserved
     humans = [m for m in compacted if isinstance(m, HumanMessage)]
     assert any("Original objective" in getattr(m, "content", "") for m in humans)
-    # Total messages reduced
-    assert len(compacted) < len(messages)
+    # Compaction is now a no-op — lifecycle manager handles context overflow via spawn transitions
+    # All messages are preserved unchanged
+    assert len(compacted) == len(messages)
+    assert compacted is messages
 
 
 def test_compaction_audit_trail():

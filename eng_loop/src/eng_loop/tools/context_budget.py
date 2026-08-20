@@ -295,109 +295,16 @@ class ContextBudgetManager:
     ) -> tuple[list[Any], CompactionRecord | None]:
         """Compact messages to fit within budget.
 
-        Preserves:
-        - SystemMessage (always)
-        - First HumanMessage (objective/work item)
-        - Essence Gate answers / confirmed decisions
-        - Last N tool exchanges (configurable)
-        - Recent conversation
+        DEPRECATED: This lossy compaction has been replaced by AgentLifecycleManager.
+        When an agent's token budget is exhausted, the lifecycle manager distills
+        state and spawns a fresh agent with full budget. This preserves all context
+        semantically rather than discarding it.
 
-        Reduces:
-        - Older ToolMessage pairs → condensed summary
-        - Large tool results → truncated
-        - Redundant outputs
+        This method now returns messages unchanged to maintain API compatibility.
         """
-        if len(messages) <= self._preserve_count + 2:
-            return messages, None
-
-        tokens_before = token_counter.estimate_messages_input(messages)
-
-        # Separate messages by category
-        system_msgs: list[Any] = []
-        first_human: Any = None
-        other_human: list[Any] = []
-        ai_msgs: list[Any] = []
-        tool_msgs: list[Any] = []
-
-        for msg in messages:
-            if isinstance(msg, SystemMessage):
-                system_msgs.append(msg)
-            elif isinstance(msg, HumanMessage):
-                if first_human is None:
-                    first_human = msg
-                else:
-                    other_human.append(msg)
-            elif isinstance(msg, ToolMessage):
-                tool_msgs.append(msg)
-            elif isinstance(msg, AIMessage):
-                ai_msgs.append(msg)
-            else:
-                other_human.append(msg)
-
-        # Build compacted list
-        compacted: list[Any] = []
-
-        # Always keep system messages
-        compacted.extend(system_msgs)
-
-        # Always keep first human (objective)
-        if first_human:
-            compacted.append(first_human)
-
-        # Truncate large tool results
-        truncated_tool_msgs = []
-        for tm in tool_msgs:
-            content = getattr(tm, "content", "")
-            if isinstance(content, str) and len(content) > self._truncate_tool_result_chars:
-                head = content[: self._truncate_tool_result_chars // 2]
-                tail = content[-self._truncate_tool_result_chars // 2 :]
-                compacted_content = (
-                    f"[truncated tool result, {len(content)} chars]\n--- head ---\n{head}\n--- tail ---\n{tail}"
-                )
-                truncated_tool_msgs.append(ToolMessage(content=compacted_content, tool_call_id=tm.tool_call_id))
-            else:
-                truncated_tool_msgs.append(tm)
-
-        # Keep recent messages (last preserve_count from combined ai+tool+human)
-        recent_pool = list(other_human) + list(ai_msgs) + list(truncated_tool_msgs)
-
-        # Keep the last N messages
-        kept_recent = recent_pool[-self._preserve_count :]
-
-        # Summarize the dropped messages
-        dropped = recent_pool[: -self._preserve_count]
-        if dropped:
-            dropped_tokens = sum(token_counter.count(getattr(m, "content", "") or "") for m in dropped)
-            summary = HumanMessage(
-                content=(
-                    f"[Compacted: {len(dropped)} earlier messages "
-                    f"({dropped_tokens} tokens). Tool exchanges and intermediate "
-                    f"results have been summarized for context window management.]"
-                )
-            )
-            compacted.append(summary)
-
-        compacted.extend(kept_recent)
-
-        tokens_after = token_counter.estimate_messages_input(compacted)
-        saved = tokens_before - tokens_after
-
-        record = None
-        if saved > 0:
-            call_num = self._call_counters.get(stage_id, 0)
-            record = CompactionRecord(
-                stage_id=stage_id,
-                call_number=call_num,
-                timestamp=time.monotonic(),
-                tokens_before=tokens_before,
-                tokens_after=tokens_after,
-                tokens_saved=saved,
-                strategy="message_truncation",
-            )
-            self._compaction_records.append(record)
-            self._total_compacted += saved
-
-        return compacted, record
+        # Lifecycle manager handles context overflow via spawn transitions.
+        # Returning messages unchanged preserves all tool call semantics.
+        return messages, None
 
     # ── Forecast ────────────────────────────────────────────────
 

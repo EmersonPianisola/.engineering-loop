@@ -233,9 +233,12 @@ def enforce_context_budget(
     global_tokens = global_chars // 4
 
     if global_tokens > config.global_max_tokens:
-        str(result["global"])
-        config.global_max_tokens * 4
-        result["global"] = {"_truncated": True, "_original_size": global_tokens}
+        # Truncate global tier to budget while preserving critical keys
+        critical_keys = {"work_item", "complexity", "work_type"}
+        truncated = {k: v for k, v in result["global"].items() if k in critical_keys}
+        truncated["_truncated"] = True
+        truncated["_original_size"] = global_tokens
+        result["global"] = truncated
         remaining -= config.global_max_tokens
     else:
         remaining -= global_tokens
