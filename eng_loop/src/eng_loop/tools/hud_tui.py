@@ -134,33 +134,42 @@ def _format_duration(seconds: float) -> str:
 # ─── Custom Messages ─────────────────────────────────────────────────
 
 
-class NodeSelected:
+class NodeSelected(Message):
     """Emitted when a node is selected in the graph tree."""
 
     def __init__(self, node_name: str) -> None:
         self.node_name = node_name
+        super().__init__()
 
 
-class PauseToggled:
+class PauseToggled(Message):
     """Emitted when pause/resume is toggled."""
 
     def __init__(self, is_paused: bool) -> None:
         self.is_paused = is_paused
+        super().__init__()
 
 
-class StepRequested:
+class StepRequested(Message):
     """Emitted when step-by-step mode is requested."""
 
+    def __init__(self) -> None:
+        super().__init__()
 
-class InterventionRequested:
+
+class InterventionRequested(Message):
     """Emitted when user requests to intervene."""
 
     def __init__(self, node_name: str) -> None:
         self.node_name = node_name
+        super().__init__()
 
 
-class QuitRequested:
+class QuitRequested(Message):
     """Emitted when user requests to quit."""
+
+    def __init__(self) -> None:
+        super().__init__()
 
 
 class StdoutCaptured(Message):
@@ -830,7 +839,7 @@ class MAGEHUDApp(App):
         yield BottomTabs(id="bottom-tabs")
 
         # Row 4: Status Bar
-        yield StatusBar()
+        yield StatusBar(id="status-bar")
 
     def on_mount(self) -> None:
         # Mount tab panes after BottomTabs is attached to the DOM

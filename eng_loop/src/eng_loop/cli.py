@@ -565,20 +565,25 @@ def main():
             ui.console.print("[dim]Mode: Static graph (legacy)[/dim]")
         graph = compile_graph(config=config)
 
+        # Determine active nodes from complexity/work_type for static graph.
+        # Required for TUI topology display and execution state tracking.
+        from eng_loop.state import get_active_stages
+
+        active_static = get_active_stages(
+            state.get("complexity", "unset"),
+            state.get("ui_project", False),
+            state.get("work_type", "feature"),
+        )
+        state.setdefault("active_nodes", active_static)
+
         # For static graph, emit planning completed with known nodes
         if event_bus:
-            from eng_loop.state import get_active_stages
             from eng_loop.tools.cli_events import planning_completed
 
-            active = get_active_stages(
-                state.get("complexity", "unset"),
-                state.get("ui_project", False),
-                state.get("work_type", "feature"),
-            )
             event_bus.emit(
                 planning_completed(
                     graph_id="",
-                    nodes=active,
+                    nodes=active_static,
                     architect_node="",
                 )
             )
