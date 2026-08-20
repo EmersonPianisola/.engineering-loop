@@ -14,7 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
 
-from eng_loop.tools.timing import TimingTracker, format_time, token_tracker
+from eng_loop.tools.timing import TimingTracker, format_time, get_global_wall_formatted, token_tracker
 
 if TYPE_CHECKING:
     from rich.status import Status as RichStatus
@@ -117,7 +117,7 @@ class LiveStageIndicator:
         self.done_stages = set(tracker.get_stage_ids())
         total = len(self.stage_ids)
         done = len(self.done_stages)
-        elapsed = tracker.get_loop_elapsed_formatted()
+        elapsed = get_global_wall_formatted()
 
         current_display = self.current_stage.replace(".", "-") if self.current_stage else "..."
         bar_str, progress = _build_progress_bar(done, total, 20)
@@ -367,7 +367,7 @@ class UIManager:
             "halted": "[bold red]⏸[/]",
         }.get(status, "[yellow]?[/]")
 
-        elapsed_str = tracker.get_loop_elapsed_formatted()
+        elapsed_str = get_global_wall_formatted()
         bar_str, progress = _build_progress_bar(done, total, 30)
 
         self.console.print(
@@ -630,7 +630,7 @@ class UIManager:
                 detail_lines.append(f"[bold]Acceptance Criteria:[/bold] {len(ac)} defined")
 
         # Telemetry summary
-        elapsed = tracker.get_loop_elapsed_formatted()
+        elapsed = get_global_wall_formatted()
         telemetry = f"[dim]{elapsed} \u2022 {iterations} iterations[/dim]"
 
         # ── Render Layers ─────────────────────────────────────────
@@ -701,7 +701,7 @@ class UIManager:
 
             # Total row
             total_str = format_time(tracker.get_total_seconds())
-            loop_elapsed = tracker.get_loop_elapsed_formatted()
+            loop_elapsed = get_global_wall_formatted()
             total_tok = token_tracker.get_total_all()
             total_tok_str = token_tracker._format_tokens(total_tok) if total_tok else ""
             table.add_row(
@@ -783,6 +783,7 @@ class UIManager:
         table.add_row("Iteration", f"{iteration}")
         table.add_row("Attempt", f"{attempts}")
         table.add_row("Elapsed", f"{elapsed:.0f}s")
+        table.add_row("Wall clock", get_global_wall_formatted())
         table.add_row("Action", f"[dim italic]{action}[/dim italic]")
 
         return Panel(
@@ -880,13 +881,14 @@ class StageSpinner:
     def update(self, action_type: str, target: str = "") -> None:
         self.tool_count += 1
         elapsed = time.monotonic() - self.start_time
+        wall = get_global_wall_formatted()
         icon = self.ICONS.get(action_type, "?")
         target_str = f" {target}" if target else ""
         if self._status:
             self._status.update(
                 f"[bold cyan]{self.stage_id}[/bold cyan] "
                 f"[cyan]{icon}[/cyan] {action_type}{target_str} "
-                f"[dim]({self.tool_count} tools, {elapsed:.0f}s)[/dim]"
+                f"[dim]({self.tool_count} tools, {elapsed:.0f}s, wall:{wall})[/dim]"
             )
         # Push tool action to HUD for casting bar visibility
         if ui.is_hud_active() and ui._normalizer:
@@ -898,12 +900,13 @@ class StageSpinner:
 
     def think(self, text: str) -> None:
         elapsed = time.monotonic() - self.start_time
+        wall = get_global_wall_formatted()
         truncated = text[:60]
         if len(text) > 60:
             truncated += "…"
         if self._status:
             self._status.update(
-                f"[bold cyan]{self.stage_id}[/bold cyan] [dim]🧠 {truncated}[/dim] [dim]({elapsed:.0f}s)[/dim]"
+                f"[bold cyan]{self.stage_id}[/bold cyan] [dim]🧠 {truncated}[/dim] [dim]({elapsed:.0f}s, wall:{wall})[/dim]"
             )
         # Push thinking text to HUD for real-time visibility
         if ui.is_hud_active() and ui._normalizer:
@@ -911,8 +914,11 @@ class StageSpinner:
 
     def idle(self) -> None:
         elapsed = time.monotonic() - self.start_time
+        wall = get_global_wall_formatted()
         if self._status:
-            self._status.update(f"[bold cyan]{self.stage_id}[/bold cyan] [dim]waiting… ({elapsed:.0f}s)[/dim]")
+            self._status.update(
+                f"[bold cyan]{self.stage_id}[/bold cyan] [dim]waiting… ({elapsed:.0f}s, wall:{wall})[/dim]"
+            )
 
 
 # ─── Thread-local stage context ──────────────────────────────────────

@@ -336,31 +336,47 @@ def run_essence_gate(
                     )
                     continue
 
-            # Not auto-adjustable — terminal block
-            # Record block for learning (future runs may resolve differently)
-            get_tension_memory().record(
-                tension_str,
-                "blocked",
-                complexity_before=state.get("complexity", ""),
-                stage_id=stage_id,
-                work_type=state.get("work_type", ""),
-            )
+            # Not auto-adjustable — ask user for scope clarification.
+            # Only block terminally if clarification attempts are exhausted.
+            if clarification_attempts >= max_clarification_attempts:
+                logger.warning(
+                    "Essence gate for %s: Lens 4 scope tension, clarification exhausted (%d attempts). BLOCKED.",
+                    stage_id,
+                    clarification_attempts,
+                )
+                get_tension_memory().record(
+                    tension_str,
+                    "blocked",
+                    complexity_before=state.get("complexity", ""),
+                    stage_id=stage_id,
+                    work_type=state.get("work_type", ""),
+                )
 
-            capture_decision = essence_config.get("capture_decisions", True)
-            context_file = essence_config.get("context_file", "context.md")
+                capture_decision = essence_config.get("capture_decisions", True)
+                context_file = essence_config.get("context_file", "context.md")
 
-            if capture_decision and context_file:
-                _capture_lens4_decision(stage_id, tensions, state, paths, context_file)
+                if capture_decision and context_file:
+                    _capture_lens4_decision(stage_id, tensions, state, paths, context_file)
 
+                return EssenceResult(
+                    blocked=True,
+                    decision=EssenceDecision.BLOCKED,
+                    tension=tension_str,
+                    updated_state={
+                        "stages": stages,
+                        "essence_blocked_stage": stage_id,
+                        "essence_tension": tension_str,
+                    },
+                )
+
+            # Generate scope-clarification questions from Lens 4 tensions
+            scope_questions = _build_scope_clarification_questions(tensions, stage_id, all_findings)
             return EssenceResult(
-                blocked=True,
-                decision=EssenceDecision.BLOCKED,
-                tension=tension_str,
-                updated_state={
-                    "stages": stages,
-                    "essence_blocked_stage": stage_id,
-                    "essence_tension": tension_str,
-                },
+                waiting_for_input=True,
+                decision=EssenceDecision.CLARIFICATION_REQUIRED,
+                clarifying_questions=scope_questions,
+                updated_state={"stages": _mark_essence_checked_stages(stage_id, stages)},
+                adjustments=[],
             )
 
         # 2. Significant findings (severity >= threshold) → CLARIFICATION
@@ -912,6 +928,70 @@ def _try_auto_adjust_complexity_force(
         "old_complexity": current_complexity,
         "new_complexity": new_complexity,
     }
+
+
+def _build_scope_clarification_questions(
+    tensions: list[str],
+    stage_id: str,
+    all_findings: list[dict],
+) -> list[dict]:
+    """Build clarification questions from Lens 4 scope/complexity tensions.
+
+    Instead of blocking, asks the user to narrow scope or confirm priorities.
+    """
+    questions = []
+
+    tension_summary = "; ".join(tensions[:3])
+    questions.append(
+        {
+            "id": "essence_q_lens4_scope",
+            "finding_id": "lens4_scope_mismatch",
+            "lens": "lens_4",
+            "finding_summary": f"Scope-complexity tension: {tension_summary}",
+            "question": (
+                "The work item scope exceeds the current complexity classification. "
+                "How would you like to proceed?\n"
+                "  (a) Narrow scope: Focus on the most critical flows first\n"
+                "  (b) Accept full scope: Proceed with all stages (will take longer)\n"
+                "  (c) Redefine: Provide a more specific work item"
+            ),
+            "options": ["Narrow scope", "Accept full scope", "Redefine work item"],
+            "severity": "high",
+        }
+    )
+
+    tension_lower = " ".join(tensions).lower()
+    if any(
+        kw in tension_lower
+        for kw in [
+            "all flows",
+            "all modules",
+            "complete",
+            "comprehensive",
+            "all functionality",
+            "broad validation",
+            "all user flows",
+            "unbounded",
+            "phased approach",
+            "cross-cutting",
+        ]
+    ):
+        questions.append(
+            {
+                "id": "essence_q_lens4_priority",
+                "finding_id": "lens4_priority",
+                "lens": "lens_4",
+                "finding_summary": "Work item references comprehensive coverage",
+                "question": (
+                    "Which areas should be prioritized if the full scope cannot be "
+                    "completed in a single pass? List the top 2-3 critical flows."
+                ),
+                "options": [],
+                "severity": "medium",
+            }
+        )
+
+    return questions[:3]
 
 
 def _apply_adjustments(stage_inputs: str, adjustments: list[str]) -> str:

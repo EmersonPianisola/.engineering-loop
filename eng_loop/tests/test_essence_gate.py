@@ -149,9 +149,12 @@ def test_block_lens_4_tension():
     with patch("eng_loop.tools.essence_gate.run_agent", return_value=mock_result):
         result = run_essence_gate("init", state, state["paths"], state["config"])
 
-    assert result.blocked is True
-    assert result.decision == EssenceDecision.BLOCKED
-    assert "Speed vs. thoroughness conflict" in result.tension
+    assert result.blocked is False
+    assert result.waiting_for_input is True
+    assert result.decision == EssenceDecision.CLARIFICATION_REQUIRED
+    assert len(result.clarifying_questions) >= 1
+    assert result.clarifying_questions[0]["finding_id"] == "lens4_scope_mismatch"
+    assert "exceeds the current complexity" in result.clarifying_questions[0]["question"]
 
 
 def test_high_severity_triggers_clarification():
@@ -529,9 +532,10 @@ def test_lens_4_no_interaction():
     with patch("eng_loop.tools.essence_gate.run_agent", return_value=mock_result):
         result = run_essence_gate("init", state, state["paths"], state["config"])
 
-    assert result.blocked is True
-    assert result.waiting_for_input is False
-    assert result.decision == EssenceDecision.BLOCKED
+    assert result.blocked is False
+    assert result.waiting_for_input is True
+    assert result.decision == EssenceDecision.CLARIFICATION_REQUIRED
+    assert len(result.clarifying_questions) >= 1
 
 
 def test_lens_4_no_auto_adjust():
@@ -564,8 +568,9 @@ def test_lens_4_no_auto_adjust():
     with patch("eng_loop.tools.essence_gate.run_agent", return_value=mock_result):
         result = run_essence_gate("init", state, state["paths"], state["config"])
 
-    assert result.blocked is True
-    assert result.decision == EssenceDecision.BLOCKED
+    assert result.blocked is False
+    assert result.waiting_for_input is True
+    assert result.decision == EssenceDecision.CLARIFICATION_REQUIRED
 
 
 # ── Interaction tests ────────────────────────────────────────────
@@ -697,8 +702,9 @@ def test_essence_gate_decorator():
         result = mock_handler(state)
 
     assert result.goto == "__end__"
-    assert result.update["status"] == "blocked"
-    assert "Conflict A vs B" in result.update["blocking_condition"]
+    assert result.update["status"] == "waiting_for_input"
+    assert result.update["blocking_condition"] == "essence_clarification_needed"
+    assert len(result.update["essence_clarifying_questions"]) >= 1
 
 
 def test_essence_gate_decorator_passes_through():

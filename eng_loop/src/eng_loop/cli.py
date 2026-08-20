@@ -258,6 +258,11 @@ def main():
 
     init_tension_memory(paths.get("tension_memory_file"))
 
+    # ── Start global wall-clock timer (persists across recovery attempts) ──
+    from eng_loop.tools.timing import start_global_wall_clock
+
+    start_global_wall_clock()
+
     # ── Surgical commands (exit immediately) ─────────────────────
     if args.command == "rollback":
         _cmd_rollback(args.stage_id, paths, config)
@@ -910,12 +915,16 @@ def _recovery_loop(
     error_message = state.get("blocking_condition", "")
 
     if not tui_controller:
+        from eng_loop.tools.timing import get_global_wall_formatted
+
+        wall_time = get_global_wall_formatted()
         ui.console.print()
         ui.console.print(
             Panel(
                 f"[bold yellow]Pipeline blocked at {current_stage}[/bold yellow]\n"
                 f"[dim]{error_message[:300]}[/dim]\n"
-                f"[bold]Attempting auto-recovery (max {max_attempts} attempts)...[/bold]",
+                f"[bold]Attempting auto-recovery (max {max_attempts} attempts)...[/bold]\n"
+                f"[dim]Wall clock: {wall_time}[/dim]",
                 title="[bold yellow]Auto-Recovery[/bold yellow]",
                 border_style="yellow",
             )
@@ -928,7 +937,12 @@ def _recovery_loop(
         attempt_start = _time.monotonic()
 
         if not tui_controller:
-            ui.console.print(f"\n[bold cyan]Recovery attempt {attempt}/{max_attempts}[/bold cyan]")
+            from eng_loop.tools.timing import get_global_wall_formatted
+
+            wall_time = get_global_wall_formatted()
+            ui.console.print(
+                f"\n[bold cyan]Recovery attempt {attempt}/{max_attempts}[/bold cyan] [dim][wall: {wall_time}][/dim]"
+            )
 
         # 1. Classify error
         classification = classify_error(error_message, state)

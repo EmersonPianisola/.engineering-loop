@@ -31,7 +31,7 @@ class TestExtractJsonFromText:
         assert result is None
 
     def test_json_with_surrounding_text(self) -> None:
-        text = "Here is the plan: {\"key\": \"value\"} done."
+        text = 'Here is the plan: {"key": "value"} done.'
         result = _extract_json_from_text(text)
         assert result == '{"key": "value"} done.'
 

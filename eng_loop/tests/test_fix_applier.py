@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eng_loop.schemas import ErrorClassification, Lesson, RecoveryPlan
+from eng_loop.schemas import Lesson, RecoveryPlan
 from eng_loop.tools.fix_applier import apply_recovery_plan, reset_stage_for_retry
 
 

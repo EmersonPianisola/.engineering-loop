@@ -1388,15 +1388,17 @@ def _print_error(stage_id: str, error: str) -> None:
 
 
 def _print_progress(stage_id: str, elapsed: float) -> None:
-    """Print a progress heartbeat."""
+    """Print a progress heartbeat with wall-clock time."""
     from eng_loop.tools.progress import _get_active_spinner
+    from eng_loop.tools.timing import get_global_wall_formatted
 
     if _get_active_spinner():
         return
 
     import sys as _sys
 
-    _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s\033[0m\n")
+    wall = get_global_wall_formatted()
+    _sys.stdout.write(f"  \033[90m[{stage_id}] ... {elapsed:.0f}s (wall: {wall})\033[0m\n")
     _sys.stdout.flush()
 
 

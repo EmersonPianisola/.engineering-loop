@@ -4,15 +4,15 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.2.0
+# Engineering Loop v12.2.1
 
 **New user? Start with [`START.md`](START.md) — quick reference for running the loop.**
 
-Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins. Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads. **Context Budget Manager (P0)** — real tokenizer, per-call budget enforcement, auto-compaction at PRESSURE, overflow prevention, per-stage history, graph-level forecast. **Dynamic Node Orchestration** — blueprint-driven meta-execution with typed validation, policy authorization, and immutable contracts.
+Persistent **while-loop engine** for AI-assisted software development. **Dynamic graph construction** — the LangGraph StateGraph is built per work item based on complexity, UI context, work type, and tags. Only the nodes required for the task are instantiated. Pydantic structured output and evidence gates enforce quality. Auto-sizes depth by complexity and work type. Delegates every phase to specialized sub-agents via progressive disclosure. Validates all inputs with the Essence Sidecar before any work begins (Lens 4 scope tensions ask for clarification before blocking). Enforces topology compliance between stages. Self-improves through lessons learned across projects. **Surgical CLI operations** — breakpoints, state editing, time-travel rollback, and single-step replay. **Context optimization** — pre-computed project map eliminates exploratory tool-calls, tool result cache prevents redundant reads. **Context Budget Manager (P0)** — real tokenizer, per-call budget enforcement, auto-compaction at PRESSURE, overflow prevention, per-stage history, graph-level forecast. **Dynamic Node Orchestration** — blueprint-driven meta-execution with typed validation, policy authorization, and immutable contracts. **Wall-clock visibility** — global timer persists across recovery attempts; all progress displays show real-time elapsed time.
 
 | | |
 |---|---|
-| **Version** | 12.2.0 |
+| **Version** | 12.2.1 |
 | **Context Budget Manager** | Real tokenizer, per-call budget, auto-compaction, overflow prevention (P0) |
 | **Dynamic Orchestration** | Blueprint imutável, runtime desacoplado, validação tipada (v11.5) |
 | **Policy Resolver** | Autorização autoritativa de risco, sandbox de ferramentas |
@@ -94,7 +94,8 @@ The loop is enforced by a **dynamic LangGraph StateGraph** (Python) that is **co
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
 - **Context optimization** — ProjectMap pre-computed at init eliminates 3-8 exploratory glob/read per stage; tool result cache prevents redundant reads within a micro-loop
 - **Full loop enforcement** — every active stage must execute; user requests are focus directives, not skip directives
-- **Essence before every stage** — inputs validated through Four Lenses before any work begins
+- **Essence before every stage** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
+- **Wall-clock visibility** — global timer persists across recovery attempts; all progress displays show real-time elapsed time
 - **Auto-sizing** — complexity classification determines which stages are active (small → complex)
 - **TDD per task** — test-first implementation with red-green-commit per atomic task
 - **Independent verification** — author ≠ verifier; discrimination sensor confirms test quality
@@ -1472,7 +1473,7 @@ Runs **BEFORE** every stage. Validates that stage inputs are sound before any wo
 | 1 | Subjective terms | "robust", "fast", "user-friendly", "clean" | Replace with measurable criteria |
 | 2 | Hidden assumptions | Unstated dependencies, implicit requirements | Make explicit or remove |
 | 3 | Literal traps | Phrasing that invites wrong LLM interpretation | Rephrase for clarity |
-| 4 | Conflicting priorities | "fast delivery" vs "comprehensive testing" | Escalate to user for resolution |
+| 4 | Conflicting priorities | "fast delivery" vs "comprehensive testing" | Ask user: narrow scope, accept full scope, or redefine work item |
 
 ### Execution Flow
 
@@ -1480,8 +1481,9 @@ Runs **BEFORE** every stage. Validates that stage inputs are sound before any wo
 1. Gather inputs for the upcoming stage
 2. Launch essence sub-agent with context slice: {stage_inputs} + {work_item}
 3. Lenses 1-3 findings → adjust inputs inline, re-run Essence (does NOT increment attempts)
-4. Lens 4 tension → escalate to user, capture decision in context.md, await resolution
-5. Clean (all lenses pass) → set essence_checked = true, proceed to stage
+4. Lens 4 tension (scope/complexity) → ask user for clarification: narrow scope, accept full scope, or redefine work item
+5. Lens 4 clarification exhausted (max attempts) → terminal block, capture decision in context.md
+6. Clean (all lenses pass) → set essence_checked = true, proceed to stage
 ```
 
 ### Essence Input Per Stage
@@ -2196,8 +2198,21 @@ See [Context Optimization](#context-optimization-v113) for details.
 
 **Resolution:**
 - For Lenses 1-3: Adjust inputs inline, clarify ambiguous terms
-- For Lens 4: Resolve priority tension, provide explicit direction
-- If `max_essence_retries_per_stage` exceeded: manually resolve the input ambiguity
+- For Lens 4: Respond to scope clarification prompt (narrow/accept/redefine)
+- If `max_clarification_attempts` exceeded: manually resolve the input ambiguity
+- Lens 4 scope tensions now ask before blocking — answer the clarification to proceed
+
+### No Visibility During Long Runs
+
+**Symptom:** Process appears frozen; no idea how long it has been running or what it is doing
+
+**Resolution:**
+- The **wall-clock timer** (displayed as `wall:HH:MM:SS`) tracks total elapsed time since CLI startup and persists across all recovery attempts
+- Progress bar, spinner, and recovery panel all show wall-clock time
+- Stage spinner shows: `(N tools, Xs, wall:HH:MM:SS)` with real-time updates
+- If no spinner is visible, the agent runner emits a heartbeat every 5s with wall-clock time
+- Recovery attempts display `[wall: HH:MM:SS]` so you can see cumulative time across retries
+- The final Stage Timing table shows both per-stage totals and the wall-clock duration
 
 ### Context Overflow
 
@@ -2355,6 +2370,7 @@ See [Context Optimization](#context-optimization-v113) for details.
 | v11.4.0 | 2026-08-14 | **Contract gate middleware + causal rollback**: `contract_gate.py` validates handoff contracts between stages (blueprint→code, code→verify); retries source or blocks pipeline. `qa_parallel.py` fan-out/fan-in with `qa-dispatcher` + `qa-join` for parallel QA. `rollback_to_stage` reducer resets causal chain (impl.code → verify) on verifier/QA failure. `impl.code` FIX MODE with structured `fix_tasks`. Deterministic `init-setup` node separates classification from LLM. State reducers: `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage`. Edge rules: conditional blueprint validation, blocked-aware routing. Dry-run simulator: 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) — all assertions green |
 | v11.5.0 | 2026-08-15 | **Dynamic Node Orchestration (V1.3)**: Meta-orchestration layer for runtime sub-task generation beyond the 26-stage pipeline. `dynamic-architect` node (LLM proposes `DynamicBlueprintProposal` → framework authorizes via `authorize_blueprint()` → immutable `DynamicBlueprint`). `meta-executor` node (sequential cursor-based execution, strict attempt counting, typed validation). 9 new Pydantic schemas (frozen payloads, discriminated union rules, audit entries). Policy resolver: risk keyword analysis, tool sandboxing (safe pool). Validation engine: `tests_pass` (subprocess), `files_exist` (path check), `contains_symbol` (regex). Governance: `MAX_DYNAMIC_STEPS=5`, `max_attempts` per step (1-5), `authorized_complexity` override. Topology: `__start__ → init-setup → dynamic-architect → [meta-executor loop] → init`. 54 tests, 29 total nodes |
 | v12.1.0 | 2026-08-17 | **Skills v2.0 — Comprehensive improvement across 13 skills**: persona-simulator (structured profiles, SEQ/SUS scoring from Avenir-UX), verifier (equivalent mutant filtering, mutation feedback loop from agentpatterns.ai/MUTGEN), ux-auditor (WCAG 2.2, Nielsen heuristics, SEQ/SUS), bmad-bdd-mapper (Scenario Outline, hooks, tag strategy), tester-unit (two-step prompting, boundary value analysis, mutation score), linter-agent (security analysis, maintainability index, false positive handling), requirements-refiner (INVEST/SMART scoring, risk matrix, conflict detection), solution-designer (ADR format, STRIDE threat modeling, API design principles), implementation-architect (testing strategy, CI/CD pipeline, rollback plan), bmad-ideation (Hourglass Framework, idea evaluation matrix, convergence techniques), e2e-playwright (visual regression, trace viewer, Playwright MCP), graphify (data flow tracing, dead code detection, incremental updates) |
+| v12.2.1 | 2026-08-20 | **Essence Lens 4 clarification + wall-clock visibility**: Lens 4 scope/complexity tensions now ask user for clarification (narrow/accept/redefine) instead of terminal block; only blocks if `max_clarification_attempts` exhausted. Global wall-clock timer (`start_global_wall_clock()`) set once at CLI entry, persists across all recovery attempts. All progress displays (spinner, progress bar, recovery panel, heartbeat, dashboard) show real-time wall-clock elapsed time. 138 tests passing |
 
 ---
 

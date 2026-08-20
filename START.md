@@ -4,7 +4,7 @@ type: entry-point
 description: 'Start the engineering loop — quick reference for CLI and prompt mode.'
 ---
 
-# Engineering Loop v12.2.0 — Start Here
+# Engineering Loop v12.2.1 — Start Here
 
 ## Iniciar o Loop
 
@@ -115,6 +115,30 @@ O loop executa automaticamente:
 ### Stage Específica (Focus Directive)
 
 Pedir "just implement" ou "run verify" é um **focus directive**, não um skip directive. Todas as stages ativas anteriores são executadas primeiro.
+
+### Essence — Lens 4 (Scope Clarification)
+
+Se o work item tem escopo muito amplo para a complexidade atual, o Essence Gate pergunta antes de bloquear:
+
+```
+Lens 4: scope exceeds complexity classification.
+How would you like to proceed?
+  (a) Narrow scope: Focus on the most critical flows first
+  (b) Accept full scope: Proceed with all stages (will take longer)
+  (c) Redefine: Provide a more specific work item
+```
+
+O bloqueio terminal s ocorre se `max_clarification_attempts` (default: 3) for exaurido.
+
+### Visibilidade — Wall Clock Timer
+
+O timer global `wall:HH:MM:SS` mostra o tempo total desde o incio do CLI, persistindo atravse de recovery attempts:
+
+- **Progress bar**: `[████░░░░] 2/5 impl.code [00:15:32]`
+- **Spinner**: `impl.code R read (5 tools, 120s, wall:00:15:32)`
+- **Recovery**: `Recovery attempt 1/3 [wall: 00:10:45]`
+- **Heartbeat**: `[impl.code] ... 300s (wall: 00:15:32)`
+- **Stage Timing table**: `Total 00:45:00 (wall: 00:52:10)`
 
 ### Verificar Conectividade do Modelo
 
@@ -330,7 +354,7 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 
 | Arquivo | Versão |
 |---------|--------|
-| Framework | v12.2.0 |
+| Framework | v12.2.1 |
 | Context Budget | Tokenizer real, budget por chamada, auto-compaction, prevencao overflow (P0) |
 | Contract Gate | Middleware valida contratos entre stages (blueprint→code, code→verify) |
 | Parallel QA | Fan-out/fan-in com qa-dispatcher + qa-join, rollback para impl.code |
@@ -340,4 +364,6 @@ Edite `.eng/config.yaml` (gerado pelo install script):
 | Deterministic Setup | init-setup separa classificação determinística do LLM |
 | State Reducers | _merge_dict, _overwrite (clear fields), rollback_to_stage |
 | Context Optimization | ProjectMap + ToolResultCache |
-| Tests | 4 dry-run scenarios (100% passing) |
+| Essence Lens 4 | Scope clarification antes de bloqueio (narrow/accept/redefine) |
+| Wall Clock | Timer global persiste atravse de recovery attempts |
+| Tests | 138 tests passing (essence, progress, recovery, fix_applier) |

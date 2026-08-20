@@ -5,6 +5,27 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+# Global wall-clock timer — set once at CLI startup, never reset
+_global_wall_start: float = 0.0
+
+
+def start_global_wall_clock() -> None:
+    """Call once at CLI entry. Sets the global wall-clock start time."""
+    global _global_wall_start
+    _global_wall_start = time.monotonic()
+
+
+def get_global_wall_elapsed() -> float:
+    """Get elapsed seconds since CLI startup (across all recovery attempts)."""
+    if _global_wall_start == 0.0:
+        return 0.0
+    return time.monotonic() - _global_wall_start
+
+
+def get_global_wall_formatted() -> str:
+    """Get formatted HH:MM:SS since CLI startup."""
+    return format_time(get_global_wall_elapsed())
+
 
 def format_time(seconds: float) -> str:
     """Format seconds as HH:MM:SS."""
