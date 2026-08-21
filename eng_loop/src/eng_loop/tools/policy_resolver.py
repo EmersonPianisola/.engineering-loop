@@ -394,10 +394,19 @@ def _validate_cost_budget(
         default=len(proposal.required_stages),
     )
 
-    # Get budget from execution policies or use defaults
-    max_parallel_tokens = state.get("config", {}).get("hardware", {}).get("max_parallel_tokens", 150000)
-    agent_context_limit = state.get("config", {}).get("hardware", {}).get("agent_context_limit", 66666)
-    max_parallel_agents = state.get("config", {}).get("hardware", {}).get("max_parallel_agents", 3)
+    # Get budget from config. Each agent may use up to agent_context_limit tokens.
+    # max_parallel_agents defines how many run simultaneously.
+    hardware = state.get("config", {}).get("hardware", {})
+    agent_context_limit = hardware.get("agent_context_limit", 66666)
+    max_parallel_agents = hardware.get("max_parallel_agents", 3)
+
+    # Auto-calibrate max_parallel_tokens: budget must accommodate configured concurrency.
+    # If explicitly set, it acts as a hard cap. Otherwise, derive from agent limits.
+    raw_max_parallel_tokens = hardware.get("max_parallel_tokens")
+    if raw_max_parallel_tokens is not None:
+        max_parallel_tokens = raw_max_parallel_tokens
+    else:
+        max_parallel_tokens = agent_context_limit * max_parallel_agents
 
     # Check: n_parallel_agents × agent_context_limit ≤ max_parallel_tokens
     projected_tokens = max_proposed_parallel * agent_context_limit
