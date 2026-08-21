@@ -732,6 +732,8 @@ When `config.graphify.enabled == true` and `graphify-out/graph.json` exists:
 - After `impl.code` completes: IF `config.graphify.update_after_impl` → run `graphify update .`
 - Sub-agents follow rules in `{reference-root}/graphify.md`.
 
+**Important:** Graphify is a **knowledge graph** — it maps code as data (entities, relationships, AST structure). The orchestrator pipeline is an **agent graph** — it wires agents into nodes with routed edges and shared state. These are unrelated despite sharing the word "graph." Never conflate them.
+
 ## OUTPUT FORMAT
 
 Each orchestrator response MUST contain exactly these two sections:
@@ -831,6 +833,17 @@ ORCHESTRATOR (you)
 ```
 
 Every branch above is a sub-agent invocation. The orchestrator never executes work inline (except deploy.prepare and post-loop).
+
+## PROVENANCE CHECK
+
+When processing external claims (blog posts, documentation, AI-generated content):
+
+- **Contradictory metadata is a red flag** — if the same artifact is described with different lengths (1h vs 2h) or page counts in different posts, nobody is looking at the same file.
+- **Missing primary source link is suspicious** — if no post links a Google/Anthropic/DeepLearning.AI page, the claim has no provenance.
+- **Viral posts often misattribute** — a Neo4j instructor teaching on Andrew Ng's platform using Google's toolkit becomes, after two retellings, "Google just released a course."
+- **Verify before repeating** — thirty seconds of checking whether any post links a property would have killed many false claims.
+
+**Rule:** If you encounter conflicting claims about the same thing, default to skepticism. The mechanism (loops, graphs) is real; the hype around names for it is optional.
 
 ## EXIT CONDITIONS
 

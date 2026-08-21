@@ -106,6 +106,32 @@ Each stage has a `MANDATORY EXECUTION BOUNDARY` section. You MUST:
 - NOT implement features beyond your stage's scope
 - STOP immediately when your stage's work is complete
 
+## Node Types
+
+Not every node in a graph is a worker loop. The distinction matters for what verification is required.
+
+### Worker Nodes
+- **Examples:** `impl.code`, `verify`, `e2e.execute`, `qa.*`
+- **Require:** verifier + stopping condition
+- **Pattern:** discover → plan → execute → verify → repeat until done or max attempts
+- **Output:** artifact + `state.json` update + JSON signal
+
+### Transform Nodes
+- **Examples:** `init.setup`, `deploy.prepare`, `post`
+- **Require:** deterministic execution, no self-verifier needed
+- **Pattern:** execute work → write artifacts → signal
+- **Output:** artifact + `state.json` update + JSON signal
+
+### Router Nodes
+- **Examples:** `dynamic.architect` (proposes topology), `meta.executor` (routes steps)
+- **Require:** no verifier (they are the routing mechanism)
+- **Pattern:** analyze → propose/route → signal
+- **Output:** `state.json` update + JSON signal
+
+### Rule
+
+Every worker node must have a verifier and a stopping condition. Not every node needs to be a loop. Deterministic transforms and routers are valid nodes that don't need loops.
+
 ## Verification Checklist
 
 Before returning your response, verify:

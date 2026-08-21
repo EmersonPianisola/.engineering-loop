@@ -18,6 +18,7 @@ Read settings from `{loop-root}/config.yaml` under `hardware:`.
 | `context_safety_margin` | 0.15 | Reserve 15% (30K buffer) |
 | `max_parallel_agents` | 3 | Max concurrent sub-agents |
 | `agent_context_limit` | 66666 | Max tokens per sub-agent |
+| `max_parallel_tokens` | 150000 | Max total tokens across all parallel agents (n × agent_context_limit ≤ this) |
 | `idle_timeout_seconds` | 180 | Kill opencode only when model produces no output for this long |
 | `stage_timeout_seconds` | 600 | Hard fallback — last resort when idle detection fails |
 | `max_artifact_size_lines` | 300 | Cap artifact file size |
@@ -27,6 +28,19 @@ Read settings from `{loop-root}/config.yaml` under `hardware:`.
 ## Parallel Context Slicing
 
 Each sub-agent receives only its relevant context slice. Total tokens across all agents must stay within `context_window - (context_window * context_safety_margin)`.
+
+### Over-spawning Prevention
+
+A graph of parallel agents costs ~15x tokens per fork. Anthropic's multi-agent research system burned ~15x the tokens of a normal chat turn and early versions over-spawned — firing off far more subagents than a simple question needed.
+
+**Rule:** `n_parallel_agents × agent_context_limit ≤ max_parallel_tokens`
+
+When the topology proposes more parallel agents than the budget allows:
+1. Batch the work (sequential instead of parallel)
+2. Reduce parallelism to `max_parallel_agents`
+3. Log a warning: "Parallelism reduced from N to M due to token budget"
+
+**Never** let the architect propose more parallel agents than the budget allows. The cost firewall (layer 6) enforces this.
 
 | Agent | Receives | Does NOT receive |
 |-------|----------|-----------------|

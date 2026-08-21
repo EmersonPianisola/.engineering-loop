@@ -26,6 +26,18 @@ Mandatory validation BEFORE every stage. Ensures stage inputs are sound before a
 | 3 | Literal traps | Phrasing that invites wrong LLM interpretation |
 | 4 | Conflicting priorities | Competing goals that need human resolution |
 
+## Reflection Types (Andrew Ng Pattern)
+
+Andrew Ng identifies reflection as a design pattern for agentic workflows. The Essence gate applies three distinct types of reflection, each with different verification requirements:
+
+| Type | Mechanism | Example |
+|------|-----------|---------|
+| **Self-review** | A node critiques its own output before proceeding | `impl.code` reviews its own code against the blueprint |
+| **Tool-backed evaluation** | External tools (tests, linters) verify output | `qa.static` runs lint/type-check to verify code quality |
+| **Multi-agent collaboration** | A separate reviewer agent checks another agent's work | `verifier` checks `impl.code` output (author ≠ verifier) |
+
+**Rule:** Every worker node must use at least one reflection type. The graph must not let an agent self-verify without a separate mechanism (tool-backed or multi-agent).
+
 ## Execution
 
 1. Gather inputs for the upcoming stage (per ORCHESTRATOR.md essence input table).

@@ -78,6 +78,17 @@ description: 'Global anti-patterns that apply across all stages. Updated for v9.
 - **Never load candidate lessons** — only confirmed lessons enter sub-agent context
 - **Always distill from failures** — surviving mutants, spec gaps, uncovered ACs become lessons
 
+## Graph Engineering (v12.3)
+
+- **Never build a graph for a single-loop task** — if one agent with one verifier can do it, don't split into nodes. An org chart to answer an email.
+- **Never assume multi-agent provides shared state** — shared state must be explicitly designed; it does not appear automatically when several agents collaborate.
+- **Never let the orchestrator over-spawn** — if a task needs 5 researchers, batch them, don't spawn 5 parallel subagents. Each fork costs ~15x tokens.
+- **Never give every node the same tools** — narrow nodes are what make the graph better than one big prompt. The reviewer should not have write access; the writer should not be searching the web.
+- **Never use a graph before mastering the loop** — each sub-agent node is only as good as the loop running inside it. A graph of shaky loops multiplies the shakiness.
+- **Never confuse knowledge graphs with agent graphs** — knowledge graphs store facts as entities and relationships (data). Agent graphs wire agents into nodes with routed edges (execution). Graphify = knowledge graph. The pipeline = agent graph.
+- **Never make hooks polite instructions** — if tests must run before a handoff, make it a deterministic edge (hook), not a suggestion.
+- **Never let weak nodes enter a graph** — a graph of weak nodes is slop produced in parallel. Each node must be a loop that reliably ships on its own.
+
 ## UI Testing
 
 - **Never skip E2E for UI projects** — unit tests cannot catch integration-level UI bugs

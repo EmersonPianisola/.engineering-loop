@@ -2,6 +2,7 @@ pyproject.toml
 src/eng_loop/__init__.py
 src/eng_loop/cli.py
 src/eng_loop/config.py
+src/eng_loop/context_bus.py
 src/eng_loop/edge_rules.py
 src/eng_loop/graph.py
 src/eng_loop/graph_builder.py
@@ -32,6 +33,7 @@ src/eng_loop/nodes/qa.py
 src/eng_loop/nodes/qa_parallel.py
 src/eng_loop/nodes/verification.py
 src/eng_loop/tools/__init__.py
+src/eng_loop/tools/agent_lifecycle.py
 src/eng_loop/tools/agent_runner.py
 src/eng_loop/tools/agent_tools.py
 src/eng_loop/tools/ask_user_tool.py
@@ -48,12 +50,14 @@ src/eng_loop/tools/contract_gate.py
 src/eng_loop/tools/decisions.py
 src/eng_loop/tools/dynamic_validation.py
 src/eng_loop/tools/edit_tool.py
+src/eng_loop/tools/error_classifier.py
 src/eng_loop/tools/essence_gate.py
 src/eng_loop/tools/event_bus.py
 src/eng_loop/tools/event_normalizer.py
 src/eng_loop/tools/evidence_gate.py
 src/eng_loop/tools/execution_state.py
 src/eng_loop/tools/file_ops.py
+src/eng_loop/tools/fix_applier.py
 src/eng_loop/tools/glob_tool.py
 src/eng_loop/tools/graphify.py
 src/eng_loop/tools/graphify_tools.py
@@ -73,6 +77,8 @@ src/eng_loop/tools/progress.py
 src/eng_loop/tools/project_map.py
 src/eng_loop/tools/prompt_builder.py
 src/eng_loop/tools/read_tool.py
+src/eng_loop/tools/recovery_agent.py
+src/eng_loop/tools/recovery_logger.py
 src/eng_loop/tools/stage_gate.py
 src/eng_loop/tools/stall_detector.py
 src/eng_loop/tools/state_history.py
@@ -82,6 +88,7 @@ src/eng_loop/tools/token_counter.py
 src/eng_loop/tools/topology_compliance.py
 src/eng_loop/tools/write_tool.py
 tests/test_agent_control.py
+tests/test_agent_lifecycle.py
 tests/test_agent_runner.py
 tests/test_autosizing.py
 tests/test_checkpoint_semantics.py
@@ -93,15 +100,18 @@ tests/test_cli_viewmodel.py
 tests/test_command_history_buffer.py
 tests/test_config.py
 tests/test_context_budget.py
+tests/test_context_bus.py
 tests/test_context_optimization.py
 tests/test_context_tools.py
 tests/test_dynamic_graph.py
 tests/test_dynamic_orchestration.py
+tests/test_error_classifier.py
 tests/test_essence_dedup.py
 tests/test_essence_gate.py
 tests/test_event_bus.py
 tests/test_evidence_gate.py
 tests/test_execution_state.py
+tests/test_fix_applier.py
 tests/test_gap_cli.py
 tests/test_gap_context.py
 tests/test_gap_e2e.py
@@ -137,6 +147,8 @@ tests/test_node_handlers.py
 tests/test_nodes.py
 tests/test_progress.py
 tests/test_prompt_builder.py
+tests/test_recovery_agent.py
+tests/test_recovery_logger.py
 tests/test_routing.py
 tests/test_routing_functions.py
 tests/test_schemas.py

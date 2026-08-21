@@ -84,6 +84,18 @@ class ExecutionPolicy(BaseModel):
         default="",
         description="Stage to route to on failure (empty = use default terminal)",
     )
+    max_parallel_nodes: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum parallel nodes this stage can spawn (over-spawning prevention)",
+    )
+    max_fan_out: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum fan-out from this node (parallel sub-agents)",
+    )
 
 
 class GraphTopologyProposal(BaseModel):

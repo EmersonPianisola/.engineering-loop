@@ -373,18 +373,79 @@ def _validate_semantic_policy(
     return "; ".join(notes)
 
 
+def _validate_cost_budget(
+    proposal: GraphTopologyProposal,
+    state: dict[str, Any],
+) -> str:
+    """Layer 6: Cost firewall — over-spawning prevention.
+
+    Validates that the proposed topology does not exceed the parallel token budget.
+    A graph of parallel agents costs ~15x tokens per fork.
+
+    Returns policy notes string (may be empty for clean pass).
+    Raises TopologyValidationError for fatal budget violations.
+    """
+    from eng_loop.schemas import ExecutionPolicy
+
+    # Calculate total parallel nodes in the topology
+    # Count stages that could run in parallel (same phase group, or no phase grouping)
+    max_proposed_parallel = max(
+        (len(pg.stages) for pg in proposal.phase_groups),
+        default=len(proposal.required_stages),
+    )
+
+    # Get budget from execution policies or use defaults
+    max_parallel_tokens = state.get("config", {}).get("hardware", {}).get("max_parallel_tokens", 150000)
+    agent_context_limit = state.get("config", {}).get("hardware", {}).get("agent_context_limit", 66666)
+    max_parallel_agents = state.get("config", {}).get("hardware", {}).get("max_parallel_agents", 3)
+
+    # Check: n_parallel_agents × agent_context_limit ≤ max_parallel_tokens
+    projected_tokens = max_proposed_parallel * agent_context_limit
+    if projected_tokens > max_parallel_tokens:
+        raise TopologyValidationError(
+            "cost",
+            f"Proposed parallelism ({max_proposed_parallel} nodes × {agent_context_limit} tokens = {projected_tokens}) exceeds budget ({max_parallel_tokens}). Reduce parallel stages or increase max_parallel_tokens.",
+        )
+
+    # Check: max_parallel_nodes per stage
+    for policy in proposal.execution_policies:
+        if policy.max_parallel_nodes > max_parallel_agents:
+            raise TopologyValidationError(
+                "cost",
+                f"Stage '{policy.stage_id}' proposes max_parallel_nodes={policy.max_parallel_nodes} but config limits to {max_parallel_agents}.",
+            )
+
+    # Check: max_fan_out per stage
+    for policy in proposal.execution_policies:
+        if policy.max_fan_out > policy.max_parallel_nodes:
+            raise TopologyValidationError(
+                "cost",
+                f"Stage '{policy.stage_id}' fan_out={policy.max_fan_out} exceeds its own max_parallel_nodes={policy.max_parallel_nodes}.",
+            )
+
+    # Warning: high parallelism
+    if max_proposed_parallel > max_parallel_agents:
+        return (
+            f"High parallelism detected ({max_proposed_parallel} proposed, budget is {max_parallel_agents}). "
+            "Consider batching parallel work."
+        )
+
+    return ""
+
+
 def authorize_topology(
     proposal: GraphTopologyProposal,
     state: dict[str, Any],
 ) -> AuthorizedGraphTopology:
-    """5-layer topology firewall.
+    """6-layer topology firewall.
 
-    Validates a GraphTopologyProposal through five sequential layers:
+    Validates a GraphTopologyProposal through six sequential layers:
     1. Structural: basic integrity (non-empty, no duplicates, valid self-loops)
     2. Registry: all stages/edges reference known catalog entries
     3. Boundary: entry (init) and exit (post) nodes present
     4. Connectivity: no cycles, all nodes reachable, exit reachable from entry
     5. Semantic: context-aware policy checks (risk, UI, complexity)
+    6. Cost: over-spawning prevention (parallel token budget, max_fan_out)
 
     Returns an AuthorizedGraphTopology on success.
     Raises TopologyValidationError on any failure (caller should catch and fallback).
@@ -405,6 +466,11 @@ def authorize_topology(
 
     # Layer 5: Semantic policy
     policy_notes = _validate_semantic_policy(proposal, state)
+
+    # Layer 6: Cost firewall — over-spawning prevention
+    cost_notes = _validate_cost_budget(proposal, state)
+    if cost_notes:
+        policy_notes = f"{policy_notes}; {cost_notes}".strip("; ")
 
     return AuthorizedGraphTopology(
         plan_id=proposal.plan_id,

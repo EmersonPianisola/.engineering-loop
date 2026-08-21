@@ -188,6 +188,18 @@ The LLM may only reference **allowed conditions** (e.g., `stage_done`, `complexi
 
 **Meta nodes** (`init.setup`, `dynamic.architect`, `meta.executor`) are always registered regardless of complexity filtering. The `dynamic.architect` node serves dual roles: (1) **pre-build topology proposal** — proposes `GraphTopologyProposal` before graph compilation, and (2) **runtime augmentation gate** — proposes `DynamicBlueprint` micro-steps during execution.
 
+### Node Types
+
+Not every node in a graph is a worker loop. The distinction matters for verification requirements.
+
+| Type | Examples | Verification Required |
+|------|----------|----------------------|
+| **Worker** | `impl.code`, `verify`, `e2e.execute`, `qa.*` | Verifier + stopping condition |
+| **Transform** | `init.setup`, `deploy.prepare`, `post` | Deterministic execution, no self-verifier |
+| **Router** | `dynamic.architect`, `meta.executor` | No verifier (they are the routing mechanism) |
+
+**Rule:** Every worker node must have a verifier and a stopping condition. Deterministic transforms and routers are valid nodes that don't need loops.
+
 ---
 
 ## References

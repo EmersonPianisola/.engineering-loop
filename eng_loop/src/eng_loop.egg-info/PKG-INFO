@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: eng-loop
-Version: 11.2.0
+Version: 12.2.0
 Summary: Engineering Loop orchestrator — Dynamic graph construction, LangGraph-based AI development loop with parallel QA, Pydantic structured output and evidence gates
 Requires-Python: >=3.10
 Requires-Dist: langgraph>=1.2
@@ -12,7 +12,7 @@ Requires-Dist: rich>=13.0
 Requires-Dist: tiktoken>=0.7
 Requires-Dist: textual>=0.69
 Provides-Extra: dev
-Requires-Dist: mutmut>=3.0; extra == "dev"
+Requires-Dist: cosmic-ray>=6.0; extra == "dev"
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.24; extra == "dev"
 Requires-Dist: ruff>=0.9; extra == "dev"
