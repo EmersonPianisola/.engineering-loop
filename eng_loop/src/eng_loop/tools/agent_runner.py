@@ -19,6 +19,7 @@ from rich.panel import Panel
 
 from eng_loop.tools.agent_lifecycle import AgentLifecycleManager, DistilledState
 from eng_loop.tools.json_parse import extract_json
+from eng_loop.tools.parse_retry import retry_with_correction, validate_against_schema
 from eng_loop.tools.progress import (
     _get_active_spinner,
     _get_active_stage_ctx,
@@ -1691,8 +1692,9 @@ def _extract_structured_output(
 
     Strategy:
     1. Try to parse JSON directly from the answer
-    2. If schema provided, try model.with_structured_output() on conversation
-    3. Fall back to best-effort JSON extraction
+    2. If parse fails, retry with correction prompt (NEW)
+    3. If schema provided, try model.with_structured_output() on conversation
+    4. Fall back to best-effort JSON extraction
     """
     import logging as _logging
 
@@ -1705,14 +1707,44 @@ def _extract_structured_output(
     )
 
     # Strategy 1: Direct JSON parse of answer
+    parse_error = None
     try:
         data = extract_json(answer_content)
         _dbg.debug("[DEBUG] _extract_structured_output: strategy 1 (extract_json) succeeded: %s", str(data)[:200])
-    except ValueError:
+    except ValueError as e:
+        parse_error = str(e)
         data = None
-        _dbg.debug("[DEBUG] _extract_structured_output: strategy 1 (extract_json) failed")
+        _dbg.debug("[DEBUG] _extract_structured_output: strategy 1 (extract_json) failed: %s", parse_error)
+
     if data and isinstance(data, dict) and data:
-        return data
+        # Validate against schema if provided
+        if output_schema:
+            is_valid, validation_error = validate_against_schema(data, output_schema, stage_id)
+            if not is_valid:
+                _dbg.warning("[DEBUG] _extract_structured_output: schema validation failed: %s", validation_error)
+                # Continue to retry with correction
+                parse_error = validation_error
+                data = None
+        if data:
+            return data
+
+    # Strategy 1.5: Retry with correction prompt (NEW)
+    if parse_error:
+        _dbg.info("[DEBUG] _extract_structured_output: attempting retry with correction for stage %s", stage_id)
+        corrected_data = retry_with_correction(
+            model=model,
+            original_content=answer_content,
+            error_message=parse_error,
+            output_schema=output_schema,
+            stage_id=stage_id,
+        )
+        if corrected_data:
+            # Validate corrected data against schema
+            if output_schema:
+                is_valid, validation_error = validate_against_schema(corrected_data, output_schema, stage_id)
+                if is_valid:
+                    _dbg.info("[DEBUG] _extract_structured_output: retry with correction succeeded")
+                    return corrected_data
 
     # Strategy 2: Structured output from conversation
     if output_schema:
@@ -1745,14 +1777,36 @@ def _extract_from_text(
     text: str,
     output_schema: type[BaseModel] | None,
 ) -> dict[str, Any]:
-    """Last-resort JSON extraction from text."""
+    """Last-resort JSON extraction from text.
+
+    NOTE: This is a fallback that should ideally not be reached if
+    retry_with_correction is working properly. Returns raw_output
+    only when all parsing strategies have been exhausted.
+    """
+    import logging as _logging
+
+    _dbg = _logging.getLogger(__name__)
     try:
         data = extract_json(text)
-    except ValueError:
+        _dbg.debug("[_extract_from_text] Successfully extracted JSON")
+    except ValueError as e:
         data = None
+        _dbg.error("[_extract_from_text] All parsing strategies failed: %s", str(e)[:200])
+
     if data and isinstance(data, dict):
         return data
-    return {"raw_output": text[:5000], "complete": True}
+
+    # Final fallback - log warning that we're returning raw output
+    _dbg.warning(
+        "[_extract_from_text] Returning raw_output fallback - parsing completely failed. "
+        "This indicates a serious issue with LLM output formatting."
+    )
+    return {
+        "raw_output": text[:5000],
+        "complete": True,
+        "parse_warning": "JSON parsing failed, using raw output",
+        "debug_hint": "Consider checking LLM prompt or model capabilities",
+    }
 
 
 def _last_ai_message(messages: list[Any]) -> AIMessage | None:

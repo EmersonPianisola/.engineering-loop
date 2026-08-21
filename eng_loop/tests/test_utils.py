@@ -446,11 +446,11 @@ class TestExtractJson:
         assert "name" in result
         assert result["name"] == "test"
 
-    def test_prose_fallback(self):
+    def test_prose_raises_value_error(self):
+        """Prose without JSON structure should raise ValueError, not silently return raw_output."""
         content = "This is a long piece of prose that does not contain any JSON structures at all but is long enough"
-        result = extract_json(content)
-        assert "raw_output" in result
-        assert result["complete"] is True
+        with pytest.raises(ValueError, match="Could not extract JSON"):
+            extract_json(content)
 
     def test_empty_string_raises(self):
         with pytest.raises(ValueError, match="Empty"):

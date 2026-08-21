@@ -69,19 +69,21 @@ def extract_json(content: str) -> dict[str, Any]:
         logger.debug("[DEBUG] extract_json: strategy 5 (key-value) succeeded with %d fields", len(kv_result))
         return kv_result
 
-    # Strategy 6: Prose fallback — always return valid JSON for non-empty content
-    # This prevents ValueError cascading into infinite retry loops when the model
-    # returns prose instead of JSON. The calling node can handle raw_output gracefully.
-    if len(text) > 10:
-        logger.debug("[DEBUG] extract_json: strategy 6 (prose fallback), length=%d", len(text))
-        return {"raw_output": text[:5000], "complete": True}
+    # Strategy 6: REMOVED - Prose fallback silently masked parsing errors
+    # Now raising proper errors to force retry or correction
+    # Previous behavior: returned {"raw_output": text[:5000], "complete": True}
+    # which allowed malformed data to flow through the pipeline
 
-    # Content too short to be useful
-    logger.error("[DEBUG] extract_json: ALL STRATEGIES FAILED, length=%d", len(text))
-    logger.error("[DEBUG] extract_json: FULL CONTENT DUMP:\n%s", text[:500])
-    logger.error("extract_json: all strategies failed for content of length %d", len(text))
-    logger.error("extract_json: content preview: %s", text[:200])
-    raise ValueError(f"Could not extract JSON from LLM response (length={len(text)})")
+    # All strategies failed - log comprehensive error context
+    logger.error("[ERROR] extract_json: ALL STRATEGIES FAILED for content length=%d", len(text))
+    logger.error("[ERROR] extract_json: FULL CONTENT:\n%s", text[:1000])
+    logger.error("[ERROR] extract_json: Strategies attempted:")
+    logger.error("[ERROR]   - Strategy 1: Direct JSON parse - failed")
+    logger.error("[ERROR]   - Strategy 2: Markdown code block - not found or invalid")
+    logger.error("[ERROR]   - Strategy 3: Brace matching - no valid JSON object found")
+    logger.error("[ERROR]   - Strategy 4: Array extraction - no valid JSON array found")
+    logger.error("[ERROR]   - Strategy 5: Key-value pairs - insufficient fields")
+    raise ValueError(f"Could not extract JSON from LLM response (length={len(text)}). Content preview: {text[:200]!r}")
 
 
 def _extract_brace_json(text: str) -> dict[str, Any] | None:
@@ -151,11 +153,12 @@ def _extract_key_value_pairs(text: str) -> dict[str, Any] | None:
     - key = value
     - "key": "value"
     - - key: value
+    - Portuguese text with accented characters
     """
     result = {}
 
-    # Pattern 1: JSON-like key-value pairs
-    for match in re.finditer(r'"?(\w+)"?\s*[:=]\s*"?([^"\n]+?)"?(?:,|\s*$)', text):
+    # Pattern 1: JSON-like key-value pairs (more robust for international text)
+    for match in re.finditer(r'["\']?([\w\u00C0-\u024F]+)["\']?\s*[:=]\s*"?([^"\n]+?)"?(?:,|$)', text, re.MULTILINE):
         key = match.group(1).strip()
         value = match.group(2).strip().rstrip(",").strip('"')
         if key and value and len(key) < 50:
@@ -166,11 +169,19 @@ def _extract_key_value_pairs(text: str) -> dict[str, Any] | None:
                 pass
             result[key] = value
 
-    # Pattern 2: Bullet points with colons
-    for match in re.finditer(r'^\s*[-*]\s*"?(\w+)"?\s*:\s*(.+)$', text, re.MULTILINE):
+    # Pattern 2: Bullet points with colons (supports Unicode)
+    for match in re.finditer(r'^\s*[-*]\s*["\']?([\w\u00C0-\u024F]+)["\']?\s*:\s*(.+)$', text, re.MULTILINE):
         key = match.group(1).strip()
         value = match.group(2).strip().rstrip(",").strip('"')
         if key and value and key not in result:
+            result[key] = value
+
+    # Pattern 3: Labeled lines (e.g., "Title: value", "Status: complete")
+    for match in re.finditer(r"^([\w\u00C0-\u024F]+):\s+(.+)$", text, re.MULTILINE):
+        key = match.group(1).strip()
+        value = match.group(2).strip()
+        # Only add if not already present and looks like a valid key
+        if key and value and key not in result and len(key) < 30:
             result[key] = value
 
     return result if len(result) >= 2 else None

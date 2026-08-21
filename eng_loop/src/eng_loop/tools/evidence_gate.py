@@ -5,6 +5,7 @@ from typing import Any
 
 from eng_loop.schemas import get_schema
 from eng_loop.tools.json_parse import extract_json
+from eng_loop.tools.parse_retry import validate_against_schema
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +98,25 @@ def parse_llm_response(stage_id: str, content: str) -> tuple[dict[str, Any], str
     Returns (result_dict, error_message).
     If error_message is non-empty, the parse failed.
     """
-    get_schema(stage_id)
+    output_schema = get_schema(stage_id)
 
-    # Try schema-based extraction first if we have a model that supports it
-    # This is handled by the caller using llm.with_structured_output()
-    # Here we handle the fallback case
-
+    # Try JSON extraction
     try:
         result = extract_json(content)
-        return result, ""
     except (ValueError, KeyError) as e:
         error_msg = f"JSON parse failed for {stage_id}: {e}"
-        logger.error(error_msg)
+        logger.error("[PARSE ERROR] %s", error_msg)
+        logger.error("[PARSE ERROR] Content preview: %s", content[:300])
         return {}, error_msg
+
+    # Validate against schema if available
+    if output_schema and result:
+        is_valid, validation_error = validate_against_schema(result, output_schema, stage_id)
+        if not is_valid:
+            logger.warning("[SCHEMA VALIDATION] %s", validation_error)
+            return {}, validation_error
+
+    return result, ""
 
 
 def should_retry_stage(stage_id: str, result: dict[str, Any], error: str, attempts: int, max_attempts: int) -> bool:
