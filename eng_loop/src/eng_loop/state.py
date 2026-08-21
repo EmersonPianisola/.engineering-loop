@@ -9,6 +9,8 @@ from typing import Annotated, Any, Literal
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from eng_loop.context_bus import ContextBus
+
 STAGE_ORDER: list[str] = [
     "init",
     "init.ideate",
@@ -253,6 +255,8 @@ class PipelineState(dict[str, Any]):
     dynamic_runtime: Annotated[dict[str, Any], _merge_dict] = {}
     # QA results — structured evidence per stage
     qa_results: Annotated[dict[str, Any], _merge_dict] = {}
+    # Context Bus — append-only carrier for clarifications, intent refinements, critical findings
+    context_bus: Annotated[ContextBus, _last_write_wins] = ContextBus()  # type: ignore[assignment]
     # Essence gate operational state (separate from work_item.clarifications)
     essence: Annotated[dict[str, Any], _last_write_wins] = {}
     # Clarification questions pending user input
@@ -297,6 +301,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "codebase_facts": {},
         "dynamic_plan": None,
         "qa_results": {},
+        "context_bus": ContextBus(),
         "dynamic_runtime": {
             "cursor": 0,
             "attempts": {},

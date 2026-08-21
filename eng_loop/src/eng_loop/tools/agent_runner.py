@@ -17,6 +17,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from rich.panel import Panel
 
+from eng_loop.tools.agent_lifecycle import AgentLifecycleManager, DistilledState
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.progress import (
     _get_active_spinner,
@@ -27,7 +28,6 @@ from eng_loop.tools.progress import (
     log_stage_fail,
     ui,
 )
-from eng_loop.tools.agent_lifecycle import AgentLifecycleManager, AgentState, DistilledState
 from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
 
 if TYPE_CHECKING:
@@ -2019,8 +2019,7 @@ def _build_distilled_context(distilled: DistilledState, stage_id: str) -> str:
             parts.append(f"  [TODO] {item}")
 
     parts.append("")
-    parts.append("Continue the work from where the predecessor left off. "
-                 "Do NOT re-do work that is marked [DONE].")
+    parts.append("Continue the work from where the predecessor left off. Do NOT re-do work that is marked [DONE].")
 
     return "\n".join(parts)
 

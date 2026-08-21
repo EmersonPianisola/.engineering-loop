@@ -30,6 +30,14 @@ def route_after_stage(state: dict[str, Any]) -> str:
         if stage.get("attempts", 0) < max_att:
             return stage_id.replace(".", "-").replace("_", "-")
 
+    # T4: If context bus has unresolved critical findings, re-route to current
+    # stage for another attempt rather than advancing blindly
+    bus = state.get("context_bus")
+    if bus and bus.entry_count > 0:
+        for entry in bus._entries:
+            if entry.entry_type == "critical_finding":
+                return stage_id.replace(".", "-").replace("_", "-")
+
     return _find_next_stage(state)
 
 

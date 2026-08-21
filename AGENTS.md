@@ -32,37 +32,41 @@ CLI entry point: `eng-loop` (defined in `pyproject.toml` → `[project.scripts]`
 
 ruff config: `target-version = "py310"`, `line-length = 120` (in `eng_loop/pyproject.toml`).
 
+Mutual package versions: `pyproject.toml` declares `12.2.0`, `__init__.py` declares `11.2.0`. Use `pyproject.toml` as source of truth for releases.
+
 ### Source Layout
 
 ```
 eng_loop/src/eng_loop/
 ├── cli.py              # Entry point (eng-loop command, pre-build architect)
 ├── graph_builder.py    # Dual-path builder (proposal or deterministic)
-├── node_registry.py    # 34 registered NodeSpec stages
+├── node_registry.py    # 20 registered NodeSpec stages
 ├── edge_rules.py       # Declarative edge rules + proposal compiler
 ├── state.py            # PipelineState schema + reducers + node catalog
-├── schemas.py          # 48 Pydantic schemas (topology + stage output)
+├── schemas.py          # 52 Pydantic schemas (topology + stage output)
 ├── config.py           # YAML loader, deep merge
 ├── graph.py            # Delegates to GraphBuilder in dynamic mode
 ├── routing.py          # Conditional edge functions (retry, block, advance)
 ├── model.py            # Model factory (OpenAI-compatible endpoints)
 ├── templates.py        # Markdown → prompt loader
-├── nodes/              # One module per stage group
+├── context_bus.py      # Cross-cutting context bus (new in v12)
+├── nodes/              # 14 modules, one per stage group
 │   ├── dynamic_architect.py  # Pre-build topology + runtime augmentation
-│   └── meta_executor.py      # Sequential cursor-based executor
-└── tools/              # 48 tool modules
+│   ├── meta_executor.py      # Sequential cursor-based executor
+│   └── (12 more: init, design, architecture, implementation, qa, etc.)
+└── tools/              # 55 tool modules
     └── policy_resolver.py    # 5-layer topology firewall + tool sandboxing
 ```
 
-Tests: 70 files, 2094 tests.
+Tests: 76 files. Run `pytest eng_loop/tests` for full suite.
 
 ## Stage Files (`stages/`)
 
-28 markdown files, one per stage. Naming: stage ID with dots replaced by hyphens (e.g., `impl.code` → `impl-code.md`). These are **prompt templates** loaded at runtime by `templates.py`, not instructions for the orchestrator.
+31 markdown files, one per stage. Naming: stage ID with dots replaced by hyphens (e.g., `impl.code` → `impl-code.md`). These are **prompt templates** loaded at runtime by `templates.py`, not instructions for the orchestrator.
 
 ## Skills (`skills/`)
 
-15 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
+22 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
 
 ## References (`references/`)
 

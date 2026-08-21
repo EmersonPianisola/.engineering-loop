@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from eng_loop.context_bus import ContextBus
 from eng_loop.state import get_work_item_text
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,14 @@ class SystemPrefix:
             for d in decisions:
                 parts.append(f"- {d}")
 
+        # T6: Inject ContextBus summary into system prefix
+        bus: ContextBus | None = self._state.get("context_bus")
+        if bus and bus.entry_count > 0:
+            parts.append(f"## CONTEXT BUS (version {bus.version}, {bus.entry_count} entries)")
+            for entry in bus._entries[-10:]:
+                parts.append(f"- [{entry.entry_type}] {entry.content}")
+            parts.append("These are resolved context points. Do NOT re-ask or re-investigate them.")
+
         self._prefix = "\n\n".join(parts)
         self._hash = state_hash
         return self._prefix
@@ -196,6 +205,8 @@ class SystemPrefix:
         return pm.to_prompt_section()
 
     def _compute_hash(self) -> str:
+        bus: ContextBus | None = self._state.get("context_bus")
+        bus_version = bus.version if bus else 0
         hashable = (
             get_work_item_text(self._state),
             self._state.get("complexity", ""),
@@ -205,6 +216,7 @@ class SystemPrefix:
             str(self._state.get("decisions", [])),
             str(self._state.get("project_map", {}).get("tree", "")[:500]),
             str(self._paths),
+            bus_version,  # T6: invalidate cache on any context bus change
         )
         return hashlib.md5(str(hashable).encode(), usedforsecurity=False).hexdigest()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from eng_loop.context_bus import ContextBus
 from eng_loop.templates import get_skill_name, get_stage_file, load_skill, load_stage_procedure
 from eng_loop.tools.graphify import get_graphify_injection, precompute_graph_context
 from eng_loop.tools.prompt_builder import PromptBuilder
@@ -119,6 +120,12 @@ def build_handoff_update(
 
     current_artifacts = dict(state.get("stage_artifacts", {}))
     deduped, _ = deduplicate_stage_artifacts(current_artifacts)
+
+    # T1: ContextBus — flush to disk + propagate snapshot through handoff
+    bus: ContextBus | None = state.get("context_bus")
+    if bus:
+        bus.flush()
+        existing_handoffs["__context_bus__"] = bus.snapshot()
 
     return {
         "handoffs": existing_handoffs,

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from langgraph.types import Command
 
+from eng_loop.context_bus import ContextBus
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import EssenceDecision, EssenceOutput, Severity
 from eng_loop.state import get_work_item_text
@@ -400,6 +401,7 @@ def run_essence_gate(
                     if isinstance(state.get("work_item"), dict)
                     else {}
                 ),
+                state=state,  # T7: ContextBus for cross-stage dedup
             )
 
             # Mark stage as essence-checked so the gate doesn't re-run after
@@ -528,6 +530,7 @@ def _build_clarification_questions(
     llm_questions: list,
     resolved_findings: list[str] | None = None,
     resolved_answers: dict[str, str] | None = None,
+    state: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Build clarification questions from significant findings.
 
@@ -543,6 +546,12 @@ def _build_clarification_questions(
 
     resolved = set(resolved_findings or [])
     answers = resolved_answers or {}
+    # T7: Also check ContextBus for cross-stage resolution
+    bus: ContextBus | None = None
+    if state:
+        raw_bus = state.get("context_bus")
+        if isinstance(raw_bus, ContextBus):
+            bus = raw_bus
 
     # Index LLM questions by finding_id
     llm_by_finding = {}
@@ -572,6 +581,18 @@ def _build_clarification_questions(
         if _is_semantically_resolved(finding, answers):
             covered_findings.add(fid)
             continue
+        # T7: Check ContextBus for cross-stage resolution
+        if bus:
+            finding_text = ""
+            if "term" in finding:
+                finding_text = finding["term"]
+            elif "assumption" in finding:
+                finding_text = finding["assumption"]
+            elif "phrasing" in finding:
+                finding_text = finding["phrasing"]
+            if finding_text and bus.is_resolved(finding_text):
+                covered_findings.add(fid)
+                continue
 
         # Use LLM question if available
         if fid and fid in llm_by_finding:
@@ -604,17 +625,14 @@ def _is_semantically_resolved(
     finding: dict,
     resolved_answers: dict[str, str],
 ) -> bool:
-    """Check if a finding is semantically covered by a resolved answer.
+    """Legacy semantic check — kept for backward compatibility with existing tests.
 
-    Uses simple string containment to detect semantic equivalence.
-    Example: if Q1 asked 'recipe or receipt?' and answer was 'recipe',
-    a subsequent finding 'hidden assumption: user wants cooking recipe'
-    is resolved.
+    Cross-stage resolution is now handled by ContextBus.is_resolved() (T7).
+    This function handles only within-round deduplication.
     """
     if not resolved_answers:
         return False
 
-    # Extract key terms from the finding
     finding_text = ""
     if "term" in finding:
         finding_text = finding["term"].lower()
@@ -622,35 +640,24 @@ def _is_semantically_resolved(
         finding_text = finding["assumption"].lower()
     elif "phrasing" in finding:
         finding_text = finding["phrasing"].lower()
-    elif "finding_summary" in finding:
-        finding_text = finding["finding_summary"].lower()
 
     if not finding_text:
         return False
 
-    # Check if any resolved answer's value matches or contains key terms
     for answer_value in resolved_answers.values():
         answer_lower = str(answer_value).lower()
         if not answer_lower:
             continue
-
-        # Direct containment check
         if answer_lower in finding_text or finding_text in answer_lower:
             return True
-
-        # Token overlap check (for multi-word matches)
-        finding_words = set(finding_text.split())
-        answer_words = set(answer_lower.split())
-        if finding_words and answer_words:
-            overlap = finding_words & answer_words
-            # If 50%+ of significant words (>2 chars) overlap, consider resolved
-            significant_finding = {w for w in finding_words if len(w) > 2}
-            significant_answer = {w for w in answer_words if len(w) > 2}
-            if significant_finding and significant_answer:
-                common = significant_finding & significant_answer
-                if len(common) / max(len(significant_finding), 1) >= 0.5:
+        f_words = set(finding_text.split())
+        a_words = set(answer_lower.split())
+        if f_words and a_words:
+            sig_f = {w for w in f_words if len(w) > 2}
+            sig_a = {w for w in a_words if len(w) > 2}
+            if sig_f and sig_a:
+                if len(sig_f & sig_a) / max(len(sig_f), 1) >= 0.5:
                     return True
-
     return False
 
 

@@ -19,6 +19,7 @@ GLOBAL_TIER_KEYS = {
     "graph_topology",
     "active_nodes",
     "errors",
+    "context_bus",  # T3: ContextBus in global tier so all stages can read it
 }
 
 # Group: domain-scoped knowledge

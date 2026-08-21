@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -867,6 +868,10 @@ class StageSpinner:
         self._status: RichStatus | None = None
 
     def start(self) -> None:
+        # Suppress spinner in non-interactive / captured-output contexts
+        # (dry-run simulator, CI, agent mode) to avoid context pollution
+        if not self.console.is_terminal:
+            return
         self._status = self.console.status(
             f"[bold cyan]{self.stage_id}[/bold cyan] initializing...",
             spinner="dots",
@@ -1422,9 +1427,11 @@ def log_stall_warning(stage_id: str, report_msg: str) -> None:
 def trace_node(stage_id: str):
     """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel.
 
+    In dry-run mode (ENG_DRY_RUN=1), spinner is suppressed to avoid context pollution.
     If the handler called log_stage_skip, renders a skip panel instead of
     a completed panel so the visual output is consistent.
     """
+    _is_dry_run = os.environ.get("ENG_DRY_RUN") == "1"
 
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
@@ -1434,7 +1441,7 @@ def trace_node(stage_id: str):
             t0 = time.monotonic()
             was_skipped = False
             try:
-                if ui.is_hud_active():
+                if ui.is_hud_active() or _is_dry_run:
                     result = fn(state, *args, **kwargs)
                     tool_count = 0
                     inner_iterations = 0

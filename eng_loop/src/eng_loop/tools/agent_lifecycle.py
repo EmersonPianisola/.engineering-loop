@@ -4,13 +4,9 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +15,9 @@ class AgentState(str, Enum):
     FRESH = "fresh"
     RUNNING = "running"
     SPINNING_UP = "spinning_up"  # new agent being bootstrapped
-    DISTILLING = "distilling"   # current agent producing handoff
+    DISTILLING = "distilling"  # current agent producing handoff
     COMPLETE = "complete"
-    EXHAUSTED = "exhausted"      # hit token or iteration limit
+    EXHAUSTED = "exhausted"  # hit token or iteration limit
 
 
 class ExhaustReason(str, Enum):
@@ -69,6 +65,9 @@ class DistilledState:
     tool_call_summary: str = ""
     total_tokens_consumed: int = 0
     predecessor_stats: AgentStats | None = None
+    # T2: ContextBus snapshot — ensures clarifications + intent refinements
+    # survive agent distill→spawn transitions
+    context_bus_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -245,7 +244,8 @@ class AgentLifecycleManager:
     def _can_spawn(self) -> bool:
         """Check if we can spawn a new agent given parallel limits."""
         total_active = sum(
-            1 for agents in self._active_agents.values()
+            1
+            for agents in self._active_agents.values()
             for a in agents
             if a.state in (AgentState.RUNNING, AgentState.SPINNING_UP)
         )
@@ -253,7 +253,8 @@ class AgentLifecycleManager:
 
     def get_parallel_slots_available(self) -> int:
         total_active = sum(
-            1 for agents in self._active_agents.values()
+            1
+            for agents in self._active_agents.values()
             for a in agents
             if a.state in (AgentState.RUNNING, AgentState.SPINNING_UP)
         )
@@ -266,6 +267,7 @@ class AgentLifecycleManager:
         stage_id: str,
         messages: list[Any],
         tool_results: dict[str, str] | None = None,
+        bus_snapshot: dict[str, Any] | None = None,
     ) -> DistilledState:
         """Build a DistilledState from the current agent's context.
 
@@ -286,6 +288,9 @@ class AgentLifecycleManager:
         errors = self._extract_errors(messages)
         findings = self._extract_findings(messages)
 
+        # T2: Capture ContextBus snapshot so distill→spawn preserves clarifications
+        bus_snapshot = bus_snapshot if "bus_snapshot" in locals() else {}
+
         return DistilledState(
             stage_id=stage_id,
             predecessor_agent_id=agent.agent_id,
@@ -295,6 +300,7 @@ class AgentLifecycleManager:
             key_findings=findings,
             total_tokens_consumed=agent.input_tokens + agent.output_tokens,
             predecessor_stats=agent,
+            context_bus_snapshot=bus_snapshot,
         )
 
     @staticmethod
@@ -368,7 +374,8 @@ class AgentLifecycleManager:
 
     def get_global_summary(self) -> dict[str, Any]:
         total_active = sum(
-            1 for agents in self._active_agents.values()
+            1
+            for agents in self._active_agents.values()
             for a in agents
             if a.state in (AgentState.RUNNING, AgentState.SPINNING_UP)
         )
