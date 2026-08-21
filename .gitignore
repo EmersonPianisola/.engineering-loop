@@ -20,3 +20,4 @@ eng_loop/.ruff_cache/
 __pycache__/
 *.pyc
 .pytest_cache/
+eng_loop/.cosmic-ray/
