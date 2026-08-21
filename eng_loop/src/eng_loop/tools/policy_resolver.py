@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import Tool
@@ -94,6 +95,11 @@ def authorize_blueprint(
     The framework is the authority on risk. It analyzes the work item
     and overrides the proposed complexity class if risk keywords are
     detected.
+
+    CRITICAL: Sanitizes validation rules that reference non-existent files.
+    The architect frequently hallucinates file paths and symbols. Running
+    validation against hallucinated paths wastes retries and blocks the
+    pipeline. The policy layer is the enforcement point — not the prompt.
     """
     from eng_loop.schemas import DynamicBlueprint
 
@@ -104,13 +110,65 @@ def authorize_blueprint(
     else:
         auth_complexity = proposal.proposed_complexity
 
+    project_root = state.get("paths", {}).get("project_root", ".")
+    steps = _sanitize_validation_rules(proposal.steps, project_root)
+
     return DynamicBlueprint(
         plan_id=proposal.plan_id,
         trigger=proposal.trigger,
         authorized_complexity=auth_complexity,
-        steps=proposal.steps,
+        steps=steps,
         rationale=proposal.rationale,
     )
+
+
+def _sanitize_validation_rules(
+    steps: tuple,
+    project_root: str,
+) -> tuple:
+    """Strip validation rules that reference non-existent files or symbols.
+
+    The architect hallucinates paths and symbols at >60% rate.
+    Rather than waste 3 retries per bad rule, filter them at policy time.
+    """
+    from eng_loop.schemas import DynamicStep, ValidationRule
+
+    root = Path(project_root).resolve()
+    sanitized = []
+
+    for step in steps:
+        rules = list(step.validation_rules)
+        kept = []
+        for rule in rules:
+            if rule.type == "files_exist":
+                paths = getattr(rule.payload, "paths", [])
+                existing = [p for p in paths if (root / p).exists()]
+                if not existing:
+                    continue
+                if len(existing) < len(paths):
+                    rule = ValidationRule(
+                        type="files_exist",
+                        payload={"paths": existing},
+                    )
+                kept.append(rule)
+            elif rule.type == "contains_symbol":
+                target = getattr(rule.payload, "target_file", "")
+                if target and not (root / target).exists():
+                    continue
+                kept.append(rule)
+            else:
+                kept.append(rule)
+
+        sanitized_step = DynamicStep(
+            step_id=step.step_id,
+            role_description=step.role_description,
+            requested_capabilities=step.requested_capabilities,
+            max_attempts=step.max_attempts,
+            validation_rules=tuple(kept),
+        )
+        sanitized.append(sanitized_step)
+
+    return tuple(sanitized)
 
 
 # ───────────────────────────────────────────────────────────────────

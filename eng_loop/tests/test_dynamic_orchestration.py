@@ -498,6 +498,114 @@ class TestAuthorizeBlueprint:
         bp = authorize_blueprint(proposal, state)
         assert bp.authorized_complexity == "restricted"
 
+    def test_sanitize_files_exist_nonexistent(self, tmp_path):
+        """files_exist rules for non-existent files are stripped."""
+        step = DynamicStep(
+            step_id="test-step",
+            role_description="Test",
+            validation_rules=(
+                ValidationRule(
+                    type="files_exist",
+                    payload=FilesExistPayload(paths=("does-not-exist.txt",)),
+                ),
+            ),
+        )
+        proposal = DynamicBlueprintProposal(
+            plan_id="p-001",
+            trigger="augment",
+            proposed_complexity="standard",
+            steps=(step,),
+            rationale="Test",
+        )
+        state = {
+            "work_item": "Add feature",
+            "paths": {"project_root": str(tmp_path)},
+        }
+        bp = authorize_blueprint(proposal, state)
+        assert len(bp.steps[0].validation_rules) == 0
+
+    def test_sanitize_files_exist_partial(self, tmp_path):
+        """files_exist keeps only paths that exist."""
+        (tmp_path / "real.txt").write_text("hello")
+        step = DynamicStep(
+            step_id="test-step",
+            role_description="Test",
+            validation_rules=(
+                ValidationRule(
+                    type="files_exist",
+                    payload=FilesExistPayload(paths=("real.txt", "fake.txt")),
+                ),
+            ),
+        )
+        proposal = DynamicBlueprintProposal(
+            plan_id="p-001",
+            trigger="augment",
+            proposed_complexity="standard",
+            steps=(step,),
+            rationale="Test",
+        )
+        state = {
+            "work_item": "Add feature",
+            "paths": {"project_root": str(tmp_path)},
+        }
+        bp = authorize_blueprint(proposal, state)
+        rule = bp.steps[0].validation_rules[0]
+        assert rule.type == "files_exist"
+        assert "real.txt" in rule.payload.paths
+        assert "fake.txt" not in rule.payload.paths
+
+    def test_sanitize_contains_symbol_nonexistent_file(self, tmp_path):
+        """contains_symbol for non-existent target files are stripped."""
+        step = DynamicStep(
+            step_id="test-step",
+            role_description="Test",
+            validation_rules=(
+                ValidationRule(
+                    type="contains_symbol",
+                    payload=SymbolPayload(symbol="def foo", target_file="no-such-file.py"),
+                ),
+            ),
+        )
+        proposal = DynamicBlueprintProposal(
+            plan_id="p-001",
+            trigger="augment",
+            proposed_complexity="standard",
+            steps=(step,),
+            rationale="Test",
+        )
+        state = {
+            "work_item": "Add feature",
+            "paths": {"project_root": str(tmp_path)},
+        }
+        bp = authorize_blueprint(proposal, state)
+        assert len(bp.steps[0].validation_rules) == 0
+
+    def test_sanitize_tests_pass_unchanged(self, tmp_path):
+        """tests_pass rules are never stripped (they run at execution time)."""
+        step = DynamicStep(
+            step_id="test-step",
+            role_description="Test",
+            validation_rules=(
+                ValidationRule(
+                    type="tests_pass",
+                    payload=TestsPassPayload(suite="unit", command="echo ok"),
+                ),
+            ),
+        )
+        proposal = DynamicBlueprintProposal(
+            plan_id="p-001",
+            trigger="augment",
+            proposed_complexity="standard",
+            steps=(step,),
+            rationale="Test",
+        )
+        state = {
+            "work_item": "Add feature",
+            "paths": {"project_root": str(tmp_path)},
+        }
+        bp = authorize_blueprint(proposal, state)
+        assert len(bp.steps[0].validation_rules) == 1
+
 
 class TestSafeToolPool:
     def test_safe_pool_contains_expected_tools(self):
