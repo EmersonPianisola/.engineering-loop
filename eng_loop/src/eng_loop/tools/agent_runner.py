@@ -29,6 +29,7 @@ from eng_loop.tools.progress import (
     log_stage_fail,
     ui,
 )
+from eng_loop.tools.shared_tool_cache import get_shared_cache
 from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
 
 if TYPE_CHECKING:
@@ -319,8 +320,8 @@ def run_agent(
     _STEERING_MAX_INJECTIONS = 3  # After 3 steering attempts, force final answer
     _steering_forced_answer = False  # Track whether we already forced the agent to answer
 
-    # Tool result cache — eliminates redundant read/glob/grep calls within a stage
-    tool_cache = ToolResultCache()
+    # Tool result cache — shared across ALL stages to eliminate redundant reads
+    tool_cache = get_shared_cache(config)  # type: ignore[arg-type]
 
     # Read-loop breaker — injects a reminder after consecutive reads
     _read_streak = 0
