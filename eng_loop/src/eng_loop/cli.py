@@ -297,6 +297,13 @@ def main():
         choices=["console", "legacy"],
         help="CLI renderer: 'console' (new, default) or 'legacy' (original)",
     )
+    parser.add_argument(
+        "--trace",
+        type=str,
+        default=None,
+        choices=["debug", "minimal", "essential", "full"],
+        help="Assertive trace level (overrides config). Writes JSONL to artifacts/ and shows live HUD panel.",
+    )
 
     # ── Surgical subcommands ─────────────────────────────────────
     subparsers = parser.add_subparsers(dest="command", help="Surgical commands")
@@ -357,6 +364,29 @@ def main():
     from eng_loop.tools.timing import start_global_wall_clock
 
     start_global_wall_clock()
+
+    # ── Initialize assertive trace logger ─────────────────────────
+    from eng_loop.tools.trace_logger import trace as _trace
+
+    trace_cfg = config.get("trace", {})
+    trace_level = args.trace if args.trace else trace_cfg.get("level", "essential")
+    trace_enabled = args.trace is not None or trace_cfg.get("enabled", True)
+
+    if trace_enabled:
+        _trace.init(
+            artifact_root=str(paths.get("artifact_root", "artifacts")),
+            level=trace_level,
+            console_panel=trace_cfg.get("console", True),
+            include_prompts=trace_cfg.get("include_prompts", True),
+            include_responses=trace_cfg.get("include_responses", True),
+            include_tool_results=trace_cfg.get("include_tool_results", True),
+            max_file_size_mb=trace_cfg.get("max_file_size_mb", 50),
+        )
+        _trace.system_event(
+            "TRACE_INIT",
+            level=trace_level,
+            file=_trace.get_trace_file(),
+        )
 
     # ── Surgical commands (exit immediately) ─────────────────────
     if args.command == "rollback":
@@ -728,13 +758,21 @@ def main():
             # Textual TUI (MAGE HUD v2.0)
             # NOTE: In TUI mode, execution happens inside tui_controller.run_async()
             try:
-                # Silence logging to prevent stdout/stderr leakage that corrupts the TUI
+                # Redirect logging to file to prevent stdout/stderr leakage that corrupts the TUI.
+                # Trace logger operates independently (JSONL + HUD panel).
                 import logging as _logging
 
                 from eng_loop.tools.hud_tui import TextualHUDController
 
-                _logging.getLogger().addHandler(_logging.NullHandler())
-                _logging.getLogger().setLevel(_logging.CRITICAL)
+                _log_file = str(paths.get("artifact_root", "artifacts") / "run.log")
+                _tui_file_handler = _logging.FileHandler(_log_file, encoding="utf-8")
+                _tui_file_handler.setFormatter(
+                    _logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")
+                )
+                _root_logger = _logging.getLogger()
+                _root_logger.addHandler(_tui_file_handler)
+                _root_logger.addHandler(_logging.NullHandler())
+                _root_logger.setLevel(_logging.DEBUG)
 
                 # Build orchestration callable (runs in background thread)
                 def _run_orchestration() -> dict[str, Any]:
@@ -780,12 +818,20 @@ def main():
                 config=config,
                 initial_state=state,
             )
-        # Silence all Python logging output to prevent stdout/stderr leakage
+        # Redirect Python logging to file to prevent stdout/stderr leakage
         # that would corrupt the HUD terminal rendering.
+        # Trace logger operates independently (JSONL + HUD panel).
         import logging as _logging
 
-        _logging.getLogger().addHandler(_logging.NullHandler())
-        _logging.getLogger().setLevel(_logging.CRITICAL)
+        _hud_log_file = str(paths.get("artifact_root", "artifacts") / "run.log")
+        _hud_file_handler = _logging.FileHandler(_hud_log_file, encoding="utf-8")
+        _hud_file_handler.setFormatter(
+            _logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")
+        )
+        _hud_root = _logging.getLogger()
+        _hud_root.addHandler(_hud_file_handler)
+        _hud_root.addHandler(_logging.NullHandler())
+        _hud_root.setLevel(_logging.DEBUG)
 
     model_info = config.get("model", {})
     if not tui_controller:
@@ -804,6 +850,14 @@ def main():
             ui.console.print(f"[bold yellow]Breakpoints set at:[/bold yellow] {', '.join(interrupt_nodes)}")
 
     # ── Execute graph with interrupt support ─────────────────────
+    _trace.system_event(
+        "PIPELINE_START",
+        work_item=args.work_item,
+        complexity=state.get("complexity"),
+        active_nodes=active_nodes_for_progress,
+        model=model_info.get("model", DEFAULT_MODEL),
+        base_url=model_info.get("base_url", DEFAULT_BASE_URL),
+    )
     try:
         final_state = _run_loop_with_recovery(
             state,
@@ -829,6 +883,7 @@ def main():
             normalizer.quest_cancelled("user interrupted")
         if hud:
             hud.log("SYS", "User interrupted")
+        _trace.system_event("PIPELINE_CANCELLED", reason="user interrupted")
         ui.console.print()
         ui.console.print(Panel("[bold yellow]Loop halted by user.[/bold yellow]", border_style="yellow"))
         sys.exit(130)
@@ -842,6 +897,7 @@ def main():
             normalizer.quest_failed(str(e))
         if hud:
             hud.log("ERROR", str(e))
+        _trace.system_event("PIPELINE_ERROR", error=str(e))
         ui.console.print()
         ui.console.print(Panel(f"[bold red]Loop halted:[/bold red] {e}", border_style="red"))
         import traceback
@@ -849,6 +905,9 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     finally:
+        _final_status = state.get("status", "unknown")
+        _trace.system_event("PIPELINE_END", status=_final_status, current_stage=state.get("current_stage", ""))
+        _trace.stop()
         if hud:
             hud.stop()
             ui.set_hud(None)

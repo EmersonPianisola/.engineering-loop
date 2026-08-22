@@ -16,6 +16,7 @@ from rich.table import Table
 from rich.tree import Tree
 
 from eng_loop.tools.timing import TimingTracker, format_time, get_global_wall_formatted, token_tracker
+from eng_loop.tools.trace_logger import trace as _trace
 
 if TYPE_CHECKING:
     from rich.status import Status as RichStatus
@@ -1438,6 +1439,7 @@ def trace_node(stage_id: str):
         def wrapper(state: dict[str, Any], *args, **kwargs):
             iteration = state.get("iteration", 0)
             log_stage_enter(stage_id, iteration)
+            _trace.stage_enter(stage_id, iteration)
             t0 = time.monotonic()
             was_skipped = False
             try:
@@ -1457,6 +1459,7 @@ def trace_node(stage_id: str):
                 tracker.record_stage(stage_id, elapsed)
                 if was_skipped:
                     log_stage_cached(stage_id, "already done")
+                    _trace.stage_skip(stage_id, "already done")
                 else:
                     log_stage_complete(
                         stage_id,
@@ -1465,11 +1468,19 @@ def trace_node(stage_id: str):
                         summary=inner_summary,
                         iterations=inner_iterations,
                     )
+                    _trace.stage_exit(
+                        stage_id,
+                        status="done",
+                        duration=elapsed,
+                        tool_calls=tool_count,
+                        summary=inner_summary,
+                    )
                 return result
             except Exception as e:
                 elapsed = time.monotonic() - t0
                 tracker.record_stage(stage_id, elapsed)
                 log_stage_fail(stage_id, f"{e} ({elapsed:.1f}s)")
+                _trace.stage_fail(stage_id, str(e))
                 raise
 
         return wrapper

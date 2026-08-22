@@ -13,6 +13,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from eng_loop.state import get_work_item_text
+from eng_loop.tools.trace_logger import trace as _trace_logger
 
 STAGE_CLASSES = {
     "init": ("MAGE", "blue"),
@@ -284,7 +285,8 @@ class HUDRenderer:
         layout.split_column(
             Layout(name="header", size=2),
             Layout(name="main"),
-            Layout(name="footer", size=10),
+            Layout(name="trace", size=8),
+            Layout(name="footer", size=6),
         )
         layout["main"].split_row(
             Layout(name="map"),
@@ -294,6 +296,7 @@ class HUDRenderer:
         layout["header"].update(self._render_quest_bar_legacy(work_item))
         layout["map"].update(self._render_graph_map_legacy(state))
         layout["party"].update(self._render_party_status_legacy(state))
+        layout["trace"].update(_trace_logger.render_panel())
         layout["footer"].update(self.action_log.render())
         return layout
 
@@ -301,7 +304,6 @@ class HUDRenderer:
 
     def _build_layout_from_snapshot(self, snapshot: Any) -> Layout:
         layout = Layout()
-        # Dynamic thoughts panel: shows only when agents are producing output
         has_thoughts = any(m.thinking_preview for m in snapshot.party)
         thoughts_size = 4 if has_thoughts else 0
         footer_size = max(6, 10 - thoughts_size)
@@ -310,6 +312,7 @@ class HUDRenderer:
             Layout(name="header", size=3),
             Layout(name="main"),
             Layout(name="thoughts", size=thoughts_size),
+            Layout(name="trace", size=8),
             Layout(name="footer", size=footer_size),
         )
         layout["main"].split_row(
@@ -320,6 +323,7 @@ class HUDRenderer:
         layout["map"].update(self._render_graph_map(snapshot))
         layout["party"].update(self._render_party_status(snapshot))
         layout["thoughts"].update(self._render_thoughts(snapshot))
+        layout["trace"].update(_trace_logger.render_panel())
 
         footer_content = Layout()
         footer_content.split_row(

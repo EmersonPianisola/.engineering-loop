@@ -12,6 +12,7 @@ from eng_loop.node_registry import NodeRegistry, NodeSpec, build_registry
 from eng_loop.state import PipelineState
 from eng_loop.tools.contract_gate import CONTRACT_RULES, with_contract_gate
 from eng_loop.tools.progress import trace_node
+from eng_loop.tools.trace_logger import trace as _trace
 
 if TYPE_CHECKING:
     from eng_loop.schemas import AuthorizedGraphTopology
@@ -97,28 +98,6 @@ class GraphBuilder:
             tags=tags,
             work_type=work_type,
         )
-
-        # Apply LLM complexity assessment flags to further prune stages.
-        # Registry filter only considers complexity/work_type/ui_project,
-        # but the LLM assessment has finer-grained intelligence about what's needed.
-        assessment = state.get("complexity_assessment", {})
-        pruned_ids = set()
-
-        if not assessment.get("requires_architecture", True):
-            pruned_ids.update(s.id for s in active_specs if s.phase == "arch")
-        if not assessment.get("requires_design", True):
-            pruned_ids.update(s.id for s in active_specs if s.phase == "design")
-        if not assessment.get("requires_qa", True):
-            pruned_ids.update(s.id for s in active_specs if s.id.startswith("qa."))
-        if not assessment.get("requires_e2e", True):
-            pruned_ids.update(s.id for s in active_specs if s.id in ("e2e.execute", "smoke.test"))
-        if not assessment.get("requires_deploy", True):
-            pruned_ids.update(s.id for s in active_specs if s.phase == "deploy")
-
-        if pruned_ids:
-            active_specs = [s for s in active_specs if s.id not in pruned_ids]
-            logger.info("  Assessment pruning: removed %s", ", ".join(sorted(pruned_ids)))
-
         {s.id for s in active_specs}
         active_node_names = {s.node_name for s in active_specs}
 
@@ -393,9 +372,26 @@ class GraphBuilder:
             )
 
     def _route(self, rules: list[EdgeRule], state: dict[str, Any]) -> str:
+        current = state.get("current_stage", "")
         for rule in rules:
             if rule.evaluate(state):
+                _trace.route_decision(
+                    function="_route",
+                    decision=rule.to_node,
+                    reason=f"rule:{rule.name} matched (src={rule.source})",
+                    state_snippet={
+                        "current_stage": current,
+                        "status": state.get("status", ""),
+                        "rule": rule.name,
+                    },
+                )
                 return rule.to_node
+        _trace.route_decision(
+            function="_route",
+            decision="__end__",
+            reason="no rules matched",
+            state_snippet={"current_stage": current, "status": state.get("status", "")},
+        )
         return "__end__"
 
     def _add_parallel_qa(

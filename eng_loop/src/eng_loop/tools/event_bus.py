@@ -4,8 +4,35 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from eng_loop.tools.trace_logger import trace as _trace
+
 if TYPE_CHECKING:
     from eng_loop.tools.cli_events import PipelineEvent
+
+
+def _event_bus_trace_handler(event: PipelineEvent) -> None:
+    """Subscribe to event bus and forward events to trace logger."""
+    event_type = event.event_type
+    if event_type.startswith("node."):
+        _trace.stage_enter(event.node_id, iteration=event.attempt) if "started" in event_type else None
+        _trace.system_event(
+            event_type,
+            node_id=event.node_id,
+            message=event.message,
+            status=event.status,
+        )
+    elif event_type.startswith("planning."):
+        _trace.system_event(event_type, message=event.message, metadata=event.metadata)
+    elif event_type.startswith("pipeline."):
+        _trace.system_event(event_type, message=event.message)
+    elif event_type.startswith("gate."):
+        _trace.system_event(event_type, node_id=event.node_id, message=event.message)
+    elif event_type.startswith("checkpoint."):
+        _trace.system_event(event_type, message=event.message, metadata=event.metadata)
+    elif event_type.startswith("diagnostic."):
+        severity = event.status
+        if severity in ("error", "fatal"):
+            _trace.system_event(event_type, node_id=event.node_id, message=event.message)
 
 
 class EventBus:
@@ -17,7 +44,7 @@ class EventBus:
 
     def __init__(self) -> None:
         self._events: list[PipelineEvent] = []
-        self._subscribers: list[Callable[[PipelineEvent], None]] = []
+        self._subscribers: list[Callable[[PipelineEvent], None]] = [_event_bus_trace_handler]
         self._lock = threading.RLock()
 
     def emit(self, event: PipelineEvent) -> None:
@@ -37,7 +64,7 @@ class EventBus:
             self._subscribers.append(handler)
 
     def unsubscribe(self, handler: Callable[[PipelineEvent], None]) -> None:
-        """Remove a previously registered callback."""
+        """Remove a previously registered handler."""
         with self._lock:
             if handler in self._subscribers:
                 self._subscribers.remove(handler)
@@ -61,4 +88,7 @@ class EventBus:
         """Clear all stored events (for testing)."""
         with self._lock:
             self._events.clear()
-            self._subscribers.clear()
+            if self._subscribers and self._subscribers[0] is _event_bus_trace_handler:
+                self._subscribers = []
+            else:
+                self._subscribers.clear()

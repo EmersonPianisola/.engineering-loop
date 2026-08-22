@@ -72,6 +72,7 @@ src/eng_loop/tools/legacy_renderer.py
 src/eng_loop/tools/lessons.py
 src/eng_loop/tools/next_active.py
 src/eng_loop/tools/node_helpers.py
+src/eng_loop/tools/parse_retry.py
 src/eng_loop/tools/policy_resolver.py
 src/eng_loop/tools/progress.py
 src/eng_loop/tools/project_map.py
@@ -79,6 +80,7 @@ src/eng_loop/tools/prompt_builder.py
 src/eng_loop/tools/read_tool.py
 src/eng_loop/tools/recovery_agent.py
 src/eng_loop/tools/recovery_logger.py
+src/eng_loop/tools/shared_tool_cache.py
 src/eng_loop/tools/stage_gate.py
 src/eng_loop/tools/stall_detector.py
 src/eng_loop/tools/state_history.py
@@ -86,6 +88,7 @@ src/eng_loop/tools/tension_memory.py
 src/eng_loop/tools/timing.py
 src/eng_loop/tools/token_counter.py
 src/eng_loop/tools/topology_compliance.py
+src/eng_loop/tools/trace_logger.py
 src/eng_loop/tools/write_tool.py
 tests/test_agent_control.py
 tests/test_agent_lifecycle.py
@@ -145,6 +148,7 @@ tests/test_lessons.py
 tests/test_model.py
 tests/test_node_handlers.py
 tests/test_nodes.py
+tests/test_parse_retry.py
 tests/test_progress.py
 tests/test_prompt_builder.py
 tests/test_recovery_agent.py

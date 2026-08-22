@@ -7,18 +7,22 @@ from eng_loop.state import (
     get_max_attempts,
     next_incomplete_stage,
 )
+from eng_loop.tools.trace_logger import trace as _trace
 
 
 def route_after_essence(state: dict[str, Any]) -> str:
     stage_id = state.get("current_stage", "")
     if not stage_id:
         return "__end__"
-    return stage_id.replace(".", "-").replace("_", "-")
+    result = stage_id.replace(".", "-").replace("_", "-")
+    _trace.route_decision("route_after_essence", result, reason="essence complete, route to first stage")
+    return result
 
 
 def route_after_stage(state: dict[str, Any]) -> str:
     stage_id = state.get("current_stage", "")
     if not stage_id:
+        _trace.route_decision("route_after_stage", "__end__", reason="no current_stage")
         return "__end__"
 
     stages = state.get("stages", {})
@@ -28,7 +32,13 @@ def route_after_stage(state: dict[str, Any]) -> str:
         config = state.get("config", {})
         max_att = get_max_attempts(config, stage_id)
         if stage.get("attempts", 0) < max_att:
-            return stage_id.replace(".", "-").replace("_", "-")
+            att = stage.get("attempts", 0)
+            node = stage_id.replace(".", "-").replace("_", "-")
+            _trace.route_decision(
+                "route_after_stage", node,
+                reason=f"NOT DONE, retry {att}/{max_att}",
+            )
+            return node
 
     # T4: If context bus has unresolved critical findings, re-route to current
     # stage for another attempt rather than advancing blindly
@@ -36,22 +46,33 @@ def route_after_stage(state: dict[str, Any]) -> str:
     if bus and bus.entry_count > 0:
         for entry in bus._entries:
             if entry.entry_type == "critical_finding":
-                return stage_id.replace(".", "-").replace("_", "-")
+                node = stage_id.replace(".", "-").replace("_", "-")
+                _trace.route_decision(
+                    "route_after_stage", node,
+                    reason="critical_finding in context_bus, re-attempt",
+                )
+                return node
 
-    return _find_next_stage(state)
+    result = _find_next_stage(state)
+    _trace.route_decision("route_after_stage", result, reason="DONE, advance to next")
+    return result
 
 
 def route_check_loop(state: dict[str, Any]) -> Literal["continue_loop", "__end__"]:
     if state.get("status") in ("blocked", "halted", "waiting_for_input"):
+        _trace.route_decision("route_check_loop", "__end__", reason=f"status={state.get('status')}")
         return "__end__"
     if all_active_stages_done(state):
+        _trace.route_decision("route_check_loop", "__end__", reason="all stages done")
         return "__end__"
 
     iteration = state.get("iteration", 0)
     max_iterations = state.get("config", {}).get("max_loop_iterations", 50)
     if iteration >= max_iterations:
+        _trace.route_decision("route_check_loop", "__end__", reason=f"max iterations {iteration}/{max_iterations}")
         return "__end__"
 
+    _trace.route_decision("route_check_loop", "continue_loop", reason=f"iteration {iteration}/{max_iterations}")
     return "continue_loop"
 
 
@@ -77,61 +98,83 @@ def _find_next_stage(state: dict[str, Any]) -> str:
 
 def route_init_complete(state: dict[str, Any]) -> str:
     if state.get("status") in ("blocked", "waiting_for_input"):
+        _trace.route_decision("route_init_complete", "__end__", reason=f"status={state.get('status')}")
         return "__end__"
+    _trace.route_decision("route_init_complete", "init-ideate", reason="init.setup done")
     return "init-ideate"
 
 
 def route_design_complete(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
+        _trace.route_decision("route_design_complete", "arch-requirements", reason=f"complexity={complexity}")
         return "arch-requirements"
+    _trace.route_decision("route_design_complete", "impl-design", reason=f"complexity={complexity}, skip arch")
     return "impl-design"
 
 
 def route_arch_complete(state: dict[str, Any]) -> str:
     complexity = state.get("complexity", "small")
     if complexity == "complex":
+        _trace.route_decision("route_arch_complete", "arch-review", reason=f"complexity={complexity}")
         return "arch-review"
+    _trace.route_decision("route_arch_complete", "impl-design", reason=f"complexity={complexity}, skip review")
     return "impl-design"
 
 
 def route_verify_result(state: dict[str, Any]) -> str:
     stages = state.get("stages", {})
     if not stages.get("verify", {}).get("done", False):
+        _trace.route_decision("route_verify_result", "impl-code", reason="verify NOT DONE, rollback")
         return "impl-code"
-    return _post_verify_route(state)
+    result = _post_verify_route(state)
+    _trace.route_decision("route_verify_result", result, reason="verify DONE, advance")
+    return result
 
 
 def route_e2e_result(state: dict[str, Any]) -> str:
     stages = state.get("stages", {})
     if not stages.get("e2e.execute", {}).get("done", False):
+        _trace.route_decision("route_e2e_result", "impl-code", reason="e2e NOT DONE, rollback")
         return "impl-code"
-    return _post_e2e_route(state)
+    result = _post_e2e_route(state)
+    _trace.route_decision("route_e2e_result", result, reason="e2e DONE, advance")
+    return result
 
 
 def route_qa_result(state: dict[str, Any]) -> str:
     stages = state.get("stages", {})
     current = state.get("current_stage", "")
     if not stages.get(current, {}).get("done", False):
+        _trace.route_decision("route_qa_result", "impl-code", reason=f"qa stage {current} NOT DONE, rollback")
         return "impl-code"
-    return _next_qa_or_deploy(state)
+    result = _next_qa_or_deploy(state)
+    _trace.route_decision("route_qa_result", result, reason=f"qa stage {current} DONE, advance")
+    return result
 
 
 def route_deploy_result(state: dict[str, Any]) -> str:
     stages = state.get("stages", {})
     if not stages.get("deploy.prepare", {}).get("done", False):
+        _trace.route_decision("route_deploy_result", "impl-code", reason="deploy NOT DONE, rollback")
         return "impl-code"
     ui_project = state.get("ui_project", False)
     if ui_project:
+        _trace.route_decision("route_deploy_result", "smoke-test", reason="ui_project, run smoke")
         return "smoke-test"
-    return _post_deploy_route(state)
+    result = _post_deploy_route(state)
+    _trace.route_decision("route_deploy_result", result, reason="deploy DONE, advance")
+    return result
 
 
 def route_smoke_result(state: dict[str, Any]) -> str:
     stages = state.get("stages", {})
     if not stages.get("smoke.test", {}).get("done", False):
+        _trace.route_decision("route_smoke_result", "impl-code", reason="smoke NOT DONE, rollback")
         return "impl-code"
-    return _post_deploy_route(state)
+    result = _post_deploy_route(state)
+    _trace.route_decision("route_smoke_result", result, reason="smoke DONE, advance")
+    return result
 
 
 def _post_verify_route(state: dict[str, Any]) -> str:

@@ -30,6 +30,7 @@ from eng_loop.tools.progress import (
     ui,
 )
 from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
+from eng_loop.tools.trace_logger import trace as _trace
 
 if TYPE_CHECKING:
     ProgressCallback = Callable[[str, str], None]
@@ -253,6 +254,14 @@ def run_agent(
     agent_prompt = _build_agent_prompt(prompt, tools, output_schema)
     messages.append(HumanMessage(content=agent_prompt))
 
+    _trace.llm_invoke(
+        stage_id,
+        prompt=prompt,
+        tools=[t.name for t in tools],
+        messages_count=len(messages),
+        system_prompt=system_message or "",
+    )
+
     # Bind tools to model
     model_with_tools = model.bind_tools(tools)
 
@@ -356,6 +365,7 @@ def run_agent(
             max_iterations,
             len(messages),
         )
+        _trace.llm_iteration(stage_id, iteration, max_iterations, len(messages))
 
         # LAST ITERATION: Force the agent to stop calling tools and provide an answer
         if iteration == max_iterations:
@@ -380,6 +390,12 @@ def run_agent(
                 model,
             )
             if not _budget_result["allowed"]:
+                _trace.context_budget(
+                    stage_id,
+                    tokens_used=_budget_result.get("tokens_used", 0),
+                    budget_remaining=0.0,
+                    status="exceeded",
+                )
                 elapsed = time.monotonic() - t0
                 log_model_done(stage_id, elapsed)
                 log_stage_fail(stage_id, _budget_result["reason"])
@@ -431,6 +447,7 @@ def run_agent(
             merged = merged_chunk if merged_chunk else AIMessageChunk(content="")
             response = AIMessage(content=merged.content, tool_calls=merged.tool_calls or [])
         except Exception as e:
+            _trace.llm_error(stage_id, iteration, str(e))
             elapsed = time.monotonic() - t0
             log_model_done(stage_id, elapsed)
             log_stage_fail(stage_id, f"LLM error on iteration {iteration}: {e}")
@@ -448,6 +465,13 @@ def run_agent(
 
         iter_elapsed = time.monotonic() - iter_start
         if isinstance(response, AIMessage):
+            _trace.llm_response(
+                stage_id,
+                iteration=iteration,
+                tool_calls=response.tool_calls or None,
+                content=response.content if hasattr(response, "content") else "",
+                elapsed=iter_elapsed,
+            )
             if response.tool_calls:
                 _dbg.debug(
                     "[DEBUG] agent_runner: stage=%s iteration=%d, tool_calls=%d, names=%s, iter_time=%.1fs",
@@ -529,6 +553,13 @@ def run_agent(
                             tool_name,
                             cmd_history.get_repeat_count(tool_name, tool_args),
                         )
+                        _repeat = cmd_history.get_repeat_count(tool_name, tool_args)
+                        _trace.tool_intercepted(
+                            stage_id,
+                            tool_name,
+                            args=tool_args,
+                            reason=f"redundant repeat #{_repeat}",
+                        )
                         # Emit command history event for HUD visibility
                         if ui.is_hud_active() and ui._normalizer:
                             _cmd_target = _extract_tool_target(tool_name, tool_args)
@@ -608,7 +639,16 @@ def run_agent(
                         _cmd_target = _extract_tool_target(tool_name, tool_args)
                         ui._normalizer.command_history_update(stage_id, tool_name, _cmd_target, _recorded_count + 1)
 
+                    _tool_t0 = time.monotonic()
                     tool_result = _execute_tool_cached(tools, tool_name, tool_args, tool_cache)
+                    _tool_elapsed = time.monotonic() - _tool_t0
+                    _trace.tool_call(
+                        stage_id,
+                        tool_name,
+                        args=tool_args,
+                        result_size=len(tool_result) if tool_result else 0,
+                        elapsed=_tool_elapsed,
+                    )
 
                     # Phase 5: Summarize large error outputs to protect context
                     if _is_error_output(tool_result) and len(tool_result) > 2000:
@@ -649,6 +689,12 @@ def run_agent(
                             "[DEBUG] agent_runner: stage=%s SOFT stall — injecting steering: %s",
                             stage_id,
                             stall_report.message,
+                        )
+                        _trace.stall_detected(
+                            stage_id,
+                            stall_type="soft",
+                            count=stall_report.count,
+                            action="steering_injection",
                         )
                         _steering_injection_count += 1
                         if _steering_injection_count >= _STEERING_MAX_INJECTIONS:
@@ -699,6 +745,12 @@ def run_agent(
                         cmd_history.reset()
                         _read_streak = 0
                     else:
+                        _trace.stall_detected(
+                            stage_id,
+                            stall_type="hard",
+                            count=stall_report.count,
+                            action="abort",
+                        )
                         elapsed = time.monotonic() - t0
                         log_model_done(stage_id, elapsed)
                         log_stage_fail(stage_id, stall_report.message)
