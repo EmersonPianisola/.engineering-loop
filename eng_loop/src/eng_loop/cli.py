@@ -460,7 +460,11 @@ def main():
 
         if args.state_file and Path(args.state_file).exists():
             saved = load_state_template(args.state_file)
-            state.update(saved)
+            # Selective merge: preserve new work_item/status/stages, carry over
+            # long-lived fields (decisions, essence, recovery_history, context_tiers).
+            for _key in ("decisions", "essence", "recovery_history", "context_tiers"):
+                if _key in saved:
+                    state[_key] = saved[_key]
 
     # ── Pre-classify work item (before graph build) ─────────────
     # The graph must know complexity/work_type/ui_project to filter
@@ -633,6 +637,10 @@ def main():
 
             # ── Pre-execution proposal: show plan and ask for confirmation ──
             _show_execution_plan(state, topology, args.work_item, config)
+
+            # Persist state before graph execution so work_item/complexity/topology
+            # are saved to disk even if the graph throws or times out.
+            _save_state(state, paths, verbose=False)
 
             # If user adjusted complexity, rebuild graph
             if state.pop("_complexity_adjusted", False):

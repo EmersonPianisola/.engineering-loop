@@ -29,7 +29,6 @@ from eng_loop.tools.progress import (
     log_stage_fail,
     ui,
 )
-from eng_loop.tools.shared_tool_cache import get_shared_cache
 from eng_loop.tools.stall_detector import SAFE_READ_TOOLS, StallDetector, _is_safe_inspection, create_stall_detector
 
 if TYPE_CHECKING:
@@ -320,8 +319,8 @@ def run_agent(
     _STEERING_MAX_INJECTIONS = 3  # After 3 steering attempts, force final answer
     _steering_forced_answer = False  # Track whether we already forced the agent to answer
 
-    # Tool result cache — shared across ALL stages to eliminate redundant reads
-    tool_cache = get_shared_cache(config)  # type: ignore[arg-type]
+    # Tool result cache — eliminates redundant read/glob/grep calls within a stage
+    tool_cache = ToolResultCache()
 
     # Read-loop breaker — injects a reminder after consecutive reads
     _read_streak = 0
@@ -394,10 +393,31 @@ def run_agent(
                 )
             messages = _budget_result["messages"]
 
+        # Set up idle/hard watchdog for the stream call
+        # The opencode path has built-in watchdogs; the LangChain path did not.
+        idle_timeout = config.get("hardware", {}).get("idle_timeout_seconds", 180)
+        hard_timeout = config.get("hardware", {}).get("stage_timeout_seconds", 600)
+        timed_out = [False]
+        last_activity = [time.monotonic()]
+
+        def _hard_watchdog(
+            _ht=hard_timeout,
+            _to=timed_out,
+            _sid=stage_id,
+        ):
+            time.sleep(_ht)
+            if not _to[0]:
+                _to[0] = True
+                raise TimeoutError(f"Stage {_sid} exceeded hard timeout ({_ht}s)")
+
+        threading.Thread(target=_hard_watchdog, daemon=True).start()
+
         try:
             # Stream tokens for HUD visibility, then aggregate into final response
             merged_chunk = None
             for chunk in model_with_tools.stream(messages):
+                if timed_out[0]:
+                    raise TimeoutError(f"Stage {stage_id} idle timeout ({idle_timeout}s) -- no tokens produced")
                 # Accumulate chunks using + operator
                 if merged_chunk is None:
                     merged_chunk = chunk
@@ -406,6 +426,7 @@ def run_agent(
                 # Push tokens to HUD in real-time
                 if chunk.content and ui.is_hud_active() and ui._normalizer:
                     ui._normalizer.token_streamed(stage_id, chunk.content)
+                last_activity[0] = time.monotonic()
             # Convert merged chunk to final response
             merged = merged_chunk if merged_chunk else AIMessageChunk(content="")
             response = AIMessage(content=merged.content, tool_calls=merged.tool_calls or [])
@@ -1510,7 +1531,7 @@ def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: type[Base
                 default = "0"
             elif field_info.annotation == float:
                 default = "0.0"
-            elif hasattr(field_info.annotation, "__origin__") and field_info.annotation.__origin__ == list:
+            elif hasattr(field_info.annotation, "__origin__") and field_info.annotation.__origin__ in (list, tuple):
                 default = "[]"
             elif hasattr(field_info.annotation, "__origin__") and field_info.annotation.__origin__ == dict:
                 default = "{}"

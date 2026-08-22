@@ -36,8 +36,26 @@ def create_correction_prompt(
     schema_hint = ""
     if output_schema:
         schema_fields = list(output_schema.model_fields.keys()) if hasattr(output_schema, "model_fields") else []
+        type_hints = ""
         if schema_fields:
-            schema_hint = f"\n\nExpected fields: {', '.join(schema_fields)}"
+            # Add type-level hints so the LLM knows the expected structure
+            field_types = []
+            for fname in schema_fields:
+                if fname in output_schema.model_fields:
+                    ann = output_schema.model_fields[fname].annotation
+                    if ann and hasattr(ann, "__origin__") and ann.__origin__ in (list, tuple):
+                        field_types.append(f'  {fname}: list of strings, e.g. ["value"]')
+                    elif ann == str:
+                        field_types.append(f"  {fname}: string")
+                    elif ann == int:
+                        field_types.append(f"  {fname}: integer")
+                    elif ann == bool:
+                        field_types.append(f"  {fname}: boolean")
+                    elif ann and hasattr(ann, "__origin__") and ann.__origin__ == dict:
+                        field_types.append(f"  {fname}: object")
+            if field_types:
+                type_hints = "\n\nField types:\n" + "\n".join(field_types)
+        schema_hint = f"\n\nExpected fields: {', '.join(schema_fields)}{type_hints}"
 
     return (
         f"[SYSTEM: JSON CORRECTION NEEDED - Attempt {attempt}/{MAX_PARSE_RETRIES}]\n\n"

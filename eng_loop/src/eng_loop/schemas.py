@@ -162,6 +162,22 @@ class GraphTopologyProposal(BaseModel):
             return v
         return v or ()
 
+    @field_validator("required_stages", mode="before")
+    @classmethod
+    def coerce_required_stages(cls, v):
+        """Coerce LLM output like [{id: 'init'}] into plain string tuples."""
+        if isinstance(v, list):
+            coerced = []
+            for item in v:
+                if isinstance(item, str):
+                    coerced.append(item)
+                elif isinstance(item, dict):
+                    coerced.append(item.get("id", item.get("stage", "")))
+                else:
+                    coerced.append(str(item))
+            return tuple(coerced)
+        return v
+
     @field_validator("required_stages")
     @classmethod
     def validate_stages_not_empty(cls, v):

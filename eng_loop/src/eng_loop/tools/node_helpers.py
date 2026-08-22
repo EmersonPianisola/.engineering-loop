@@ -59,7 +59,12 @@ def build_node_prompt(
 
     stage_proc = ""
     if include_procedure and stage_id not in _NO_PROCEDURE_STAGES:
-        stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
+        # Only load procedure for registered stages. Dynamic step IDs (e.g.
+        # audit-firebase-integrations) are LLM-invented and never have .md files.
+        from eng_loop.templates import STAGE_FILE_MAP
+
+        if stage_id in STAGE_FILE_MAP:
+            stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
 
     skill_content = ""
     if include_skill and not (skill_name.startswith("__") and skill_name.endswith("__")):
