@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v12.2.0
+**Framework:** Engineering Loop v12.4.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -44,6 +44,22 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
 | `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect (node in `nodes/dynamic_architect.py`) — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
+
+## Global Skills (Fallback)
+
+Machine/user-level skills shared across all projects. Not versioned in this repo — resolved at runtime from `config.global_skills.roots` (default `~/.agents/skills`), checked **after** `{framework-root}/skills/`. Name collisions: framework wins. Toggle: `config.global_skills.enabled`.
+
+Examples (full list: `~/.agents/skills`, 48 skills at time of writing):
+
+| Skill | Typical use in the loop |
+|-------|------------------------|
+| `playwright-e2e` | E2E testing fallback |
+| `web-search` / `parallel-web-search` | Research for self-construction and design stages |
+| `pdf`, `docx`, `pptx`, `xlsx` | Document deliverables (doc.* stages) |
+| `eval-engineering` | Evals/benchmark design |
+| `skill-creator` | Self-construction + promotion of generic skills to the global dir |
+| `essence` | Agent-level intent clarification (framework `essence` wins at runtime) |
+| `langgraph-*` / `langchain-*` | Framework development (see AGENTS.md skill-usage table) |
 
 ## Self-Constructed Skills
 
@@ -100,3 +116,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-17 | graphify | v2.0.0 — Data flow tracing (flow/flows-from/flows-to), dead code detection (unreachable functions, unused exports, orphaned modules), incremental update strategy vs full rebuild. Source: CodeGraph, Code-Graph-RAG |
 | 2026-08-17 | all | v12.2.0 — **Skills recovery**: 6 design skills (bmad-user-research, bmad-personas, bmad-info-arch, bmad-interaction, bmad-design-system, bmad-visual-design), architecture-reviewer (cross-artifact review, gap analysis, ATAM), essence gate (Four Lenses pre-stage validation, Python gate in 9 node handlers), integration-tester (API contracts + component communication), opencode mode skills restored (compact_skill to ~50 lines preserving Rules/Anti-Patterns/Protocol), cloud-architect removed (no corresponding stage) |
 | 2026-08-21 | all | v12.3.0 — **Graph engineering anti-patterns**: 8 new rules (over-spawning, shared state, knowledge vs agent graph). **Lessons L-003 to L-006**: over-spawning costs ~15x tokens, weak nodes multiply failures, state drift is #1 graph rotter, knowledge/agent graph confusion. **Sub-agent contract**: node types (worker/transform/router). **Hardware management**: max_parallel_tokens budget. **Policy firewall**: layer 6 (cost budget). **ExecutionPolicy**: max_parallel_nodes, max_fan_out. **Essence sidecar**: 3 reflection types (self-review, tool-backed, multi-agent). **Provenance check**: viral claim detection. |
+| 2026-08-22 | all | v12.4.0 — **Global skills integration**: two-tier skill resolution (framework `skills/` → `config.global_skills.roots`, framework wins on collision), `load_skill_resolved()`/`list_skills()` in `templates.py`, `skill_roots` in `resolve_paths()`, multi-root loading in `node_helpers.py` + `essence_gate.py`, install scripts detect `~/.agents/skills` (honors `AGENTS_SKILLS_DIR`), discovery scan order framework → global → self-construct, AGENTS.md mandatory skill-usage table (LangChain/LangGraph dev skills), 16 new tests |

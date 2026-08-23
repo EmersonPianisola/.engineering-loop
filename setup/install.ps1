@@ -82,7 +82,18 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  Setup complete!" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-# 6. Install eng_loop Python package
+# 6. Detect global skills directory
+$globalSkillsDir = if ($env:AGENTS_SKILLS_DIR) { $env:AGENTS_SKILLS_DIR } else { Join-Path $HOME ".agents\skills" }
+if (Test-Path $globalSkillsDir) {
+    $globalSkillCount = @(Get-ChildItem -Path $globalSkillsDir -Recurse -Depth 1 -Filter "SKILL.md" -ErrorAction SilentlyContinue).Count
+    Write-Host "  [ok]   Global skills detected: $globalSkillCount skills in $globalSkillsDir" -ForegroundColor Green
+} else {
+    Write-Host "  [warn] Global skills not found at $globalSkillsDir" -ForegroundColor Yellow
+    Write-Host "  [warn] Global skill fallback (config.global_skills) will be inactive" -ForegroundColor Yellow
+    Write-Host "  [warn] Create the directory, or set AGENTS_SKILLS_DIR / config.global_skills.roots" -ForegroundColor Yellow
+}
+
+# 7. Install eng_loop Python package
 $EngLoopDir = Join-Path $LoopRoot "eng_loop"
 if (Test-Path $EngLoopDir) {
     Write-Host "  [info] Installing eng_loop package..." -ForegroundColor Cyan
@@ -106,5 +117,6 @@ Write-Host "  Next steps:" -ForegroundColor White
 Write-Host "    1. Review .eng\config.yaml and customize as needed" -ForegroundColor Gray
 Write-Host "    2. Commit your project (submodule ref + .gitignore)" -ForegroundColor Gray
 Write-Host "    3. Run: eng-loop --work-item `"your task description`"" -ForegroundColor Gray
-Write-Host "    4. (Legacy) Load ORCHESTRATOR.md for prompt-based mode" -ForegroundColor Gray
+Write-Host "    4. (Optional) Tune global skill fallback: config.global_skills.enabled / roots" -ForegroundColor Gray
+Write-Host "    5. (Legacy) Load ORCHESTRATOR.md for prompt-based mode" -ForegroundColor Gray
 Write-Host ""

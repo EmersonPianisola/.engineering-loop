@@ -75,7 +75,18 @@ echo "============================================"
 echo "  Setup complete!"
 echo "============================================"
 echo ""
-# 6. Install eng_loop Python package
+# 6. Detect global skills directory
+GLOBAL_SKILLS_DIR="${AGENTS_SKILLS_DIR:-$HOME/.agents/skills}"
+if [ -d "$GLOBAL_SKILLS_DIR" ]; then
+    GLOBAL_SKILL_COUNT=$(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" 2>/dev/null | wc -l)
+    echo "  [ok]   Global skills detected: $GLOBAL_SKILL_COUNT skills in $GLOBAL_SKILLS_DIR"
+else
+    echo "  [warn] Global skills not found at $GLOBAL_SKILLS_DIR"
+    echo "  [warn] Global skill fallback (config.global_skills) will be inactive"
+    echo "  [warn] Create the directory, or set AGENTS_SKILLS_DIR / config.global_skills.roots"
+fi
+
+# 7. Install eng_loop Python package
 ENG_LOOP_DIR="$LOOP_ROOT/eng_loop"
 if [ -d "$ENG_LOOP_DIR" ]; then
     echo "  [info] Installing eng_loop package..."
@@ -96,5 +107,6 @@ echo "  Next steps:"
 echo "    1. Review .eng/config.yaml and customize as needed"
 echo "    2. Commit your project (submodule ref + .gitignore)"
 echo "    3. Run: eng-loop --work-item \"your task description\""
-echo "    4. (Legacy) Load ORCHESTRATOR.md for prompt-based mode"
+echo "    4. (Optional) Tune global skill fallback: config.global_skills.enabled / roots"
+echo "    5. (Legacy) Load ORCHESTRATOR.md for prompt-based mode"
 echo ""

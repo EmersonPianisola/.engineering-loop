@@ -12,7 +12,7 @@ from eng_loop.context_bus import ContextBus
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import EssenceDecision, EssenceOutput, Severity
 from eng_loop.state import get_work_item_text
-from eng_loop.templates import load_skill
+from eng_loop.templates import load_skill_resolved
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.agent_tools import get_essence_tools
 from eng_loop.tools.tension_memory import TensionMemory
@@ -167,8 +167,8 @@ def run_essence_gate(
         return EssenceResult(passed=True, decision=EssenceDecision.PASS)
 
     skill_name = essence_config.get("skill", "essence")
-    skill_root = paths.get("framework_skill_root", "")
-    skill_content = load_skill(skill_root, skill_name)
+    skill_roots = paths.get("skill_roots") or [paths.get("framework_skill_root", "")]
+    skill_content = load_skill_resolved(skill_name, skill_roots)
     if not skill_content:
         logger.warning(
             "Essence skill '%s' not found, skipping gate for %s",

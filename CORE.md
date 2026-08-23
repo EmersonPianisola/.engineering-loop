@@ -1,11 +1,11 @@
 ---
 name: engineering-loop
-version: 12.2.0
+version: 12.4.0
 type: framework
 description: 'Dynamic graph orchestrator. Topology proposed by LLM architect, authorized by 5-layer policy firewall, compiled by deterministic builder. LLM proposes, Policy authorizes, Builder compiles, Runtime executes. Parallel QA fan-out/fan-in. Dynamic Node Orchestration (V1.3): blueprint-driven meta-execution. 5 new topology schemas (frozen, validated). Sub-agent contract enforces disk-first artifacts, 1-line JSON response. Context invariant: ~60 lines per iteration. TDD per task. Verifier with discrimination sensor. Continuous decisions (AD-NNN). Self-improving lessons. BMAD ideation. Local model support. Multi-project via git submodule. Declarative QA: static → unit → integration → E2E → security/performance → human.flow/human.ux.'
 ---
 
-# Engineering Loop v12.2.0
+# Engineering Loop v12.4.0
 
 **Start here: [`START.md`](START.md)** — quick reference for CLI and prompt mode.
 
@@ -61,6 +61,7 @@ The framework is installed as a **git submodule** (`.eng/`). Project artifacts l
 | `{project-root}` | `cwd` (consumer project) | source code, tests, _bmad-output/ |
 | `{artifact-root}` | `{loop-root}/artifacts/` | all runtime artifacts |
 | `{skill-root}` | `{framework-root}/skills/` | skills (read-only) |
+| `{global-skill-roots}` | `config.global_skills.roots` (e.g. `~/.agents/skills`) | global skills fallback, checked after `{skill-root}` |
 | `{reference-root}` | `{framework-root}/references/` | references (read-only) |
 | `{stage-root}` | `{framework-root}/stages/` | stage procedures (read-only) |
 | `{log-root}` | `{project-root}/_bmad-output/process-logs/` | process logs |

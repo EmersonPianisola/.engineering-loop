@@ -47,7 +47,18 @@ def resolve_paths(
     loop_root = Path(loop_root)
     project_root = Path(project_root)
 
+    skill_roots = [str(framework_root / config.get("framework_skill_root", "skills"))]
+    global_cfg = config.get("global_skills", {})
+    if global_cfg.get("enabled", True):
+        for raw in global_cfg.get("roots", []):
+            p = Path(str(raw)).expanduser()
+            if not p.is_absolute():
+                p = loop_root / p
+            if p.is_dir() and str(p) not in skill_roots:
+                skill_roots.append(str(p))
+
     return {
+        "skill_roots": skill_roots,
         "framework_root": str(framework_root),
         "loop_root": str(loop_root),
         "project_root": str(project_root),

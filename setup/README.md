@@ -29,7 +29,8 @@ The install script:
 3. Creates `artifacts/` directory structure
 4. Creates `.gitignore` (ignores project files inside submodule)
 5. Creates `_bmad-output/process-logs/` (if not exists)
-6. **Installs `eng_loop` Python package** (`pip install -e eng_loop/`)
+6. Detects the global skills directory (`~/.agents/skills`, honors `AGENTS_SKILLS_DIR`) and reports how many skills are available for the fallback
+7. **Installs `eng_loop` Python package** (`pip install -e eng_loop/`)
 
 ### 3. Customize Configuration
 
@@ -43,6 +44,8 @@ Review `.eng/config.yaml`:
 | `model.max_tokens` | `128000` | Max output tokens |
 | `constraints` | (see template) | Per-stage iteration limits |
 | `hardware` | (see template) | Context window, timeouts |
+| `global_skills.enabled` | `true` | Enable global skill fallback |
+| `global_skills.roots` | `["~/.agents/skills"]` | Shared skill dirs (checked after `.eng/skills/`; framework wins on collision) |
 
 ### 4. Check Model Connectivity
 
@@ -130,6 +133,7 @@ my-project/
 | `{project-root}` | `cwd` | source code, tests, _bmad-output/ |
 | `{artifact-root}` | `.eng/artifacts/` | all runtime artifacts |
 | `{log-root}` | `_bmad-output/process-logs/` | process logs |
+| `{global-skill-roots}` | `config.global_skills.roots` | global skills fallback (after `.eng/skills/`) |
 
 ## Troubleshooting
 

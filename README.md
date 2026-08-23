@@ -1832,6 +1832,13 @@ The orchestrator deep-merges: template → project. Project values win.
 | `framework_stage_root` | `stages` | Stage procedures directory |
 | `framework_template_path` | `references/skill-templates.md` | Self-construction templates |
 
+### Global Skills (Fallback)
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `global_skills.enabled` | `true` | Enable the global skill fallback |
+| `global_skills.roots` | `["~/.agents/skills"]` | Shared skill dirs, checked after `{skill-root}` (name collisions: framework wins) |
+
 ### Project Paths
 
 | Key | Default | Purpose |

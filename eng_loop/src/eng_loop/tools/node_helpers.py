@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from eng_loop.context_bus import ContextBus
-from eng_loop.templates import get_skill_name, get_stage_file, load_skill, load_stage_procedure
+from eng_loop.templates import get_skill_name, get_stage_file, load_skill_resolved, load_stage_procedure
 from eng_loop.tools.graphify import get_graphify_injection, precompute_graph_context
 from eng_loop.tools.prompt_builder import PromptBuilder
 
@@ -68,7 +68,8 @@ def build_node_prompt(
 
     skill_content = ""
     if include_skill and not (skill_name.startswith("__") and skill_name.endswith("__")):
-        skill_content = load_skill(paths.get("framework_skill_root", ""), skill_name)
+        skill_roots = paths.get("skill_roots") or [paths.get("framework_skill_root", "")]
+        skill_content = load_skill_resolved(skill_name, skill_roots)
 
     # Graphify tools are NOT available in opencode backend (subprocess mode).
     # In that mode, rely entirely on pre-computed graph context in the prompt.

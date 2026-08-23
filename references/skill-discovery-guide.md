@@ -12,10 +12,18 @@ description: 'How the loop finds or creates skills for each stage.'
 
 1. **Identify stage** → Determine Design or Execute role needed.
 2. **Classify domain** → Extract from work item.
-3. **Scan skills** → Check `{skill-root}/` + system skills.
+3. **Scan skills** → In priority order: `{skill-root}/` (framework) → `config.global_skills.roots` (global fallback, e.g. `~/.agents/skills`). Name collisions: framework wins.
 4. **Score** → exact(10), adjacent(5), generic(1).
 5. **Select** → Highest-scoring skill.
 6. **Self-construct** → If score < 5, use `skill-creator` + `references/skill-templates.md`.
+
+## Global Skills (Fallback)
+
+Global skills live at machine/user level (default `~/.agents/skills`, configurable via `config.global_skills.roots`) and are shared across all projects on the machine. The loop uses them when the framework has no skill for a domain — a curated global skill (e.g. `playwright-e2e`, `web-search`, `pdf`, `docx`) is preferred over self-construction.
+
+- **Priority:** framework `skills/` > global roots (in config order)
+- **Toggle:** `config.global_skills.enabled: false` disables the fallback
+- **Promotion:** a self-constructed skill that is generic and reusable must be promoted to the global directory (via `skill-creator`), not left as a project-local artifact
 
 ## Stage → Skill Mapping
 

@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v11 Framework Repo
+# AGENTS.md — Engineering Loop v12 Framework Repo
 
 ## What This Repo Is
 
@@ -32,7 +32,7 @@ CLI entry point: `eng-loop` (defined in `pyproject.toml` → `[project.scripts]`
 
 ruff config: `target-version = "py310"`, `line-length = 120` (in `eng_loop/pyproject.toml`).
 
-Mutual package versions: `pyproject.toml` declares `12.2.0`, `__init__.py` declares `11.2.0`. Use `pyproject.toml` as source of truth for releases.
+Package versions: `pyproject.toml` and `__init__.py` must stay in sync (currently `12.4.0`). Use `pyproject.toml` as source of truth for releases.
 
 ### Source Layout
 
@@ -67,6 +67,27 @@ Tests: 76 files. Run `pytest eng_loop/tests` for full suite.
 ## Skills (`skills/`)
 
 22 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
+
+## Skill Usage — MANDATORY (Global Skills)
+
+Global skills live in `~/.agents/skills` (user-level, outside this repo). Load the applicable skill with the `skill` tool **before** editing the related code. When in doubt, load `ecosystem-primer` first.
+
+| Working on | Load skill first |
+|---|---|
+| Any LangChain/LangGraph ecosystem change | `ecosystem-primer` (always first) |
+| `graph.py`, `graph_builder.py`, `edge_rules.py`, `state.py`, `routing.py`, `nodes/*.py` (StateGraph, Command, Send, reducers) | `langgraph-fundamentals` |
+| Interrupts/breakpoints (`cli.py` `_stream_with_interrupts`, `essence_gate.py`, `Command(resume=...)`) | `langgraph-human-in-the-loop` |
+| Checkpointer/state history/time travel (`graph.py`, `graph_builder.py`, `state_history` config) | `langgraph-persistence` |
+| `agent_runner.py`, `agent_tools.py`, `*_tool.py` (tool-calling loop, StructuredTool) | `langchain-fundamentals` |
+| Approval/middleware in the agent loop | `langchain-middleware` |
+| `pyproject.toml` dependencies / `model.py` | `langchain-dependencies` |
+| (Future) Deep Agents migration | `deep-agents-core` (+ `deep-agents-memory` / `deep-agents-orchestration`) |
+
+Other global skills useful for development work: `skill-creator` (create/evolve skills), `essence` (intent clarification), `eval-engineering` (evals/benchmarks), `parallel-web-search` / `web-search` (research), `caveman` (token efficiency). Full list: `~/.agents/skills`.
+
+**Runtime (eng-loop in consumer projects):** skill resolution is two-tier — framework `skills/` (highest priority) → `global_skills.roots` (e.g. `~/.agents/skills`) as fallback. Name collisions: framework wins. See `skill-index.md` § Global Skills.
+
+**Promotion rule:** a skill created during a loop that is generic and reusable must be promoted to `~/.agents/skills` (via `skill-creator`), not left as a project-local artifact.
 
 ## References (`references/`)
 

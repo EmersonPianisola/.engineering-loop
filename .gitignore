@@ -11,6 +11,10 @@ artifacts/
 graphify-out/cost.json
 graphify-out/cache/
 
+# Global skills live in ~/.agents/skills — local copies are not tracked
+.agents/skills/
+.claude/skills/
+
 # Python / LangGraph build artifacts
 eng_loop/src/eng_loop/__pycache__/
 eng_loop/src/eng_loop/**/*.pyc

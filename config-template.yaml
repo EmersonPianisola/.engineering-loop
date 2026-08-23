@@ -1,5 +1,5 @@
 name: engineering-loop
-version: 11.0.0
+version: 12.4.0
 description: 'Dynamic graph orchestrator with LangGraph. Graph constructed per work item based on complexity, UI context, and tags. Parallel QA fan-out/fan-in. Auto-sizes by complexity. TDD per task. Verifier with discrimination sensor. BMAD ideation. Continuous decisions. Self-improving lessons. Local model support. Multi-project ready.'
 
 # ============================================================
@@ -25,6 +25,16 @@ framework_skill_root: "skills"
 framework_reference_root: "references"
 framework_stage_root: "stages"
 framework_template_path: "references/skill-templates.md"
+
+# ============================================================
+# GLOBAL SKILLS — shared skill roots (fallback after framework skills/)
+# Resolution order: framework_skill_root first, then roots below (in order).
+# Name collisions: framework wins. Paths support "~".
+# ============================================================
+global_skills:
+  enabled: true
+  roots:
+    - "~/.agents/skills"
 
 # ============================================================
 # PROJECT PATHS — relative to {loop-root} (override as needed)

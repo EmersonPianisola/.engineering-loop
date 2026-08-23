@@ -27,6 +27,7 @@ Before any work, ensure paths are resolved:
 - `{project-root}` = current working directory (cwd)
 - `{artifact-root}` = `{loop-root}/<config.artifact_root>`
 - `{skill-root}` = `{framework-root}/<config.framework_skill_root>`
+- `{global-skill-roots}` = `config.global_skills.roots` (expanded paths, e.g. `~/.agents/skills`; fallback after `{skill-root}`, only when `config.global_skills.enabled`)
 - `{reference-root}` = `{framework-root}/<config.framework_reference_root>`
 - `{stage-root}` = `{framework-root}/<config.framework_stage_root>`
 - `{log-root}` = `{project-root}/<config.log_root>`
@@ -88,7 +89,7 @@ When the work item is ad-hoc (no explicit path, no BMad spec):
 ## Phase 1: Skill Discovery
 
 1. Classify domain(s) from work item.
-2. Scan `{skill-root}/` + system skills. Score: exact(10), adjacent(5), generic(1).
+2. Scan skills in priority order: `{skill-root}/` (framework) → `{global-skill-roots}` (global fallback, e.g. `~/.agents/skills`). Name collisions: framework wins. Score: exact(10), adjacent(5), generic(1).
 3. If score < 5 → self-construct via `skill-creator` + `{reference-root}/skill-templates.md`.
 4. Register: `state.skills = { impl_design, impl_execute, verify }`.
 5. Register essence sidecar: `state.skills.essence = "essence"`.

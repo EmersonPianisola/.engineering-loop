@@ -17,6 +17,33 @@ def load_skill(skill_root: str, skill_name: str) -> str:
     return load_cached_markdown(Path(skill_root) / skill_name / "SKILL.md")
 
 
+def load_skill_resolved(skill_name: str, skill_roots: list[str] | None) -> str:
+    """Load a skill by name across ordered roots (first root with the file wins).
+
+    Roots are checked in priority order (framework skills first, then global
+    roots). Existence is checked directly to avoid spurious missing-file
+    warnings for roots that simply do not carry the skill.
+    """
+    for root in skill_roots or []:
+        skill_file = Path(root) / skill_name / "SKILL.md"
+        if skill_file.is_file():
+            return load_skill(root, skill_name)
+    return ""
+
+
+def list_skills(skill_roots: list[str] | None) -> dict[str, str]:
+    """Map skill name -> root that provides it (first root in order wins)."""
+    found: dict[str, str] = {}
+    for root in skill_roots or []:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        for entry in sorted(root_path.iterdir()):
+            if entry.is_dir() and (entry / "SKILL.md").is_file() and entry.name not in found:
+                found[entry.name] = root
+    return found
+
+
 def load_reference(reference_root: str, ref_file: str) -> str:
     return load_cached_markdown(Path(reference_root) / f"{ref_file}.md")
 
