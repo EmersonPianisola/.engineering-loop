@@ -1,102 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "vllm-local/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
-  "provider": {
-    "llama-qwopus": {
+  "provider": {    
+    "llamaLocal": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Qwopus",
+      "name": "llamaLocal",
       "options": {
-        "baseURL": "http://localhost:8001/"
+        "baseURL": "http://localhost:8000/v1"
       },
       "models": {
-        "Jackrong/Qwopus3.6-27B-v2-GGUF": {}
-      },
-      "streaming": true
-    },
-    "llama-grm-2.6": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Grm-2.6",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "OrionLLM/GRM-2.6-Opus": {}
-      },
-      "streaming": true
-    },
-    "llama-qwen-fable": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Qwen-Fable",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "hotdogs/qwen35b-a3b-fable-sft-abliterated": {}
-      },
-      "streaming": true
-    },
-    "llama-qwable": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Qwable",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "bartowski/lordx64_Qwable-v1-GGUF": {}
-      },
-      "streaming": true
-    },
-    "gemma-fable": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Gemma-Fable",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "gemma/fable": {}
-      },
-      "streaming": true
-    },
-    "qwen-seek": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "qwen-seek",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "qwen/seek": {}
-      },
-      "streaming": true,
-      "command": {
-         "run-loop": {
-           "subtask": true
-          }
-      }
-    },
-     "nemotron": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "nemotron",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "code/nemotron": {}
-      },
-      "streaming": true,
-      "command": {
-         "run-loop": {
-           "subtask": true
-          }
-      }
-    },
-    "qwable-v2": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "qwable-v2",
-      "options": {
-        "baseURL": "http://localhost:8000/"
-      },
-      "models": {
-        "qwable-v2": {}
+        "llamaLocal": {}
       },
       "streaming": true,
       "command": {
