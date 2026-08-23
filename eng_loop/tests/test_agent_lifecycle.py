@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import time
-
-import pytest
-
 from eng_loop.tools.agent_lifecycle import (
     AgentLifecycleManager,
     AgentState,
@@ -29,9 +25,7 @@ class TestAgentLifecycleBasics:
         assert stats.output_tokens == 50
 
     def test_record_iteration_distill_and_spawn(self):
-        mgr = AgentLifecycleManager(
-            {"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 3}}
-        )
+        mgr = AgentLifecycleManager({"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 3}})
         mgr.register_agent("impl.code")
         # Exhaust budget
         for _ in range(5):
@@ -39,9 +33,7 @@ class TestAgentLifecycleBasics:
         assert action == "distill_and_spawn"
 
     def test_spawn_next_agent(self):
-        mgr = AgentLifecycleManager(
-            {"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 3}}
-        )
+        mgr = AgentLifecycleManager({"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 3}})
         mgr.register_agent("impl.code")
         distilled = DistilledState(
             stage_id="impl.code",
@@ -62,9 +54,7 @@ class TestAgentLifecycleBasics:
 
 class TestParallelOrchestration:
     def test_parallel_limit_enforced(self):
-        mgr = AgentLifecycleManager(
-            {"hardware": {"agent_context_limit": 100000, "max_parallel_agents": 2}}
-        )
+        mgr = AgentLifecycleManager({"hardware": {"agent_context_limit": 100000, "max_parallel_agents": 2}})
         # Register + transition to RUNNING
         mgr.register_agent("stage-a")
         mgr._active_agents["stage-a"][-1].state = AgentState.RUNNING
@@ -78,9 +68,7 @@ class TestParallelOrchestration:
         assert mgr.get_parallel_slots_available() == 0
 
     def test_distillation_counted(self):
-        mgr = AgentLifecycleManager(
-            {"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 5}}
-        )
+        mgr = AgentLifecycleManager({"hardware": {"agent_context_limit": 1000, "max_parallel_agents": 5}})
         mgr.register_agent("impl.code")
         distilled = DistilledState(
             stage_id="impl.code",
@@ -92,7 +80,7 @@ class TestParallelOrchestration:
 
 class TestDistilledStateExtraction:
     def test_extract_work_completed(self):
-        from langchain_core.messages import AIMessage, ToolMessage
+        from langchain_core.messages import ToolMessage
 
         messages = [
             ToolMessage(content="Wrote src/fib.py (42 lines, 890 bytes)", tool_call_id="1"),
@@ -118,7 +106,7 @@ class TestDistilledStateExtraction:
         assert len(errors) == 2
 
     def test_build_distilled_state(self):
-        from langchain_core.messages import AIMessage, ToolMessage
+        from langchain_core.messages import ToolMessage
 
         mgr = AgentLifecycleManager({"hardware": {"agent_context_limit": 1000}})
         mgr.register_agent("impl.code")

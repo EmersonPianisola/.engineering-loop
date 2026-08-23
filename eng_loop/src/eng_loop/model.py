@@ -13,6 +13,7 @@ def create_model(
     model_name: str | None = None,
     temperature: float = 0.0,
     max_tokens: int = 128000,
+    timeout: int = 300,
     callbacks: list[Any] | None = None,
 ) -> ChatOpenAI:
     kwargs: dict[str, Any] = {
@@ -20,6 +21,7 @@ def create_model(
         "model": model_name or DEFAULT_MODEL,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "timeout": timeout,
         "api_key": "not-needed",
     }
     if callbacks:
@@ -40,12 +42,14 @@ def create_model_from_config(
     model_name = stage_override.get("model", model_cfg.get("model", DEFAULT_MODEL))
     temperature = stage_override.get("temperature", model_cfg.get("temperature", 0.0))
     max_tokens = stage_override.get("max_tokens", model_cfg.get("max_tokens", 128000))
+    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
 
     kwargs: dict[str, Any] = {
         "base_url": base_url,
         "model": model_name,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "timeout": timeout,
         "api_key": "not-needed",
     }
     if callbacks:
@@ -59,11 +63,15 @@ def create_reasoning_model(
     callbacks: list[Any] | None = None,
 ) -> ChatOpenAI:
     model_cfg = config.get("model", {})
+    overrides = config.get("model_overrides", {})
+    stage_override = overrides.get(stage_id, {})
+    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
     kwargs: dict[str, Any] = {
         "base_url": model_cfg.get("base_url", DEFAULT_BASE_URL),
         "model": model_cfg.get("model", DEFAULT_MODEL),
         "temperature": 0.3,
         "max_tokens": model_cfg.get("max_tokens", 128000),
+        "timeout": timeout,
         "api_key": "not-needed",
     }
     if callbacks:
@@ -80,11 +88,13 @@ def create_code_model(
     overrides = config.get("model_overrides", {})
     stage_override = overrides.get(stage_id, {})
 
+    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
     kwargs: dict[str, Any] = {
         "base_url": stage_override.get("base_url", model_cfg.get("base_url", DEFAULT_BASE_URL)),
         "model": stage_override.get("model", model_cfg.get("model", DEFAULT_MODEL)),
         "temperature": 0.0,
         "max_tokens": stage_override.get("max_tokens", 200000),
+        "timeout": timeout,
         "api_key": "not-needed",
     }
     if callbacks:

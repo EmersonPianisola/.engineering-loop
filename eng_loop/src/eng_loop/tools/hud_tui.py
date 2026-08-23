@@ -885,6 +885,7 @@ class MAGEHUDApp(App):
         except Exception as e:
             # Log to stderr so we can diagnose TUI freezes
             import sys as _sys
+
             _sys.__stderr__.write(f"MAGEHUD refresh error: {e}\n")
             _sys.__stderr__.flush()
 

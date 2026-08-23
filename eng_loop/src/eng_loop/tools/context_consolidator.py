@@ -153,7 +153,7 @@ def build_handoff_summary(
         parts.append(f"Alerts: {len(errors)} issues found")
         # Include all alerts — no arbitrary cap
         for e in errors:
-            parts.append(f"  ! {str(e)}")
+            parts.append(f"  ! {e!s}")
 
     summary = "\n".join(parts)
     return compress_handoff(summary, max_tokens)

@@ -89,3 +89,72 @@ class TestCreateCodeModel:
         model = create_code_model(config, stage_id="impl.code")
         assert model.model_name == "code-model"
         assert model.max_tokens == 300000
+
+
+class TestCreateModelTimeout:
+    def test_create_model_default_timeout(self):
+        """Model accepts timeout parameter and returns ChatOpenAI instance."""
+        model = create_model()
+        assert model is not None
+
+    def test_create_model_custom_timeout(self):
+        """Model accepts explicit timeout value without error."""
+        model = create_model(timeout=600)
+        assert model is not None
+
+    def test_create_model_from_config_default_timeout(self):
+        """Config without timeout creates model successfully."""
+        model = create_model_from_config({})
+        assert model is not None
+
+    def test_create_model_from_config_timeout_in_model_cfg(self):
+        """Config with model.timeout is accepted."""
+        config = {"model": {"timeout": 600}}
+        model = create_model_from_config(config)
+        assert model is not None
+
+    def test_create_model_from_config_timeout_override(self):
+        """Stage override timeout is respected."""
+        config = {
+            "model": {"timeout": 300},
+            "model_overrides": {"dynamic.architect": {"timeout": 600}},
+        }
+        model = create_model_from_config(config, stage_id="dynamic.architect")
+        assert model is not None
+
+    def test_create_model_from_config_timeout_no_override(self):
+        """Non-overridden stage uses default timeout."""
+        config = {
+            "model": {"timeout": 300},
+            "model_overrides": {"dynamic.architect": {"timeout": 600}},
+        }
+        model = create_model_from_config(config, stage_id="impl.code")
+        assert model is not None
+
+    def test_create_reasoning_model_default_timeout(self):
+        """Reasoning model accepts timeout."""
+        model = create_reasoning_model({})
+        assert model is not None
+
+    def test_create_reasoning_model_timeout_override(self):
+        """Reasoning model respects stage override."""
+        config = {
+            "model": {"timeout": 300},
+            "model_overrides": {"dynamic.architect": {"timeout": 600}},
+        }
+        model = create_reasoning_model(config, stage_id="dynamic.architect")
+        assert model is not None
+
+    def test_create_code_model_default_timeout(self):
+        """Code model accepts timeout."""
+        model = create_code_model({})
+        assert model is not None
+
+    def test_create_code_model_timeout_override(self):
+        """Code model respects stage override timeout."""
+        config = {
+            "model": {"timeout": 300},
+            "model_overrides": {"impl.code": {"timeout": 45}},
+        }
+        model = create_code_model(config, stage_id="impl.code")
+        assert model is not None

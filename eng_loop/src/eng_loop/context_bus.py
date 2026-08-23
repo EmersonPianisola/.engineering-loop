@@ -202,8 +202,8 @@ class ContextBus:
         if not self._flush_path or not self._entries:
             return
         path = Path(self._flush_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as f:
                 for entry in self._entries:
                     line = json.dumps(

@@ -378,11 +378,11 @@ class GraphBuilder:
                 _trace.route_decision(
                     function="_route",
                     decision=rule.to_node,
-                    reason=f"rule:{rule.name} matched (src={rule.source})",
+                    reason=f"rule:{rule.from_node}->{rule.to_node} matched ({rule.description})",
                     state_snippet={
                         "current_stage": current,
                         "status": state.get("status", ""),
-                        "rule": rule.name,
+                        "rule": f"{rule.from_node}->{rule.to_node}",
                     },
                 )
                 return rule.to_node

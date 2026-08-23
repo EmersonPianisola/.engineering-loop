@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
-import pytest
+from pydantic import BaseModel
 
 from eng_loop.tools.parse_retry import (
     create_correction_prompt,
     retry_with_correction,
     validate_against_schema,
 )
-from pydantic import BaseModel
 
 
 class SimpleSchema(BaseModel):

@@ -115,11 +115,16 @@ def _show_execution_plan(
     # Ask for confirmation (print styled prompt separately to avoid Rich markup parsing issues)
     ui.console.print()
     ui.console.print("[bold]Proceed[/bold] ([green]y[/]es, [yellow]n[/]o, [blue]a[/]djust complexity)")
-    choice = Prompt.ask(
-        "  > ",
-        choices=["y", "n", "a"],
-        default="y",
-    )
+    try:
+        choice = Prompt.ask(
+            "  > ",
+            choices=["y", "n", "a"],
+            default="y",
+        )
+    except EOFError:
+        choice = "y"
+    except KeyboardInterrupt:
+        choice = "n"
 
     if choice == "y":
         return
@@ -132,11 +137,14 @@ def _show_execution_plan(
 
     if choice == "a":
         ui.console.print("[bold]Set complexity[/bold] (small / medium / large / complex)")
-        new_complexity = Prompt.ask(
-            "  > ",
-            choices=["small", "medium", "large", "complex"],
-            default=complexity,
-        )
+        try:
+            new_complexity = Prompt.ask(
+                "  > ",
+                choices=["small", "medium", "large", "complex"],
+                default=complexity,
+            )
+        except (EOFError, KeyboardInterrupt):
+            new_complexity = complexity
         if new_complexity != complexity:
             state["complexity"] = new_complexity
             ui.console.print(f"[green]Complexity adjusted to: {new_complexity}[/green]")
@@ -447,8 +455,14 @@ def main():
                 border_style="yellow",
             )
         )
-        response = input("Continue anyway? [y/N]: ")
-        if response.lower() != "y":
+        if not sys.stdin.isatty():
+            ui.console.print("[bold red]Non-interactive session: aborting (model unreachable).[/bold red]")
+            sys.exit(1)
+        try:
+            response = input("Continue anyway? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            response = "n"
+        if response.strip().lower() != "y":
             sys.exit(1)
 
     # ── Build state ──────────────────────────────────────────────
@@ -766,9 +780,7 @@ def main():
 
                 _log_file = str(paths.get("artifact_root", "artifacts") / "run.log")
                 _tui_file_handler = _logging.FileHandler(_log_file, encoding="utf-8")
-                _tui_file_handler.setFormatter(
-                    _logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")
-                )
+                _tui_file_handler.setFormatter(_logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s"))
                 _root_logger = _logging.getLogger()
                 _root_logger.addHandler(_tui_file_handler)
                 _root_logger.addHandler(_logging.NullHandler())
@@ -825,9 +837,7 @@ def main():
 
         _hud_log_file = str(paths.get("artifact_root", "artifacts") / "run.log")
         _hud_file_handler = _logging.FileHandler(_hud_log_file, encoding="utf-8")
-        _hud_file_handler.setFormatter(
-            _logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")
-        )
+        _hud_file_handler.setFormatter(_logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s"))
         _hud_root = _logging.getLogger()
         _hud_root.addHandler(_hud_file_handler)
         _hud_root.addHandler(_logging.NullHandler())

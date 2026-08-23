@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from eng_loop.tools.file_ops import append_file, file_exists, list_dir, load_json, read_file, save_json, write_file
 from eng_loop.tools.json_parse import extract_json
 from eng_loop.tools.stall_detector import StallDetector, _is_safe_inspection, create_stall_detector
@@ -280,10 +282,9 @@ class TestJsonParse:
         except ValueError:
             pass
 
-    def test_prose_fallback(self):
-        r = extract_json("This is a long prose response with no JSON structure at all in it.")
-        assert "raw_output" in r
-        assert r["complete"] is True
+    def test_prose_raises(self):
+        with pytest.raises(ValueError, match="Could not extract JSON"):
+            extract_json("This is a long prose response with no JSON structure at all in it.")
 
     def test_short_raises(self):
         try:

@@ -35,7 +35,8 @@ def route_after_stage(state: dict[str, Any]) -> str:
             att = stage.get("attempts", 0)
             node = stage_id.replace(".", "-").replace("_", "-")
             _trace.route_decision(
-                "route_after_stage", node,
+                "route_after_stage",
+                node,
                 reason=f"NOT DONE, retry {att}/{max_att}",
             )
             return node
@@ -48,7 +49,8 @@ def route_after_stage(state: dict[str, Any]) -> str:
             if entry.entry_type == "critical_finding":
                 node = stage_id.replace(".", "-").replace("_", "-")
                 _trace.route_decision(
-                    "route_after_stage", node,
+                    "route_after_stage",
+                    node,
                     reason="critical_finding in context_bus, re-attempt",
                 )
                 return node

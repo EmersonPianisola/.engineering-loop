@@ -8,8 +8,8 @@ import pytest
 
 from eng_loop.context_bus import ContextBus, _normalize
 
-
 # ── Normalization ────────────────────────────────────────────────────
+
 
 class TestNormalize:
     def test_basic_lowercase(self):
@@ -28,6 +28,7 @@ class TestNormalize:
 
 
 # ── Core Operations ─────────────────────────────────────────────────
+
 
 class TestCoreOperations:
     def test_init_empty(self):
@@ -68,6 +69,7 @@ class TestCoreOperations:
 
 
 # ── Semantic Resolution (is_resolved) ───────────────────────────────
+
 
 class TestIsResolved:
     def test_exact_match(self):
@@ -122,6 +124,7 @@ class TestIsResolved:
 
 # ── Snapshot / Restore ──────────────────────────────────────────────
 
+
 class TestSnapshot:
     def test_roundtrip(self):
         bus = ContextBus()
@@ -144,6 +147,7 @@ class TestSnapshot:
 
 
 # ── Disk Flush & Load ───────────────────────────────────────────────
+
 
 class TestDiskOperations:
     def test_flush_creates_file(self):
@@ -180,10 +184,14 @@ class TestDiskOperations:
             assert bus.entry_count == 0
 
     def test_flush_failure_is_graceful(self):
-        """OSError during flush should not crash."""
-        bus = ContextBus(flush_path="/nonexistent/path/bus.jsonl")
-        bus.append("clarification", {"q": "x"})
-        bus.flush()  # Should log warning, not raise
+        """OSError during flush should not crash (file blocks the parent dir on all OSes)."""
+        with tempfile.TemporaryDirectory() as td:
+            blocker = Path(td) / "blocker"
+            blocker.write_text("file, not dir")
+            bus = ContextBus(flush_path=f"{td}/blocker/bus.jsonl")
+            bus.append("clarification", {"q": "x"})
+            bus.flush()  # Should log warning, not raise
+            assert bus.entry_count == 1
 
     def test_rotate_keeps_recent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -196,6 +204,7 @@ class TestDiskOperations:
 
 
 # ── Integration: Full Propagation Scenario ──────────────────────────
+
 
 class TestFullPropagation:
     """Simulate the exact failing scenario from the user's log."""

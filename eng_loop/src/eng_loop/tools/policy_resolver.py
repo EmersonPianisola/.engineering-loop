@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter, deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -373,6 +374,53 @@ def _validate_semantic_policy(
     return "; ".join(notes)
 
 
+def _compute_proposed_parallelism(proposal: GraphTopologyProposal) -> int:
+    """Upper bound on concurrent nodes in the proposed topology.
+
+    Assigns each stage a topological level (longest path from an entry node)
+    using only forward edges. Sequential chains occupy one node per level;
+    true fan-outs (e.g. parallel QA) place siblings at the same level, so
+    the widest level is the real concurrency ceiling.
+
+    Loopback and self-loop edges are ignored — they reroute on failure,
+    they never fork execution.
+    """
+    stages = list(proposal.required_stages)
+    if not stages:
+        return 1
+
+    stage_set = set(stages)
+    successors: dict[str, list[str]] = {s: [] for s in stages}
+    in_degree: dict[str, int] = {s: 0 for s in stages}
+
+    for edge in proposal.edges:
+        if edge.edge_type == "loopback" or edge.from_stage == edge.to_stage:
+            continue
+        if edge.from_stage in stage_set and edge.to_stage in stage_set:
+            successors[edge.from_stage].append(edge.to_stage)
+            in_degree[edge.to_stage] += 1
+
+    level: dict[str, int] = {}
+    queue = deque(s for s in stages if in_degree[s] == 0)
+    for s in queue:
+        level[s] = 0
+    while queue:
+        node = queue.popleft()
+        for nxt in successors[node]:
+            if nxt not in level or level[nxt] < level[node] + 1:
+                level[nxt] = level[node] + 1
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+
+    # Defensive: nodes stuck in a cycle (layer 4 should catch this) — treat as sequential
+    for s in stages:
+        level.setdefault(s, 0)
+
+    counts = Counter(level.values())
+    return max(counts.values()) if counts else 1
+
+
 def _validate_cost_budget(
     proposal: GraphTopologyProposal,
     state: dict[str, Any],
@@ -385,14 +433,10 @@ def _validate_cost_budget(
     Returns policy notes string (may be empty for clean pass).
     Raises TopologyValidationError for fatal budget violations.
     """
-    from eng_loop.schemas import ExecutionPolicy
-
-    # Calculate total parallel nodes in the topology
-    # Count stages that could run in parallel (same phase group, or no phase grouping)
-    max_proposed_parallel = max(
-        (len(pg.stages) for pg in proposal.phase_groups),
-        default=len(proposal.required_stages),
-    )
+    # Calculate the true concurrency ceiling from the proposed edges.
+    # Phase groups are sequential groupings, NOT parallel forks — counting
+    # their size would reject every pipeline with >2 stages in one phase.
+    max_proposed_parallel = _compute_proposed_parallelism(proposal)
 
     # Get budget from config. Each agent may use up to agent_context_limit tokens.
     # max_parallel_agents defines how many run simultaneously.
