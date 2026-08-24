@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from operator import add
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -9,7 +10,9 @@ from typing import Annotated, Any, Literal
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from eng_loop.context_bus import ContextBus
+from eng_loop.context_bus import ContextBus, synonyms_from_config
+
+logger = logging.getLogger(__name__)
 
 STAGE_ORDER: list[str] = [
     "init",
@@ -69,6 +72,26 @@ STAGE_MIN_COMPLEXITY: dict[str, Literal["small", "medium", "large", "complex"]] 
 }
 
 COMPLEXITY_ORDER = {"small": 0, "medium": 1, "large": 2, "complex": 3}
+
+
+def to_stage_id(name: str | None) -> str | None:
+    """Normalize any accepted stage notation to its canonical STAGE_ORDER id.
+
+    Accepts the dotted id as-is ("qa.api-contract"), node names with a single
+    separator ("impl-code" -> "impl.code"), and multi-hyphen node names
+    ("qa-human-flow" -> "qa.human.flow"). Returns None when no known id matches.
+    """
+    if not isinstance(name, str) or not name:
+        return None
+    if name in STAGE_ORDER:
+        return name
+    all_dotted = name.replace("-", ".")
+    if all_dotted in STAGE_ORDER:
+        return all_dotted
+    first_dotted = name.replace("-", ".", 1)
+    if first_dotted in STAGE_ORDER:
+        return first_dotted
+    return None
 
 
 # ──────────────────────────────────────────────
@@ -140,19 +163,26 @@ def rollback_to_stage(
     NEVER reset by rollback. BLOCKED means infrastructure failure.
     WAITING_FOR_INPUT means human resolution is in progress.
 
+    Fail-safe: target_stage/reset_from are normalized via to_stage_id; if
+    either is not a known stage id the stages are returned UNCHANGED (and a
+    warning is logged) — never a full-chain wipe from a bad name.
+
     Example: verify FAIL → reset impl.code, doc.update, verify.
     """
     result = copy.deepcopy(current_stages)
 
-    try:
-        start_idx = STAGE_ORDER.index(reset_from)
-    except ValueError:
-        start_idx = 0
+    start_stage = to_stage_id(reset_from)
+    if start_stage is None:
+        logger.warning("rollback_to_stage: unknown reset_from %r — returning stages unchanged", reset_from)
+        return result
 
-    try:
-        end_idx = STAGE_ORDER.index(target_stage)
-    except ValueError:
-        end_idx = len(STAGE_ORDER) - 1
+    end_stage = to_stage_id(target_stage)
+    if end_stage is None:
+        logger.warning("rollback_to_stage: unknown target_stage %r — returning stages unchanged", target_stage)
+        return result
+
+    start_idx = STAGE_ORDER.index(start_stage)
+    end_idx = STAGE_ORDER.index(end_stage)
 
     for i in range(start_idx, end_idx + 1):
         sid = STAGE_ORDER[i]
@@ -163,6 +193,9 @@ def rollback_to_stage(
         result[sid] = {
             "done": False,
             "attempts": 0,
+            # Cumulative counter — survives rollbacks so anti-loop guards
+            # (contract gate) still see the exhausted source.
+            "total_attempts": existing.get("total_attempts", 0) + existing.get("attempts", 0),
             "essence_checked": False,
             "output": "",
             "artifact_path": "",
@@ -182,18 +215,11 @@ def rollback_to_stage(
 # ──────────────────────────────────────────────
 
 
-class StageState(dict[str, Any]):
-    done: bool = False
-    attempts: int = 0
-    essence_checked: bool = False
-    output: str = ""
-    artifact_path: str = ""
-
-
 def make_stage() -> dict[str, Any]:
     return {
         "done": False,
         "attempts": 0,
+        "total_attempts": 0,
         "essence_checked": False,
         "output": "",
         "artifact_path": "",
@@ -219,7 +245,10 @@ class PipelineState(dict[str, Any]):
     current_stage: Annotated[str, _last_write_wins] = ""
     iteration: Annotated[int, _max_int] = 0
     status: Annotated[str, _last_write_wins] = "running"
-    blocking_condition: Annotated[str, _last_write_wins] = ""
+    # _overwrite: recovery/fix flows explicitly clear it with "" and that must
+    # win (with _last_write_wins the stale condition persisted in checkpointed
+    # mode).
+    blocking_condition: Annotated[str, _overwrite] = ""
     complexity: Literal["unset", "small", "medium", "large", "complex"] = "unset"
     work_type: str = "feature"
     work_item: str = ""
@@ -265,7 +294,13 @@ class PipelineState(dict[str, Any]):
     user_interactions: Annotated[list[dict[str, Any]], _overwrite] = []
     # Auto-recovery state
     recovery_attempts: Annotated[int, _max_int] = 0
-    recovery_history: Annotated[list[dict[str, Any]], add] = []
+    # Overwrite (not `add`): the recovery loop re-invokes the graph with the
+    # full state, so an append reducer duplicated entries on every recovery
+    # attempt ([e1, e1, e2]). Only the CLI loop updates this field.
+    recovery_history: Annotated[list[dict[str, Any]], _overwrite] = []
+    # Final computed outcome (set by the post node). Channel required —
+    # unannotated keys are dropped by the graph and never persisted.
+    task_outcome: Annotated[str | None, _last_write_wins] = None
 
 
 def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[str, Any]:
@@ -301,7 +336,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "codebase_facts": {},
         "dynamic_plan": None,
         "qa_results": {},
-        "context_bus": ContextBus(),
+        "context_bus": ContextBus(synonyms=synonyms_from_config(config)),
         "dynamic_runtime": {
             "cursor": 0,
             "attempts": {},
@@ -323,6 +358,7 @@ def make_initial_state(config: dict[str, Any], paths: dict[str, str]) -> dict[st
         "user_interactions": [],
         "recovery_attempts": 0,
         "recovery_history": [],
+        "task_outcome": None,
     }
 
 
@@ -423,6 +459,39 @@ def load_state_template(template_path: str | Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def context_bus_snapshot(bus: Any) -> dict[str, Any]:
+    """Serialize a ContextBus (or raw dict) to a JSON-safe snapshot."""
+    if isinstance(bus, ContextBus):
+        return bus.snapshot()
+    if isinstance(bus, dict):
+        return bus
+    return {}
+
+
+def restore_snapshot_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Merge raw snapshot data over make_initial_state defaults.
+
+    Single source of truth for the key set: defaults come from
+    make_initial_state, so new state keys can never be silently dropped on
+    restore (the old hardcoded dict omitted context_bus, qa_results,
+    user_interactions, recovery_* and task_outcome).
+    """
+    defaults = make_initial_state({}, {})
+    for key in defaults:
+        if key in data:
+            defaults[key] = data[key]
+
+    # Legacy key: still read from old snapshots, never written anymore.
+    defaults["topology_proposal"] = data.get("topology_proposal")
+
+    # JSON round-trip leaves context_bus as a raw dict — rehydrate it.
+    bus = defaults.get("context_bus")
+    if isinstance(bus, dict):
+        defaults["context_bus"] = ContextBus.from_snapshot(bus)
+
+    return defaults
+
+
 def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
     """Load a historical state snapshot and restore it as a valid pipeline state.
 
@@ -431,54 +500,7 @@ def restore_snapshot(snapshot_path: str | Path) -> dict[str, Any]:
     """
     with open(snapshot_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-
-    defaults = {
-        "current_stage": "",
-        "iteration": data.get("iteration", 0),
-        "status": "running",
-        "blocking_condition": "",
-        "complexity": data.get("complexity", "unset"),
-        "work_type": data.get("work_type", "feature"),
-        "work_item": data.get("work_item", ""),
-        "ideation": data.get("ideation"),
-        "ui_project": data.get("ui_project", False),
-        "tags": data.get("tags", []),
-        "stages": data.get("stages", init_stages()),
-        "decisions": data.get("decisions", []),
-        "stage_artifacts": data.get("stage_artifacts", {}),
-        "lessons": data.get("lessons", []),
-        "errors": data.get("errors", []),
-        "messages": data.get("messages", []),
-        "config": data.get("config", {}),
-        "paths": data.get("paths", {}),
-        "graph_topology": data.get("graph_topology", {}),
-        "active_nodes": data.get("active_nodes", []),
-        "parallel_groups": data.get("parallel_groups", {}),
-        "handoffs": data.get("handoffs", {}),
-        "context_tiers": data.get("context_tiers", {}),
-        "timing": data.get("timing", {}),
-        "fix_tasks": data.get("fix_tasks", []),
-        "fix_iteration": data.get("fix_iteration", 0),
-        "rollback_target": data.get("rollback_target", ""),
-        "explorer_evidence": data.get("explorer_evidence", []),
-        "codebase_facts": data.get("codebase_facts", {}),
-        "topology_proposal": data.get("topology_proposal"),
-        "dynamic_plan": data.get("dynamic_plan"),
-        "dynamic_runtime": data.get(
-            "dynamic_runtime",
-            {
-                "cursor": 0,
-                "attempts": {},
-                "completed": [],
-                "failed": [],
-                "status": "pending",
-                "step_audit": [],
-            },
-        ),
-        "recovery_attempts": data.get("recovery_attempts", 0),
-        "recovery_history": data.get("recovery_history", []),
-    }
-    return defaults
+    return restore_snapshot_data(data)
 
 
 # Stage descriptions for the architect's node catalog

@@ -431,6 +431,38 @@ class ContextBudgetManager:
         return ContextPressure.SAFE
 
 
+def build_context_budget_manager(context_window: int, budget_cfg: dict[str, Any] | None) -> ContextBudgetManager:
+    """Build a ContextBudgetManager from a hardware.context_budget config block.
+
+    Single construction source shared by run_agent and ExecutionState so both
+    paths produce identically-configured managers.
+    """
+    budget_cfg = budget_cfg or {}
+    comp_cfg = budget_cfg.get("compaction", {})
+    res_cfg = budget_cfg.get("reserved_output", {})
+    thresholds = budget_cfg.get("thresholds", {})
+
+    stage_reserved: dict[str, ReservedOutputConfig] = {}
+    for stage_id, stage_cfg in budget_cfg.get("stage_overrides", {}).items():
+        stage_reserved[stage_id] = ReservedOutputConfig(
+            mode=stage_cfg.get("mode", res_cfg.get("mode", "fixed")),
+            value=stage_cfg.get("reserved_output", res_cfg.get("default", 4096)),
+            min_value=res_cfg.get("min", 2048),
+            max_value=res_cfg.get("max", 8192),
+        )
+
+    return ContextBudgetManager(
+        context_window=context_window,
+        reserved_output=res_cfg.get("default", 4096),
+        safety_margin=budget_cfg.get("safety_margin_tokens", 2048),
+        thresholds=thresholds or None,
+        compaction_mode=CompactionMode(comp_cfg.get("mode", "auto")),
+        stage_reserved=stage_reserved if stage_reserved else None,
+        preserve_count=comp_cfg.get("preserve_count", 15),
+        truncate_tool_result_chars=comp_cfg.get("truncate_tool_result_chars", 2000),
+    )
+
+
 __all__ = [
     "BudgetCheckResult",
     "CallBreakdown",
@@ -442,4 +474,5 @@ __all__ = [
     "ForecastResult",
     "ReservedOutputConfig",
     "StageHistoryEntry",
+    "build_context_budget_manager",
 ]

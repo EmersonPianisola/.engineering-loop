@@ -49,10 +49,14 @@ def post_node(state: dict[str, Any]) -> Command[str]:
 
         lessons_data = load_lessons(artifact_root)
         confirmed = get_confirmed_lessons(lessons_data) or []
-        promoted = promote_to_pending(lessons_data.get("local", {}))
+        local = lessons_data.get("local", {})
+        promoted = promote_to_pending(local)
 
         if promoted:
-            save_lessons(artifact_root, lessons_data.get("local", {}), "lessons-pending.json")
+            # Save only the actually-promoted (confirmed) lessons — the pending
+            # file must not carry candidates along (it is the share candidate set).
+            pending = {lid: local[lid] for lid in promoted if isinstance(local.get(lid), dict)}
+            save_lessons(artifact_root, pending, "lessons-pending.json")
 
     # Build artifact evidence: check which expected files actually exist
     artifact_evidence = {}

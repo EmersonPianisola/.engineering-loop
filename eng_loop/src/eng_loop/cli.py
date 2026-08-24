@@ -16,11 +16,20 @@ from rich.panel import Panel
 logging.getLogger("langgraph").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="langgraph")
 
+logger = logging.getLogger(__name__)
+
 from eng_loop.config import ensure_directories, load_config, resolve_paths
+from eng_loop.context_bus import ContextBus
 from eng_loop.graph import compile_graph
 from eng_loop.graph_builder import GraphTopology
 from eng_loop.model import DEFAULT_BASE_URL, DEFAULT_MODEL, create_model_from_config
-from eng_loop.state import STAGE_ORDER, get_work_item_text, load_state_template, make_initial_state
+from eng_loop.state import (
+    STAGE_ORDER,
+    context_bus_snapshot,
+    get_work_item_text,
+    load_state_template,
+    make_initial_state,
+)
 from eng_loop.tools.file_ops import save_json as save_json_file
 
 # Exit codes
@@ -483,6 +492,7 @@ def main():
         state = load_state_template(state_file)
         state["config"] = config
         state["paths"] = paths
+        state = _rehydrate_loaded_state(state)
 
         # If resuming from waiting_for_input, handle clarification first
         if state.get("status") == "waiting_for_input":
@@ -535,6 +545,9 @@ def main():
     # ── Determine graph mode ─────────────────────────────────────
     dynamic_graph = args.dynamic_graph or config.get("dynamic_graph", {}).get("enabled", False)
     parallel_qa = args.parallel_qa or config.get("dynamic_graph", {}).get("parallel_qa", False)
+    # Single source of truth: nodes read the effective parallel-QA mode from
+    # state config for routing decisions (e.g. verify → qa-dispatcher).
+    state.setdefault("config", {}).setdefault("dynamic_graph", {})["parallel_qa"] = parallel_qa
     hud_mode = args.interactive or args.tui
 
     # ── Initialize CLI v2 event bus (before graph compilation) ────
@@ -1037,20 +1050,24 @@ def _recovery_loop(
     active_nodes_for_progress: list[str],
     event_bus: Any,
 ) -> dict[str, Any]:
-    """Auto-recovery loop: classify error, LLM analysis, apply fix, retry.
+    """Auto-recovery loop: classify error, apply category-directed strategy, retry.
 
     Runs up to max_attempts times. On each iteration:
     1. Classify the error
-    2. LLM analyzes root cause and proposes fix plan
-    3. Apply fix plan (selective rollback, inject lessons)
+    2. Strategy per category:
+       - not retryable → block immediately (no LLM call)
+       - transient → plain retry (no LLM plan)
+       - other → LLM analyzes root cause and proposes a fix plan
+    3. Apply fix plan (selective rollback, inject lessons) or reset for plain retry
     4. Re-invoke graph
     5. If success, return; if failure, loop
 
-    Returns final state (either successful or exhausted).
+    Returns final state (successful, blocked, or exhausted).
     """
+    import copy
     import time as _time
 
-    from eng_loop.schemas import RecoveryEntry
+    from eng_loop.schemas import RecoveryEntry, RecoveryPlan
     from eng_loop.tools.cli_events import diagnostic_error, diagnostic_info
     from eng_loop.tools.error_classifier import classify_error
     from eng_loop.tools.fix_applier import apply_recovery_plan
@@ -1067,6 +1084,21 @@ def _recovery_loop(
 
     current_stage = state.get("current_stage", "")
     error_message = state.get("blocking_condition", "")
+
+    # Recovery budget — cumulative across sessions (persisted in state).
+    # Once exhausted, block without calling the LLM.
+    attempts_used = state.get("recovery_attempts", 0)
+    if attempts_used >= max_attempts:
+        logging.getLogger(__name__).warning(
+            "recovery_loop: budget exhausted (%d/%d) — blocking without LLM", attempts_used, max_attempts
+        )
+        blocked_state = copy.deepcopy(state)
+        blocked_state["status"] = "blocked"
+        blocked_state["blocking_condition"] = (
+            f"Recovery budget exhausted ({attempts_used}/{max_attempts} attempts used) — "
+            f"manual intervention required. Original error: {error_message}"
+        )
+        return blocked_state
 
     if not tui_controller:
         from eng_loop.tools.timing import get_global_wall_formatted
@@ -1106,27 +1138,81 @@ def _recovery_loop(
                 f"  [dim]Error category: {classification.category} → {classification.suggested_strategy}[/dim]"
             )
 
-        # 2. LLM analysis
-        plan = analyze_and_propose(state, classification, config, previous_plans)
+        # 2. Strategy per category (branch, don't just display)
+        plan: RecoveryPlan | None = None
 
-        if not tui_controller:
-            ui.console.print(f"  [dim]Root cause: {plan.root_cause[:200]}[/dim]")
-            ui.console.print(f"  [dim]Confidence: {plan.confidence:.0%}[/dim]")
-            for i, action in enumerate(plan.fix_actions[:3], 1):
-                ui.console.print(f"  [dim]  Fix {i}: {action[:150]}[/dim]")
+        if not classification.is_retryable:
+            reason = f"non-retryable error ({classification.category}): {classification.description}"
+            if not tui_controller:
+                ui.console.print(f"  [dim]{reason} — skipping LLM analysis, blocking[/dim]")
+            logging.getLogger(__name__).warning("recovery_loop: %s — blocking without LLM analysis", reason)
 
-        # 3. Apply fix plan
-        fixed_state = apply_recovery_plan(state, plan)
-        fixed_state["recovery_attempts"] = attempt
-        fixed_state["recovery_history"] = state.get("recovery_history", []) + [
-            {
-                "attempt": attempt,
-                "timestamp": _time.time(),
-                "error_category": classification.category,
-                "root_cause": plan.root_cause[:300],
-                "confidence": plan.confidence,
-            }
-        ]
+            blocked_state = copy.deepcopy(state)
+            blocked_state["status"] = "blocked"
+            blocked_state["blocking_condition"] = f"[{classification.category}] {error_message} — {reason}"
+
+            logger.log_attempt(
+                RecoveryEntry(
+                    timestamp=_time.time(),
+                    attempt_number=attempt,
+                    stage_id=current_stage,
+                    error_message=error_message[:500],
+                    error_category=classification.category,
+                    root_cause=reason[:500],
+                    fix_actions=[],
+                    lessons_generated=[],
+                    outcome="exhausted",
+                    confidence=0.0,
+                    duration_ms=0.0,
+                )
+            )
+
+            if event_bus:
+                event_bus.emit(diagnostic_error(node_id="recovery", message=f"Recovery skipped: {reason}"))
+
+            return blocked_state
+
+        if classification.category == "transient":
+            # Transient errors: plain retry, no LLM plan.
+            if not tui_controller:
+                ui.console.print("  [dim]Transient error — plain retry (no LLM plan)[/dim]")
+            fixed_state = copy.deepcopy(state)
+            fixed_state["blocking_condition"] = ""
+            fixed_state["status"] = "running"
+            # Cumulative budget — continues across attempts and sessions
+            fixed_state["recovery_attempts"] = state.get("recovery_attempts", 0) + 1
+            fixed_state["recovery_history"] = state.get("recovery_history", []) + [
+                {
+                    "attempt": attempt,
+                    "timestamp": _time.time(),
+                    "error_category": classification.category,
+                    "root_cause": "transient error — plain retry",
+                    "confidence": 1.0,
+                }
+            ]
+        else:
+            # 2a. LLM analysis
+            plan = analyze_and_propose(state, classification, config, previous_plans)
+
+            if not tui_controller:
+                ui.console.print(f"  [dim]Root cause: {plan.root_cause[:200]}[/dim]")
+                ui.console.print(f"  [dim]Confidence: {plan.confidence:.0%}[/dim]")
+                for i, action in enumerate(plan.fix_actions[:3], 1):
+                    ui.console.print(f"  [dim]  Fix {i}: {action[:150]}[/dim]")
+
+            # 3. Apply fix plan
+            fixed_state = apply_recovery_plan(state, plan)
+            # Cumulative budget — continues across attempts and sessions
+            fixed_state["recovery_attempts"] = state.get("recovery_attempts", 0) + 1
+            fixed_state["recovery_history"] = state.get("recovery_history", []) + [
+                {
+                    "attempt": attempt,
+                    "timestamp": _time.time(),
+                    "error_category": classification.category,
+                    "root_cause": plan.root_cause[:300],
+                    "confidence": plan.confidence,
+                }
+            ]
 
         # 4. Re-invoke graph
         attempt_state = _invoke_graph(
@@ -1150,7 +1236,17 @@ def _recovery_loop(
         # 5. Evaluate outcome
         if attempt_status == "done":
             # Success!
-            lessons = generate_lessons(state, classification, plan, True)
+            if plan is not None:
+                # Post-attempt state — reflects the error as it stood after the retry
+                lessons = generate_lessons(attempt_state, classification, plan, True)
+                root_cause = plan.root_cause[:500]
+                fix_actions = plan.fix_actions
+                confidence = plan.confidence
+            else:
+                lessons = []
+                root_cause = "transient error resolved by plain retry"
+                fix_actions = []
+                confidence = 1.0
 
             entry = RecoveryEntry(
                 timestamp=_time.time(),
@@ -1158,24 +1254,33 @@ def _recovery_loop(
                 stage_id=current_stage,
                 error_message=error_message[:500],
                 error_category=classification.category,
-                root_cause=plan.root_cause[:500],
-                fix_actions=plan.fix_actions,
+                root_cause=root_cause,
+                fix_actions=fix_actions,
                 lessons_generated=lessons,
                 outcome="success",
-                confidence=plan.confidence,
+                confidence=confidence,
                 duration_ms=attempt_duration,
             )
             logger.log_attempt(entry)
 
-            if recovery_config.get("learn_from_failures", True):
-                logger.log_lessons(lessons, artifact_root)
+            if plan is not None and recovery_config.get("learn_from_failures", True):
+                logger.log_lessons(lessons, artifact_root, stage_id=current_stage)
+                # Close the loop: confirm the lessons of the plan that led to
+                # the successful recovery (threshold-based, in lessons.json).
+                if plan.lessons:
+                    from eng_loop.tools.lessons import confirm_lesson, lesson_id_for, load_lessons, save_lessons
+
+                    local = load_lessons(artifact_root).get("local", {})
+                    for plan_lesson in plan.lessons:
+                        confirm_lesson(local, lesson_id_for(current_stage, plan_lesson.pattern))
+                    save_lessons(artifact_root, local, "lessons.json")
 
             if not tui_controller:
                 ui.console.print()
                 ui.console.print(
                     Panel(
                         f"[green]Recovery successful on attempt {attempt}![/green]\n"
-                        f"[dim]Root cause: {plan.root_cause[:200]}[/dim]",
+                        f"[dim]Root cause: {root_cause[:200]}[/dim]",
                         title="[bold green]Recovered[/bold green]",
                         border_style="green",
                     )
@@ -1187,7 +1292,17 @@ def _recovery_loop(
             return attempt_state
 
         # Failed — prepare for next attempt
-        lessons = generate_lessons(state, classification, plan, False)
+        if plan is not None:
+            # Post-attempt state — reflects the error as it stood after the retry
+            lessons = generate_lessons(attempt_state, classification, plan, False)
+            root_cause = plan.root_cause[:500]
+            fix_actions = plan.fix_actions
+            confidence = plan.confidence
+        else:
+            lessons = []
+            root_cause = "transient error — plain retry did not resolve"
+            fix_actions = []
+            confidence = 1.0
 
         entry = RecoveryEntry(
             timestamp=_time.time(),
@@ -1195,19 +1310,20 @@ def _recovery_loop(
             stage_id=current_stage,
             error_message=error_message[:500],
             error_category=classification.category,
-            root_cause=plan.root_cause[:500],
-            fix_actions=plan.fix_actions,
+            root_cause=root_cause,
+            fix_actions=fix_actions,
             lessons_generated=lessons,
             outcome="failed",
-            confidence=plan.confidence,
+            confidence=confidence,
             duration_ms=attempt_duration,
         )
         logger.log_attempt(entry)
 
-        if recovery_config.get("learn_from_failures", True):
-            logger.log_lessons(lessons, artifact_root)
+        if plan is not None and recovery_config.get("learn_from_failures", True):
+            logger.log_lessons(lessons, artifact_root, stage_id=current_stage)
 
-        previous_plans.append(plan)
+        if plan is not None:
+            previous_plans.append(plan)
         state = attempt_state
         error_message = state.get("blocking_condition", error_message)
         current_stage = state.get("current_stage", current_stage)
@@ -1289,8 +1405,12 @@ def _stream_with_interrupts(
             while exec_state.is_paused:
                 _time.sleep(0.1)
 
-        events_from_stream = list(do_stream(stream_input))
-        for event in events_from_stream:
+        # Live streaming (H13): iterate the generator directly instead of
+        # list(do_stream(...)) — events reach the HUD as they are produced.
+        # The interrupt check stays at stream end: while the stream is active,
+        # get_state().next reflects PENDING tasks, not an interrupt, so a
+        # per-event check would trigger the breakpoint menu mid-execution.
+        for event in do_stream(stream_input):
             # Check for interventions on the current node
             current_stage = event.get("current_stage", "")
             if current_stage and exec_state and exec_state.has_intervention(current_stage):
@@ -1333,6 +1453,12 @@ def _stream_with_interrupts(
                     edited = edit_state_in_editor(current_state.values, stage_id)
                     _save_state(edited, paths)
                     _save_snapshot(edited, paths, stage_id, config)
+                    # Apply the edit to the CHECKPOINT — resuming with the
+                    # checkpoint untouched would ignore the edit (H14).
+                    try:
+                        graph.update_state(thread_config, edited)
+                    except Exception as e:
+                        logging.getLogger(__name__).warning("breakpoint edit: update_state failed: %s", e)
 
                 # Resume
                 stream_input = Command(resume=True)
@@ -1552,12 +1678,36 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "rollback_target": state.get("rollback_target", ""),
         "explorer_evidence": state.get("explorer_evidence", []),
         "codebase_facts": state.get("codebase_facts", {}),
-        "topology_proposal": state.get("topology_proposal"),
         "dynamic_plan": state.get("dynamic_plan"),
         "dynamic_runtime": state.get("dynamic_runtime", {}),
         "essence": state.get("essence", {}),
         "essence_clarifying_questions": state.get("essence_clarifying_questions", []),
+        # F3.3 — operational state that must survive resume (was dropped here,
+        # which zeroed the recovery budget and made essence re-ask).
+        "context_bus": context_bus_snapshot(state.get("context_bus")),
+        "qa_results": state.get("qa_results", {}),
+        "user_interactions": state.get("user_interactions", []),
+        "recovery_attempts": state.get("recovery_attempts", 0),
+        "recovery_history": state.get("recovery_history", []),
+        "task_outcome": state.get("task_outcome"),
+        # NOTE: topology_proposal is no longer written (legacy key — restore
+        # still reads it from old snapshots).
     }
+
+
+def _rehydrate_loaded_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Rehydrate runtime objects that a JSON state file cannot carry (F3.3).
+
+    context_bus comes back as a raw dict after load_state_template — nodes
+    need a real ContextBus, otherwise clarifications are lost and the gate
+    re-asks.
+    """
+    bus = state.get("context_bus")
+    if isinstance(bus, dict):
+        state["context_bus"] = ContextBus.from_snapshot(bus)
+    else:
+        state.setdefault("context_bus", ContextBus())
+    return state
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -1581,6 +1731,7 @@ def _build_topology(work_item: str, config: dict[str, Any], paths: dict[str, str
     state["ui_project"] = ui_project
 
     parallel_qa = config.get("dynamic_graph", {}).get("parallel_qa", False)
+    state.setdefault("config", {}).setdefault("dynamic_graph", {})["parallel_qa"] = parallel_qa
     builder = GraphBuilder(parallel_qa=parallel_qa)
     _, topology = builder.build(state)
 

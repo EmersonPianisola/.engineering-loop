@@ -15,6 +15,7 @@ from langchain_core.messages.ai import AIMessageChunk
 from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 from rich.panel import Panel
 
 from eng_loop.tools.agent_lifecycle import AgentLifecycleManager, DistilledState
@@ -126,7 +127,9 @@ class CommandHistoryBuffer:
             return f"grep:{'|'.join(parts)}"
         elif tool_name in ("read", "glob"):
             parts = []
-            for key in ("filePath", "path", "pattern", "file_path"):
+            # offset/limit count: paginated reads of the same file are progress,
+            # not a repeat of the same call.
+            for key in ("filePath", "path", "pattern", "file_path", "offset", "limit"):
                 if key in tool_args:
                     parts.append(str(tool_args[key]).strip().lower())
             return f"{tool_name}:{'|'.join(parts)}"
@@ -229,6 +232,19 @@ def run_agent(
         spinner = _get_active_spinner()
         if spinner:
             effective_cb = spinner.update
+
+    # Context budget manager: explicit argument wins; otherwise build one from
+    # config when enabled (H11 — previously no caller passed budget_manager, so
+    # the pre-call compaction check never ran). Single construction source
+    # shared with ExecutionState.
+    if budget_manager is None and config:
+        _hardware_cfg = config.get("hardware", {})
+        _budget_cfg = _hardware_cfg.get("context_budget", {})
+        _context_window = _hardware_cfg.get("context_window", 0)
+        if _budget_cfg.get("enabled", False) and _context_window > 0:
+            from eng_loop.tools.context_budget import build_context_budget_manager
+
+            budget_manager = build_context_budget_manager(_context_window, _budget_cfg)
 
     log_model_invoke(stage_id)
     # Store prompt for Node Inspector X-Ray
@@ -409,31 +425,43 @@ def run_agent(
                 )
             messages = _budget_result["messages"]
 
-        # Set up idle/hard watchdog for the stream call
-        # The opencode path has built-in watchdogs; the LangChain path did not.
-        idle_timeout = config.get("hardware", {}).get("idle_timeout_seconds", 180)
+        # Hard timeout for the stream call. A reader thread publishes chunks to
+        # a queue and the main loop gets them with a deadline — a stalled stream
+        # raises a real TimeoutError here (the old daemon-thread watchdog raised
+        # in the thread itself, and its flag was only checked when a chunk
+        # arrived, so a fully stalled stream hung forever).
         hard_timeout = config.get("hardware", {}).get("stage_timeout_seconds", 600)
-        timed_out = [False]
-        last_activity = [time.monotonic()]
-
-        def _hard_watchdog(
-            _ht=hard_timeout,
-            _to=timed_out,
-            _sid=stage_id,
-        ):
-            time.sleep(_ht)
-            if not _to[0]:
-                _to[0] = True
-                raise TimeoutError(f"Stage {_sid} exceeded hard timeout ({_ht}s)")
-
-        threading.Thread(target=_hard_watchdog, daemon=True).start()
 
         try:
+            import queue as _queue
+
+            chunk_queue: _queue.Queue = _queue.Queue()
+            stream_error: list[BaseException | None] = [None]
+
+            def _stream_reader(_messages=messages, _q=chunk_queue, _err=stream_error):
+                try:
+                    for chunk in model_with_tools.stream(_messages):
+                        _q.put(("chunk", chunk))
+                except BaseException as exc:  # surface any stream failure to the main loop
+                    _err[0] = exc
+                finally:
+                    _q.put(("end", None))
+
+            threading.Thread(target=_stream_reader, daemon=True).start()
+
             # Stream tokens for HUD visibility, then aggregate into final response
             merged_chunk = None
-            for chunk in model_with_tools.stream(messages):
-                if timed_out[0]:
-                    raise TimeoutError(f"Stage {stage_id} idle timeout ({idle_timeout}s) -- no tokens produced")
+            deadline = time.monotonic() + hard_timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"Stage {stage_id} exceeded hard timeout ({hard_timeout}s)")
+                try:
+                    _kind, chunk = chunk_queue.get(timeout=remaining)
+                except _queue.Empty:
+                    raise TimeoutError(f"Stage {stage_id} exceeded hard timeout ({hard_timeout}s)")
+                if _kind == "end":
+                    break
                 # Accumulate chunks using + operator
                 if merged_chunk is None:
                     merged_chunk = chunk
@@ -442,10 +470,17 @@ def run_agent(
                 # Push tokens to HUD in real-time
                 if chunk.content and ui.is_hud_active() and ui._normalizer:
                     ui._normalizer.token_streamed(stage_id, chunk.content)
-                last_activity[0] = time.monotonic()
-            # Convert merged chunk to final response
+            if stream_error[0] is not None:
+                raise stream_error[0]
+            # Convert merged chunk to final response, preserving usage and
+            # response metadata (H10 — previously discarded).
             merged = merged_chunk if merged_chunk else AIMessageChunk(content="")
-            response = AIMessage(content=merged.content, tool_calls=merged.tool_calls or [])
+            response = AIMessage(
+                content=merged.content,
+                tool_calls=merged.tool_calls or [],
+                usage_metadata=merged.usage_metadata,
+                response_metadata=merged.response_metadata,
+            )
         except Exception as e:
             _trace.llm_error(stage_id, iteration, str(e))
             elapsed = time.monotonic() - t0
@@ -481,6 +516,10 @@ def run_agent(
                     [tc["name"] for tc in response.tool_calls],
                     iter_elapsed,
                 )
+                # Append the AIMessage ONCE before the loop (H9) — appending it
+                # inside (per tool call) duplicated it and interleaved AIM/TM.
+                messages.append(response)
+                _usage_reported_this_iter = False
                 # Execute each tool call
                 for tc in response.tool_calls:
                     tool_name = tc["name"]
@@ -495,7 +534,6 @@ def run_agent(
                         )
                         _ask_user_count += 1
                         if _ask_user_count > _ASK_USER_MAX:
-                            messages.append(response)
                             messages.append(
                                 ToolMessage(
                                     content=(
@@ -509,7 +547,6 @@ def run_agent(
                             tool_calls_total += 1
                             continue
                         answers = _collect_user_input(tool_args, stage_id)
-                        messages.append(response)
                         messages.append(
                             ToolMessage(
                                 content=json.dumps(answers, ensure_ascii=False),
@@ -531,7 +568,6 @@ def run_agent(
                     # Phase 4: Compliance — verify tool is allowed for this stage
                     allowed_tools = _get_allowed_tools(stage_id, tools)
                     if tool_name not in allowed_tools:
-                        messages.append(response)
                         messages.append(
                             ToolMessage(
                                 content=(
@@ -596,7 +632,6 @@ def run_agent(
                                 stage_id,
                                 _steering_injection_count,
                             )
-                            messages.append(response)
                             messages.append(
                                 ToolMessage(
                                     content=cmd_history.steering_message(tool_name, tool_args),
@@ -619,7 +654,6 @@ def run_agent(
                             _read_streak = 0
                             continue
                         # Inject steering as ToolMessage (agent sees it as tool result)
-                        messages.append(response)
                         messages.append(
                             ToolMessage(
                                 content=cmd_history.steering_message(tool_name, tool_args),
@@ -654,7 +688,6 @@ def run_agent(
                     if _is_error_output(tool_result) and len(tool_result) > 2000:
                         tool_result = _summarize_error(tool_result)
 
-                    messages.append(response)
                     messages.append(
                         ToolMessage(
                             content=tool_result,
@@ -813,12 +846,22 @@ def run_agent(
                     _read_only_answer_injected = True
 
                 # Agent lifecycle check — track budget and decide whether to continue or distill+spawn
-                is_prod = tool_name in ("write", "edit", "bash") if "tool_name" in dir() else False
+                is_prod = tool_name in ("write", "edit", "bash")
+                # Report the model's real usage once per response (first processed
+                # tool call); later calls in the same response would double-count.
+                _usage = getattr(response, "usage_metadata", None) or {}
+                if _usage_reported_this_iter:
+                    _in_tokens = 0
+                    _out_tokens = 0
+                else:
+                    _in_tokens = _usage.get("input_tokens", 0) or 0
+                    _out_tokens = _usage.get("output_tokens", 0) or 0
+                    _usage_reported_this_iter = True
                 action, agent_stats = lifecycle.record_iteration(
                     stage_id,
-                    input_tokens=0,  # estimated; real count comes from model response metadata
-                    output_tokens=0,
-                    tool_call_name=tool_name if "tool_name" in dir() else "",
+                    input_tokens=_in_tokens,
+                    output_tokens=_out_tokens,
+                    tool_call_name=tool_name,
                     is_productive=is_prod,
                 )
 
@@ -831,13 +874,15 @@ def run_agent(
                     distilled = lifecycle.build_distilled_state(stage_id, messages, tool_cache.get_stats())
                     new_agent_id, new_agent = lifecycle.spawn_next_agent(stage_id, distilled)
 
-                    # Inject distilled state as context for the new agent
-                    distilled_prompt = _build_distilled_context(distilled, stage_id)
-                    messages.append(HumanMessage(content=distilled_prompt))
-                    # Reset message list to just the distilled context + system + original objective
-                    # This gives the new agent a clean budget
+                    # Reset message list for a clean budget — keep system/human
+                    # context plus the last AI message (its partial reasoning is
+                    # the freshest signal for the successor agent).
+                    last_ai = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
                     messages = [m for m in messages if isinstance(m, (SystemMessage, HumanMessage))]
-                    # Re-inject the original work item
+                    if last_ai is not None:
+                        messages.append(last_ai)
+                    # Inject the distilled state once, as the successor's starting context
+                    distilled_prompt = _build_distilled_context(distilled, stage_id)
                     messages.append(HumanMessage(content=distilled_prompt))
                     agent_id = new_agent_id
                     _read_streak = 0
@@ -845,9 +890,7 @@ def run_agent(
                     cmd_history.reset()
                     tool_cache.clear()
 
-                # Legacy compaction is now disabled — lifecycle manager handles context overflow
-                # if len(messages) > 80:
-                #     messages = _compact_messages(messages)
+                # Legacy compaction is disabled — the lifecycle manager handles context overflow
             else:
                 # No more tool calls — agent has its final answer
                 _dbg.debug(
@@ -1141,7 +1184,6 @@ def run_agent_via_opencode(
 
             last_activity = time.monotonic()
             last_progress = time.monotonic()
-            time.monotonic()
             timed_out = [False]
             tool_count = [0]
             stall_error = [None]  # captured stall report for timeout handler
@@ -1169,10 +1211,8 @@ def run_agent_via_opencode(
                 if not line:
                     break
 
-                try:
-                    decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
-                except AttributeError:
-                    decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
+                # proc.stdout is text mode (Popen encoding="utf-8") — line is a str
+                decoded = line.rstrip("\n\r")
 
                 if not decoded:
                     # No output — check for idle timeout
@@ -1395,6 +1435,10 @@ def run_agent_via_opencode(
                     data = json.loads(raw)
                     if not isinstance(data, dict):
                         data = {"raw_output": str(data)[:5000], "complete": True}
+                    # Validate against the stage schema before returning (H8b) —
+                    # invalid output must surface as an error, not pass through.
+                    if output_schema is not None:
+                        data = output_schema.model_validate(data).model_dump()
                 else:
                     # Agent exhausted iterations before writing output file.
                     # Return error so calling node can retry.
@@ -1416,14 +1460,20 @@ def run_agent_via_opencode(
                             f"({tool_count[0]} tool calls made, last: {fallback_text[:200]})"
                         ),
                     )
-            except (json.JSONDecodeError, Exception) as e:
-                # Even on parse error, try to preserve accumulated text
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                # Parse/validation failure — return an error result so the node
+                # can retry (previously this set complete=True and passed on).
+                # JSONDecodeError and pydantic ValidationError are ValueErrors.
                 fallback_text = "\n".join(text_accumulator)
-                data = {
-                    "error": f"failed to parse output: {e}",
-                    "complete": True,
-                    "raw_output": fallback_text[:10000],
-                }
+                log_model_done(stage_id, elapsed)
+                log_stage_fail(stage_id, f"failed to parse/validate opencode output: {e}")
+                return AgentResult(
+                    data={"raw_output": fallback_text[:10000]},
+                    iterations=1,
+                    tool_calls_made=tool_count[0],
+                    elapsed=elapsed,
+                    error=f"failed to parse/validate opencode output: {e}",
+                )
 
             log_model_done(stage_id, elapsed)
             active_ctx = _get_active_stage_ctx()
@@ -1470,11 +1520,6 @@ def run_agent_via_opencode(
             pass
 
 
-def _extract_from_opencode_output(stdout, output_schema: type[BaseModel] | None) -> dict[str, Any]:
-    """Fallback: extract structured JSON from opencode output."""
-    return {"complete": True}
-
-
 def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
     """Print a tool call event, mimicking opencode TUI style."""
     import sys as _sys
@@ -1488,25 +1533,6 @@ def _print_tool(stage_id: str, tool: str, path: str, status: str) -> None:
     icon = {"read": "R", "write": "W", "edit": "E", "bash": "$", "glob": "G", "grep": "S"}.get(tool, "?")
     path_str = f" {path}" if path else ""
     _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[36m{icon}\033[0m {tool}{path_str}\n")
-    _sys.stdout.flush()
-
-
-def _print_text(stage_id: str, text: str) -> None:
-    """Print LLM text output, truncated."""
-    import sys as _sys
-
-    # Silent when spinner is active
-    from eng_loop.tools.progress import _get_active_spinner
-
-    if _get_active_spinner():
-        return
-
-    # Only print if it's substantive (not just "OK" or similar)
-    if len(text) < 10:
-        return
-    # Print first line only
-    first_line = text.split("\n")[0][:120]
-    _sys.stdout.write(f"  \033[90m[{stage_id}]\033[0m \033[2m{first_line}\033[0m\n")
     _sys.stdout.flush()
 
 
@@ -1574,9 +1600,11 @@ def _build_agent_prompt(prompt: str, tools: list[Tool], output_schema: type[Base
     if output_schema:
         fields = []
         for field_name, field_info in output_schema.model_fields.items():
-            # Infer a sensible default/example per type
-            if field_info.default is not None:
-                default = field_info.default
+            # Infer a sensible default/example per type. field_info.default is the
+            # PydanticUndefined sentinel when the field has no default — it is not
+            # None, so a plain `is not None` check would leak it into the template.
+            if field_info.default is not PydanticUndefined:
+                default = "null" if field_info.default is None else field_info.default
             elif field_info.annotation == bool:
                 default = "true"
             elif field_info.annotation == int:
@@ -1883,18 +1911,6 @@ def _extract_from_text(
     }
 
 
-def _last_ai_message(messages: list[Any]) -> AIMessage | None:
-    """Find the last AI message that is not followed by tool messages."""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
-            return msg
-    # Fallback: any AI message
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage):
-            return msg
-    return None
-
-
 def _extract_best_effort_from_messages(
     messages: list[Any],
     output_schema: type[BaseModel] | None,
@@ -2161,7 +2177,10 @@ def _inject_compact_skill(prompt: str, max_skill_lines: int = 50) -> str:
     """
     import re as _re
 
-    skill_match = _re.search(r"(## SKILL\s*\n)((?:.*\n)*?)(?=\n\n##|\Z)", prompt, _re.DOTALL)
+    # Anchor on "## PROCEDURE" (the first real prompt section after the skill)
+    # instead of any internal blank-line heading — skill content may contain its
+    # own "## " subsections that would truncate the capture early.
+    skill_match = _re.search(r"(## SKILL\s*\n)((?:.*\n)*?)(?=\n\n## PROCEDURE|\Z)", prompt, _re.DOTALL)
     if not skill_match:
         return prompt
 
@@ -2194,34 +2213,6 @@ def _inject_compact_skill(prompt: str, max_skill_lines: int = 50) -> str:
     replacement = f"## SKILL\n{compacted}" + leaked_content
 
     return prompt[: skill_match.start()] + replacement + prompt[skill_match.end() :]
-
-
-def _compact_messages(messages: list[Any]) -> list[Any]:
-    """Compact a long conversation by summarizing old tool exchanges."""
-    if len(messages) <= 40:
-        return messages
-
-    # Keep system + first human + last 30 messages
-    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
-    first_human = next((m for m in messages if isinstance(m, HumanMessage)), None)
-
-    kept = list(system_msgs)
-    if first_human:
-        kept.append(first_human)
-
-    # Add a summary of what was done
-    tool_calls = sum(1 for m in messages if isinstance(m, ToolMessage))
-
-    summary = HumanMessage(
-        content=f"[Conversation summary: {tool_calls} tool calls were made. "
-        f"Earlier tool interactions have been compacted for context window management.]"
-    )
-    kept.append(summary)
-
-    # Keep last 25 messages
-    kept.extend(messages[-25:])
-
-    return kept
 
 
 def _get_allowed_tools(stage_id: str, tools: list[Tool]) -> list[str]:

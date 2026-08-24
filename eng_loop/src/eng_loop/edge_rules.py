@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from eng_loop.schemas import GraphTopologyProposal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -841,13 +844,27 @@ def build_edge_rules(parallel_qa: bool = False) -> EdgeRulesEngine:
 # ───────────────────────────────────────────────────────────────────
 
 
-def _get_condition_predicate(condition: str) -> Callable[[dict[str, Any]], bool]:
-    """Translate an allowed condition identifier into a state predicate function."""
+def _get_condition_predicate(
+    condition: str,
+    stage_id: str | None = None,
+) -> Callable[[dict[str, Any]], bool]:
+    """Translate an allowed condition identifier into a state predicate function.
+
+    stage_done / stage_failed are PER-STAGE: `stage_id` is the edge's
+    from_stage (dotted) and is captured in the closure. Unknown conditions
+    fail CLOSED (never fire) — the old fail-open default routed failed
+    stages forward past their loopbacks.
+    """
+    if condition in ("stage_done", "stage_failed"):
+        if not stage_id:
+            logger.warning("condition %r requires a from_stage — failing closed", condition)
+            return lambda s: False
+        if condition == "stage_done":
+            return lambda s, sid=stage_id: _stage_done(s, sid)
+        return lambda s, sid=stage_id: not _stage_done(s, sid) and not _is_blocked(s)
 
     predicates = {
         "always": lambda s: True,
-        "stage_done": lambda s: s.get("status") != "blocked",
-        "stage_failed": lambda s: False,  # Populated per-stage in build_rules_from_proposal
         "stage_blocked": lambda s: s.get("status") == "blocked",
         "complexity_at_least_medium": lambda s: _complexity_at_least(s, "medium"),
         "complexity_at_least_large": lambda s: _complexity_at_least(s, "large"),
@@ -856,7 +873,11 @@ def _get_condition_predicate(condition: str) -> Callable[[dict[str, Any]], bool]
         "is_ui_project": lambda s: s.get("ui_project", False),
         "not_ui_project": lambda s: not s.get("ui_project", False),
     }
-    return predicates.get(condition, lambda s: True)
+    predicate = predicates.get(condition)
+    if predicate is None:
+        logger.warning("Unknown edge condition %r — failing closed (never fires)", condition)
+        return lambda s: False
+    return predicate
 
 
 def build_rules_from_proposal(
@@ -935,10 +956,10 @@ def build_rules_from_proposal(
         if edge.edge_type == "fixed":
             engine.add_fixed(from_name, to_name, description=edge.description)
         elif edge.edge_type == "loopback":
-            predicate = _get_condition_predicate(edge.condition)
+            predicate = _get_condition_predicate(edge.condition, edge.from_stage)
             engine.add_loopback(from_name, to_name, condition=predicate, description=edge.description)
         elif edge.edge_type == "terminal":
-            predicate = _get_condition_predicate(edge.condition)
+            predicate = _get_condition_predicate(edge.condition, edge.from_stage)
             engine.add_conditional(
                 from_name,
                 to_name,
@@ -947,7 +968,7 @@ def build_rules_from_proposal(
                 description=edge.description,
             )
         else:  # conditional
-            predicate = _get_condition_predicate(edge.condition)
+            predicate = _get_condition_predicate(edge.condition, edge.from_stage)
             engine.add_conditional(
                 from_name,
                 to_name,
@@ -994,12 +1015,16 @@ def _inject_failure_routing(
         "smoke-test": {"stage_key": "smoke.test"},
     }
 
-    # Discover QA stages dynamically from the normalized set
+    # Discover QA stages from the proposal's canonical (dotted) stage ids.
+    # stage_key MUST stay dotted: "qa.api-contract" -> node "qa-api-contract",
+    # stage_key = "qa.api-contract" (the pre-fix full hyphen→dot replace on the
+    # node name would yield "qa.api.contract", an unknown id, so _stage_done
+    # was always False and the loopback fired for done stages).
     qa_failure_stages = {}
-    for node_name in normalized_set:
+    for stage_id in proposal.required_stages:
+        node_name = stage_id.replace(".", "-").replace("_", "-")
         if node_name.startswith("qa-"):
-            stage_key = node_name.replace("-", ".")
-            qa_failure_stages[node_name] = {"stage_key": stage_key}
+            qa_failure_stages[node_name] = {"stage_key": stage_id}
 
     all_failure_stages = {**core_failure_stages, **qa_failure_stages}
 

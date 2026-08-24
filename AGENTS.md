@@ -40,7 +40,7 @@ Package versions: `pyproject.toml` and `__init__.py` must stay in sync (currentl
 eng_loop/src/eng_loop/
 ├── cli.py              # Entry point (eng-loop command, pre-build architect)
 ├── graph_builder.py    # Dual-path builder (proposal or deterministic)
-├── node_registry.py    # 20 registered NodeSpec stages
+├── node_registry.py    # 34 registered NodeSpec stages
 ├── edge_rules.py       # Declarative edge rules + proposal compiler
 ├── state.py            # PipelineState schema + reducers + node catalog
 ├── schemas.py          # 52 Pydantic schemas (topology + stage output)
@@ -50,15 +50,16 @@ eng_loop/src/eng_loop/
 ├── model.py            # Model factory (OpenAI-compatible endpoints)
 ├── templates.py        # Markdown → prompt loader
 ├── context_bus.py      # Cross-cutting context bus (new in v12)
-├── nodes/              # 14 modules, one per stage group
+├── nodes/              # 13 modules, one per stage group
 │   ├── dynamic_architect.py  # Pre-build topology + runtime augmentation
 │   ├── meta_executor.py      # Sequential cursor-based executor
-│   └── (12 more: init, design, architecture, implementation, qa, etc.)
-└── tools/              # 55 tool modules
-    └── policy_resolver.py    # 5-layer topology firewall + tool sandboxing
+│   └── (11 more: init, design, architecture, implementation, qa, etc.)
+└── tools/              # 58 tool modules
+    ├── policy_resolver.py    # 6-layer topology firewall + tool sandboxing
+    └── sandbox.py            # Path/command sandboxing for agent tools (agent.tools.sandbox)
 ```
 
-Tests: 76 files. Run `pytest eng_loop/tests` for full suite.
+Tests: 105 files. Run `pytest eng_loop/tests` for full suite.
 
 ## Stage Files (`stages/`)
 
@@ -91,7 +92,7 @@ Other global skills useful for development work: `skill-creator` (create/evolve 
 
 ## References (`references/`)
 
-15 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, etc.).
+14 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, etc.) + `lessons-shared.json`.
 
 ## Config
 
@@ -118,7 +119,7 @@ If a stage is added or removed, update all four.
 The graph is no longer built from hardcoded rules. Instead:
 
 1. **LLM Architect** proposes `GraphTopologyProposal` (stages, edges, phases, policies)
-2. **Policy Firewall** authorizes through 5 layers (structural, registry, boundary, connectivity, semantic)
+2. **Policy Firewall** authorizes through 6 layers (structural, registry, boundary, connectivity, semantic, cost)
 3. **Graph Builder** compiles authorized topology into executable LangGraph
 4. **Fallback**: If architect unavailable or proposal rejected, deterministic builder ensures execution
 

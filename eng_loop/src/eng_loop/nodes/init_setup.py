@@ -38,8 +38,8 @@ def init_setup_node(state: dict[str, Any]) -> Command[str]:
     if state.get("codebase_facts"):
         logger.info("init_setup: codebase_facts already cached, skipping")
         return Command(
-            update={"current_stage": "init"},
-            goto="init",
+            update={"current_stage": "dynamic-architect"},
+            goto="dynamic-architect",
         )
 
     work_item = get_work_item_text(state)
@@ -97,7 +97,7 @@ def init_setup_node(state: dict[str, Any]) -> Command[str]:
             "stages": stages,
             "codebase_facts": codebase_facts,
             "graphify": graphify_state,
-            "current_stage": "init",
+            "current_stage": "dynamic-architect",
         },
-        goto="init",
+        goto="dynamic-architect",
     )

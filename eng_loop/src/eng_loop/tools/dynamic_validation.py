@@ -37,8 +37,13 @@ def _evaluate_single_rule(
     workspace_root: str,
     state: dict[str, Any],
 ) -> tuple[bool, str | None]:
+    # Malformed payloads must fail the rule, not slip through with getattr defaults.
+    if rule.payload is None:
+        return False, f"malformed rule payload ({rule.type})"
+
+    timeout = float(state.get("config", {}).get("validation", {}).get("test_timeout", 120))
     if rule.type == "tests_pass":
-        return _eval_tests_pass(rule.payload, workspace_root)
+        return _eval_tests_pass(rule.payload, workspace_root, timeout)
     if rule.type == "files_exist":
         return _eval_files_exist(rule.payload, workspace_root)
     if rule.type == "contains_symbol":
@@ -47,21 +52,30 @@ def _evaluate_single_rule(
     return False, f"Unknown validation rule type: {rule.type}"
 
 
+def _default_test_command(root: Path, suite: str) -> str:
+    """Detect the project's test command (package.json → node, pyproject → pytest)."""
+    if suite == "e2e":
+        return "playwright test --reporter=line"
+    has_node = (root / "package.json").exists()
+    has_py = (root / "pyproject.toml").exists() or (root / "pytest.ini").exists() or (root / "setup.py").exists()
+    if has_node and not has_py:
+        return "npm test"
+    if suite == "integration":
+        return "pytest --tb=short -q -m integration"
+    return "pytest --tb=short -q"
+
+
 def _eval_tests_pass(
     payload: Any,
     workspace_root: str,
+    timeout: float = 120.0,
 ) -> tuple[bool, str | None]:
     """Run a test suite command and verify exit code is 0."""
     suite = getattr(payload, "suite", "unit")
     command = getattr(payload, "command", "")
 
     if not command:
-        suite_commands = {
-            "unit": "pytest --tb=short -q",
-            "integration": "pytest --tb=short -q -m integration",
-            "e2e": "playwright test --reporter=line",
-        }
-        command = suite_commands.get(suite, "pytest --tb=short -q")
+        command = _default_test_command(Path(workspace_root), suite)
 
     try:
         # shell=True required for shell pipeline support (|, &&, ;;).
@@ -75,14 +89,14 @@ def _eval_tests_pass(
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=120,
+            timeout=timeout,
             check=False,
         )
         if result.returncode == 0:
             return True, None
         return False, f"tests_pass({suite}): exit code {result.returncode}: {(result.stderr or '')[:500]}"
     except subprocess.TimeoutExpired:
-        return False, f"tests_pass({suite}): timed out after 120s"
+        return False, f"tests_pass({suite}): timed out after {timeout}s"
     except Exception as e:
         return False, f"tests_pass({suite}): {e}"
 
@@ -92,7 +106,9 @@ def _eval_files_exist(
     workspace_root: str,
 ) -> tuple[bool, str | None]:
     """Verify that all required paths exist relative to workspace root."""
-    paths = getattr(payload, "paths", ())
+    paths = getattr(payload, "paths", None)
+    if not paths:
+        return False, "malformed rule payload (files_exist: no paths)"
     root = Path(workspace_root).resolve()
 
     missing = []
@@ -113,6 +129,8 @@ def _eval_contains_symbol(
     """Search for a symbol/regex pattern in a target file."""
     symbol = getattr(payload, "symbol", "")
     target_file = getattr(payload, "target_file", "")
+    if not symbol or not target_file:
+        return False, "malformed rule payload (contains_symbol: missing symbol or target_file)"
 
     root = Path(workspace_root).resolve()
     target_path = (root / target_file).resolve()

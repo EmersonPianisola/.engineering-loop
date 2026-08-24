@@ -11,6 +11,7 @@ from eng_loop.tools.glob_tool import create_glob_tool
 from eng_loop.tools.graphify_tools import get_graphify_tools
 from eng_loop.tools.grep_tool import create_grep_tool
 from eng_loop.tools.read_tool import create_read_tool
+from eng_loop.tools.sandbox import build_sandbox
 from eng_loop.tools.write_tool import create_write_tool
 
 # Which tools each stage needs
@@ -57,9 +58,6 @@ STAGE_TOOLS: dict[str, list[str]] = {
     "post": ["read", "write", "bash", "glob"],
 }
 
-# Essence is special — it only reads, doesn't modify
-ESSENCE_TOOLS: list[str] = ["read", "glob"]
-
 
 def get_tools_for_stage(
     stage_id: str,
@@ -74,26 +72,28 @@ def get_tools_for_stage(
     bash_timeout = config.get("agent", {}).get("tool_timeout", 120)
 
     project_root = paths.get("project_root", ".")
+    sandbox = build_sandbox(project_root, config)
     tools = []
 
     for name in tool_names:
         if name == "read":
-            tools.append(create_read_tool())
+            tools.append(create_read_tool(sandbox=sandbox))
         elif name == "write":
-            tools.append(create_write_tool())
+            tools.append(create_write_tool(sandbox=sandbox))
         elif name == "edit":
-            tools.append(create_edit_tool())
+            tools.append(create_edit_tool(sandbox=sandbox))
         elif name == "bash":
             tools.append(
                 create_bash_tool(
                     workdir=project_root,
                     timeout=bash_timeout,
+                    sandbox=sandbox,
                 )
             )
         elif name == "glob":
-            tools.append(create_glob_tool())
+            tools.append(create_glob_tool(sandbox=sandbox))
         elif name == "grep":
-            tools.append(create_grep_tool())
+            tools.append(create_grep_tool(sandbox=sandbox))
         elif name == "ask_user":
             tools.append(create_ask_user_tool())
 
@@ -105,9 +105,10 @@ def get_tools_for_stage(
     return tools
 
 
-def get_essence_tools(paths: dict[str, str]) -> list[Tool]:
+def get_essence_tools(paths: dict[str, str], config: dict[str, Any] | None = None) -> list[Tool]:
     """Get tools for essence validation (read-only)."""
-    return [create_read_tool(), create_glob_tool()]
+    sandbox = build_sandbox(paths.get("project_root", "."), config)
+    return [create_read_tool(sandbox=sandbox), create_glob_tool(sandbox=sandbox)]
 
 
 __all__ = ["STAGE_TOOLS", "get_essence_tools", "get_tools_for_stage"]

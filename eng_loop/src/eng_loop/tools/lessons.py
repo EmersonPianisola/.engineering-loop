@@ -76,9 +76,40 @@ def save_lessons(artifact_root: str, lessons: dict[str, Any], file_name: str = "
     return str(path)
 
 
+def lesson_id_for(stage_id: str, pattern: str) -> str:
+    """Deterministic lesson id for a (stage, pattern) pair.
+
+    Shared by the recovery logger (upsert) and the success confirmer so the
+    same failure always maps to the same entry.
+    """
+    return distill_lesson(stage_id, pattern, pattern, "")["id"]
+
+
 def get_confirmed_lessons(lessons_data: dict[str, Any]) -> list[dict[str, Any]]:
     merged = merge_lessons(lessons_data)
     return [l for l in merged.values() if isinstance(l, dict) and l.get("status") == "confirmed"]
+
+
+def get_lessons_for_stage(
+    stage_id: str,
+    lessons_data: dict[str, Any],
+    top_candidates: int = 3,
+) -> list[dict[str, Any]]:
+    """Lessons relevant to a stage: all confirmed + top-N candidates.
+
+    Confirmed lessons are global (they proved out on real recoveries).
+    Candidates are limited to the same stage (or unscoped) and ranked by
+    occurrences, so prompt sections stay focused and bounded.
+    """
+    merged = merge_lessons(lessons_data)
+    confirmed = [l for l in merged.values() if isinstance(l, dict) and l.get("status") == "confirmed"]
+    candidates = [
+        l
+        for l in merged.values()
+        if isinstance(l, dict) and l.get("status") != "confirmed" and (not l.get("stage") or l.get("stage") == stage_id)
+    ]
+    candidates.sort(key=lambda l: (l.get("occurrences", 1), l.get("id", "")), reverse=True)
+    return confirmed + candidates[:top_candidates]
 
 
 def promote_to_pending(lessons: dict[str, Any] | list[Any]) -> list[str]:

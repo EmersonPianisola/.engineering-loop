@@ -196,8 +196,8 @@ def _build_allowed_conditions_context() -> str:
     """Build the allowed conditions text for the architect's prompt."""
     condition_descriptions = {
         "always": "Unconditional transition",
-        "stage_done": "Stage completed successfully",
-        "stage_failed": "Stage failed verification",
+        "stage_done": "The FROM stage of this edge completed successfully (its done flag is set)",
+        "stage_failed": "The FROM stage of this edge has NOT completed and the pipeline is not blocked",
         "stage_blocked": "Pipeline blocked",
         "complexity_at_least_medium": "Complexity is medium, large, or complex",
         "complexity_at_least_large": "Complexity is large or complex",

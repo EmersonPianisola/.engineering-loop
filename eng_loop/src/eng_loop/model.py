@@ -7,6 +7,44 @@ from langchain_openai import ChatOpenAI
 DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_MODEL = "qwable-v2"
 
+# Keys resolved with the same precedence everywhere: stage override > model
+# config > per-factory default.
+MODEL_PARAM_KEYS = ("base_url", "model", "temperature", "max_tokens", "timeout", "max_retries", "api_key", "headers")
+
+
+def _resolve_model_params(config: dict[str, Any], stage_id: str, defaults: dict[str, Any]) -> dict[str, Any]:
+    """Resolve model params: stage override > model config > defaults."""
+    model_cfg = config.get("model", {})
+    stage_override = config.get("model_overrides", {}).get(stage_id, {})
+    params: dict[str, Any] = {}
+    for key in MODEL_PARAM_KEYS:
+        if key in stage_override:
+            params[key] = stage_override[key]
+        elif key in model_cfg:
+            params[key] = model_cfg[key]
+        else:
+            params[key] = defaults[key]
+    return params
+
+
+def _build_model(params: dict[str, Any], callbacks: list[Any] | None = None) -> ChatOpenAI:
+    kwargs: dict[str, Any] = {
+        "base_url": params["base_url"],
+        "model": params["model"],
+        "temperature": params["temperature"],
+        "max_tokens": params["max_tokens"],
+        "timeout": params["timeout"],
+        "max_retries": params["max_retries"],
+        "api_key": params["api_key"],
+    }
+    if params.get("headers"):
+        # Not a first-class ChatOpenAI param in this langchain-openai version —
+        # the OpenAI client receives it through model_kwargs.
+        kwargs["model_kwargs"] = {"headers": params["headers"]}
+    if callbacks:
+        kwargs["callbacks"] = callbacks
+    return ChatOpenAI(**kwargs)
+
 
 def create_model(
     base_url: str | None = None,
@@ -29,32 +67,28 @@ def create_model(
     return ChatOpenAI(**kwargs)
 
 
+def _config_defaults(**overrides: Any) -> dict[str, Any]:
+    defaults = {
+        "base_url": DEFAULT_BASE_URL,
+        "model": DEFAULT_MODEL,
+        "temperature": 0.0,
+        "max_tokens": 128000,
+        "timeout": 300,
+        "max_retries": 2,
+        "api_key": "not-needed",
+        "headers": None,
+    }
+    defaults.update(overrides)
+    return defaults
+
+
 def create_model_from_config(
     config: dict[str, Any],
     stage_id: str = "",
     callbacks: list[Any] | None = None,
 ) -> ChatOpenAI:
-    model_cfg = config.get("model", {})
-    overrides = config.get("model_overrides", {})
-    stage_override = overrides.get(stage_id, {})
-
-    base_url = stage_override.get("base_url", model_cfg.get("base_url", DEFAULT_BASE_URL))
-    model_name = stage_override.get("model", model_cfg.get("model", DEFAULT_MODEL))
-    temperature = stage_override.get("temperature", model_cfg.get("temperature", 0.0))
-    max_tokens = stage_override.get("max_tokens", model_cfg.get("max_tokens", 128000))
-    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
-
-    kwargs: dict[str, Any] = {
-        "base_url": base_url,
-        "model": model_name,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "timeout": timeout,
-        "api_key": "not-needed",
-    }
-    if callbacks:
-        kwargs["callbacks"] = callbacks
-    return ChatOpenAI(**kwargs)
+    params = _resolve_model_params(config, stage_id, _config_defaults())
+    return _build_model(params, callbacks)
 
 
 def create_reasoning_model(
@@ -62,21 +96,8 @@ def create_reasoning_model(
     stage_id: str = "",
     callbacks: list[Any] | None = None,
 ) -> ChatOpenAI:
-    model_cfg = config.get("model", {})
-    overrides = config.get("model_overrides", {})
-    stage_override = overrides.get(stage_id, {})
-    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
-    kwargs: dict[str, Any] = {
-        "base_url": model_cfg.get("base_url", DEFAULT_BASE_URL),
-        "model": model_cfg.get("model", DEFAULT_MODEL),
-        "temperature": 0.3,
-        "max_tokens": model_cfg.get("max_tokens", 128000),
-        "timeout": timeout,
-        "api_key": "not-needed",
-    }
-    if callbacks:
-        kwargs["callbacks"] = callbacks
-    return ChatOpenAI(**kwargs)
+    params = _resolve_model_params(config, stage_id, _config_defaults(temperature=0.3))
+    return _build_model(params, callbacks)
 
 
 def create_code_model(
@@ -84,19 +105,5 @@ def create_code_model(
     stage_id: str = "",
     callbacks: list[Any] | None = None,
 ) -> ChatOpenAI:
-    model_cfg = config.get("model", {})
-    overrides = config.get("model_overrides", {})
-    stage_override = overrides.get(stage_id, {})
-
-    timeout = stage_override.get("timeout", model_cfg.get("timeout", 300))
-    kwargs: dict[str, Any] = {
-        "base_url": stage_override.get("base_url", model_cfg.get("base_url", DEFAULT_BASE_URL)),
-        "model": stage_override.get("model", model_cfg.get("model", DEFAULT_MODEL)),
-        "temperature": 0.0,
-        "max_tokens": stage_override.get("max_tokens", 200000),
-        "timeout": timeout,
-        "api_key": "not-needed",
-    }
-    if callbacks:
-        kwargs["callbacks"] = callbacks
-    return ChatOpenAI(**kwargs)
+    params = _resolve_model_params(config, stage_id, _config_defaults(temperature=0.0, max_tokens=200000))
+    return _build_model(params, callbacks)

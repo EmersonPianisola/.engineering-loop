@@ -1,21 +1,28 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from eng_loop.state import STAGE_ORDER, get_work_item_text
+from eng_loop.state import STAGE_ORDER, context_bus_snapshot, get_work_item_text, restore_snapshot_data
 from eng_loop.tools.file_ops import load_json, save_json
 
 
 def get_history_dir(paths: dict[str, str], config: dict[str, Any] | None = None) -> Path:
-    """Resolve the history directory path."""
+    """Resolve the history directory path.
+
+    Anchored to the project root when known — a CWD-relative path would
+    scatter snapshots wherever the CLI happens to be invoked from.
+    """
     config = config or {}
     history_dir = config.get("state_history", {}).get("history_dir", ".eng/history")
-    artifact_root = paths.get("artifact_root", "artifacts")
-    loop_root = Path(artifact_root).parent
-    return Path(os.path.join(str(loop_root), history_dir))
+    project_root = paths.get("project_root")
+    if project_root:
+        root = Path(project_root)
+    else:
+        artifact_root = paths.get("artifact_root", "artifacts")
+        root = Path(artifact_root).parent
+    return root / history_dir
 
 
 def get_retention(paths: dict[str, str], config: dict[str, Any] | None = None) -> int:
@@ -88,6 +95,15 @@ def _make_saveable(state: dict[str, Any]) -> dict[str, Any]:
         "codebase_facts": state.get("codebase_facts", {}),
         "dynamic_plan": state.get("dynamic_plan"),
         "dynamic_runtime": state.get("dynamic_runtime", {}),
+        # F3.3 — same keys as the CLI state.json save, so rollback keeps them
+        "essence": state.get("essence", {}),
+        "essence_clarifying_questions": state.get("essence_clarifying_questions", []),
+        "context_bus": context_bus_snapshot(state.get("context_bus")),
+        "qa_results": state.get("qa_results", {}),
+        "user_interactions": state.get("user_interactions", []),
+        "recovery_attempts": state.get("recovery_attempts", 0),
+        "recovery_history": state.get("recovery_history", []),
+        "task_outcome": state.get("task_outcome"),
     }
 
 
@@ -212,10 +228,13 @@ def rollback_to(stage_id: str, paths: dict[str, str], config: dict[str, Any] | N
     if not data:
         return None
 
-    data["status"] = "running"
-    data["blocking_condition"] = ""
-    data["current_stage"] = stage_id
-    return data
+    # Merge over make_initial_state defaults (F3.3) — old snapshots lack the
+    # newer keys and context_bus must come back as a ContextBus.
+    restored = restore_snapshot_data(data)
+    restored["status"] = "running"
+    restored["blocking_condition"] = ""
+    restored["current_stage"] = stage_id
+    return restored
 
 
 def rollback_and_save(stage_id: str, paths: dict[str, str], config: dict[str, Any] | None = None) -> bool:
@@ -225,5 +244,6 @@ def rollback_and_save(stage_id: str, paths: dict[str, str], config: dict[str, An
         return False
 
     state_file = paths.get("state_file", "state.json")
-    save_json(state_file, restored)
+    # _make_saveable serializes runtime objects (ContextBus) back to JSON.
+    save_json(state_file, _make_saveable(restored))
     return True

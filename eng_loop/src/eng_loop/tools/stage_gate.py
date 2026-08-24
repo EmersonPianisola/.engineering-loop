@@ -183,7 +183,8 @@ class EvidenceGate:
                 )
 
         # 5. Artifact existence
-        artifacts = result.get("evidence", {}).get("artifacts", [])
+        evidence = result.get("evidence", {})
+        artifacts = evidence.get("artifacts", []) if isinstance(evidence, dict) else []
         if isinstance(artifacts, list):
             artifact_root = state.get("paths", {}).get("artifact_root", "")
             for artifact in artifacts:

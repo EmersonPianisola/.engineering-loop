@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from eng_loop.schemas import Lesson, RecoveryPlan
-from eng_loop.tools.fix_applier import apply_recovery_plan, reset_stage_for_retry
+from eng_loop.tools.fix_applier import apply_recovery_plan
 
 
 def _make_state(stage_id: str = "impl.code") -> dict:
@@ -171,7 +171,10 @@ class TestApplyRecoveryPlan:
         assert "verify" in sources
         assert "impl.code" not in sources
 
-    def test_unknown_stage_in_rollback_ignored(self) -> None:
+    def test_all_invalid_targets_fall_back_to_chain(self) -> None:
+        # FASE 1.3: an all-invalid target list must not be a silent no-op.
+        # It falls back to the standard impl.code -> current_stage chain
+        # rollback (here current_stage="impl.code", so only impl.code resets).
         state = _make_state()
         plan = RecoveryPlan(
             root_cause="cause",
@@ -182,19 +185,6 @@ class TestApplyRecoveryPlan:
             confidence=0.5,
         )
         result = apply_recovery_plan(state, plan)
-        assert result["stages"]["impl.code"]["attempts"] == 2
-
-
-class TestResetStageForRetry:
-    def test_resets_single_stage(self) -> None:
-        state = _make_state()
-        result = reset_stage_for_retry(state, "impl.code")
-        assert result["stages"]["impl.code"]["done"] is False
         assert result["stages"]["impl.code"]["attempts"] == 0
-        assert result["blocking_condition"] == ""
-        assert result["status"] == "running"
-
-    def test_preserves_other_stages(self) -> None:
-        state = _make_state()
-        result = reset_stage_for_retry(state, "impl.code")
+        # stage before the chain start untouched
         assert result["stages"]["impl.design"]["done"] is True

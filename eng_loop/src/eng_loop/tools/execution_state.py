@@ -715,44 +715,10 @@ class ExecutionState:
         context_limit: int,
         config: dict[str, Any] | None,
     ) -> Any:
-        """Initialize the ContextBudgetManager from config."""
-        from eng_loop.tools.context_budget import (
-            CompactionMode,
-            ContextBudgetManager,
-            ReservedOutputConfig,
-        )
+        """Initialize the ContextBudgetManager from config (shared builder)."""
+        from eng_loop.tools.context_budget import build_context_budget_manager
 
-        if not config:
-            return ContextBudgetManager(
-                context_window=context_limit,
-                reserved_output=4096,
-                safety_margin=2048,
-            )
-
-        comp_cfg = config.get("compaction", {})
-        thresh = config.get("thresholds", {})
-        res_cfg = config.get("reserved_output", {})
-
-        # Parse stage overrides
-        stage_reserved = {}
-        for stage_id, stage_cfg in config.get("stage_overrides", {}).items():
-            stage_reserved[stage_id] = ReservedOutputConfig(
-                mode=stage_cfg.get("mode", res_cfg.get("mode", "fixed")),
-                value=stage_cfg.get("reserved_output", res_cfg.get("default", 4096)),
-                min_value=res_cfg.get("min", 2048),
-                max_value=res_cfg.get("max", 8192),
-            )
-
-        return ContextBudgetManager(
-            context_window=context_limit,
-            reserved_output=res_cfg.get("default", 4096),
-            safety_margin=config.get("safety_margin_tokens", 2048),
-            thresholds=thresh or None,
-            compaction_mode=CompactionMode(comp_cfg.get("mode", "auto")),
-            stage_reserved=stage_reserved if stage_reserved else None,
-            preserve_count=comp_cfg.get("preserve_count", 15),
-            truncate_tool_result_chars=comp_cfg.get("truncate_tool_result_chars", 2000),
-        )
+        return build_context_budget_manager(context_limit, config)
 
     # ─── Payload Management (Node Inspector X-Ray) ──────────────────
 

@@ -16,7 +16,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return result
 
 
-def load_yaml(path: str % Path) -> dict[str, Any]:
+def load_yaml(path: str | Path) -> dict[str, Any]:
     p = Path(path)
     if not p.exists():
         return {}

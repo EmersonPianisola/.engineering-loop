@@ -48,6 +48,8 @@ def test_make_stage_defaults():
     assert s == {
         "done": False,
         "attempts": 0,
+        # FASE 2.2: cumulative counter (survives rollbacks; contract gate guard)
+        "total_attempts": 0,
         "essence_checked": False,
         "output": "",
         "artifact_path": "",

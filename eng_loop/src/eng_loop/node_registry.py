@@ -21,6 +21,13 @@ class NodeSpec:
     depends_on: list[str] = field(default_factory=list)
     model_override: dict[str, Any] | None = None
     description: str = ""
+    # Routing ownership:
+    #   "command" — the node owns routing: it returns Command(goto=...) and the
+    #     GraphBuilder registers NO outgoing edges (fixed or conditional) for it.
+    #     Declared edges would be evaluated in parallel with the Command's goto,
+    #     causing double execution (LangGraph >= 1.x).
+    #   "edges" — the node returns a plain dict; declared edges own routing.
+    routing: str = "command"
     # QA-specific metadata
     qa_type: str = ""  # "deterministic" or "heuristic"
     cost_class: str = ""  # "low", "medium", "high"

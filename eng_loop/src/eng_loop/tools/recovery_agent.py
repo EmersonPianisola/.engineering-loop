@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Any
@@ -9,6 +10,8 @@ from pydantic import ValidationError
 
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import ErrorClassification, Lesson, RecoveryPlan
+
+logger = logging.getLogger(__name__)
 
 RECOVERY_SYSTEM_PROMPT = (
     "You are a pipeline recovery agent. Your job is to analyze pipeline failures, "
@@ -63,6 +66,7 @@ def analyze_and_propose(
         plan = _parse_recovery_plan(content, classification)
         return plan
     except Exception as e:
+        logger.warning("recovery_agent: LLM analysis failed — using fallback plan: %s", e)
         return _fallback_recovery_plan(classification, error_message, current_stage, str(e))
 
 
@@ -163,21 +167,28 @@ def _extract_json_from_text(text: str) -> str | None:
 
 
 def _parse_structured(content: str, classification: ErrorClassification) -> RecoveryPlan:
-    """Fallback: extract fields from structured text response."""
+    """Fallback: extract fields from structured text response.
+
+    Fields are collected in an explicit result dict so the parsed values
+    actually reach the RecoveryPlan (the previous locals() snapshot was
+    never written back to the function's locals).
+    """
     import re as _re
 
-    lines = content.split("\n")
-    root_cause = ""
-    fix_actions = []
-    stages_to_rollback = []
-    lessons = []
-    confidence = 0.5
-    fix_prompt_injection = ""
+    result: dict[str, Any] = {
+        "root_cause": "",
+        "error_category": classification.category,
+        "fix_actions": [],
+        "stages_to_rollback": [],
+        "lessons": [],
+        "confidence": 0.5,
+        "fix_prompt_injection": "",
+    }
 
     current_section = None
-    section_lines = []
+    section_lines: list[str] = []
 
-    for line in lines:
+    for line in content.split("\n"):
         section_match = _re.match(
             r"^(root_cause|fix_actions|stages_to_rollback|lessons|confidence|fix_prompt_injection)\s*[:=]\s*(.*)",
             line,
@@ -185,56 +196,50 @@ def _parse_structured(content: str, classification: ErrorClassification) -> Reco
         )
         if section_match:
             if current_section and section_lines:
-                _process_section(current_section, section_lines, locals())
+                _process_section(current_section, section_lines, result)
             current_section = section_match.group(1).lower()
             section_lines = [section_match.group(2).strip()]
         elif current_section:
             section_lines.append(line)
 
     if current_section and section_lines:
-        _process_section(current_section, section_lines, locals())
+        _process_section(current_section, section_lines, result)
 
-    return RecoveryPlan(
-        root_cause=root_cause or f"Unclassified {classification.category} error",
-        error_category=classification.category,
-        fix_actions=fix_actions or [f"Retry with adjusted approach for {classification.category}"],
-        stages_to_rollback=stages_to_rollback,
-        lessons=lessons,
-        confidence=confidence,
-        fix_prompt_injection=fix_prompt_injection,
-    )
+    if not result["root_cause"]:
+        result["root_cause"] = f"Unclassified {classification.category} error"
+    if not result["fix_actions"]:
+        result["fix_actions"] = [f"Retry with adjusted approach for {classification.category}"]
+
+    return RecoveryPlan(**result)
 
 
-def _process_section(section: str, lines: list[str], locals_dict: dict) -> None:
-    """Process a parsed section and update local variables."""
-    text = " ".join(lines).strip()
-    if not text:
-        return
-
+def _process_section(section: str, lines: list[str], result: dict[str, Any]) -> None:
+    """Process a parsed section and update the result dict in place."""
     if section == "root_cause":
-        locals_dict["root_cause"] = text
-    elif section == "fix_actions":
-        items = [item.strip().lstrip("-*• ") for item in text.split("\n") if item.strip().strip("-*• ")]
-        locals_dict["fix_actions"] = items
-    elif section == "stages_to_rollback":
-        items = [item.strip().lstrip("-*• ") for item in text.split("\n") if item.strip().strip("-*• ")]
-        locals_dict["stages_to_rollback"] = items
+        text = " ".join(lines).strip()
+        if text:
+            result["root_cause"] = text
+    elif section in ("fix_actions", "stages_to_rollback"):
+        items = [item.strip().lstrip("-*• ") for item in lines if item.strip().strip("-*• ")]
+        if items:
+            result[section] = items
     elif section == "confidence":
+        text = " ".join(lines).strip()
         try:
-            locals_dict["confidence"] = float(text)
+            result["confidence"] = float(text)
         except ValueError:
             pass
     elif section == "fix_prompt_injection":
-        locals_dict["fix_prompt_injection"] = text
+        text = " ".join(lines).strip()
+        if text:
+            result["fix_prompt_injection"] = text
     elif section == "lessons":
-        lesson_text = text
-        if lesson_text:
-            lesson_id = f"lesson_{uuid.uuid4().hex[:6]}"
-            locals_dict["lessons"].append(
+        for item in (line.strip().lstrip("-*• ") for line in lines if line.strip().strip("-*• ")):
+            result["lessons"].append(
                 Lesson(
-                    lesson_id=lesson_id,
+                    lesson_id=f"lesson_{uuid.uuid4().hex[:6]}",
                     category="",
-                    pattern=text[:200],
+                    pattern=item[:200],
                     fix_strategy="",
                     context="",
                     confirmed=False,

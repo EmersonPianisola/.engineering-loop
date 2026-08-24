@@ -6,7 +6,27 @@ from pathlib import Path
 
 import pytest
 
-from eng_loop.context_bus import ContextBus, _normalize
+from eng_loop.context_bus import ContextBus, _normalize, synonyms_from_config
+
+# PT ←→ EN map used to exercise the (now config-driven) synonym expansion.
+# The bus default is an EMPTY map (4.3.9) — these tests pass it explicitly.
+TEST_SYNONYMS = {
+    "laranja": {"orange"},
+    "orange": {"laranja"},
+    "bolo": {"cake"},
+    "cake": {"bolo"},
+    "chocolate": {"chocolates"},
+    "chocolates": {"chocolate"},
+    "receita": {"recipe"},
+    "recipe": {"receita"},
+    "formato": {"format"},
+    "format": {"formato"},
+    "arquivo": {"file"},
+    "file": {"arquivo"},
+    "gluten": {"gluten"},
+    "markdown": {"md"},
+    "md": {"markdown"},
+}
 
 # ── Normalization ────────────────────────────────────────────────────
 
@@ -83,11 +103,27 @@ class TestIsResolved:
         assert bus.is_resolved("formato do arquivo") is True
 
     def test_cross_lingual_pt_en(self):
-        """PT answer should resolve EN finding about same concept."""
-        bus = ContextBus()
+        """PT answer should resolve EN finding about same concept (with configured map)."""
+        bus = ContextBus(synonyms=TEST_SYNONYMS)
         bus.append("clarification", {"q": "tipo?", "a": "bolo de laranja"})
         # EN rephrasing of the same concept
         assert bus.is_resolved("orange flavor cake type") is True
+
+    def test_default_bus_has_no_synonym_expansion(self):
+        """4.3.9 — synonyms are config-driven and empty by default."""
+        bus = ContextBus()
+        bus.append("clarification", {"q": "tipo?", "a": "bolo de laranja"})
+        # Without a configured map there is no PT→EN expansion…
+        assert bus.is_resolved("orange flavor cake type") is False
+        # …but plain token overlap still resolves.
+        assert bus.is_resolved("tipo de bolo") is True
+
+    def test_synonyms_from_config(self):
+        config = {"context_bus": {"synonyms": {"laranja": ["orange"], "orange": ["laranja"]}}}
+        mapping = synonyms_from_config(config)
+        assert mapping == {"laranja": {"orange"}, "orange": {"laranja"}}
+        assert synonyms_from_config({}) == {}
+        assert synonyms_from_config(None) == {}
 
     def test_diacritics_handled(self):
         bus = ContextBus()

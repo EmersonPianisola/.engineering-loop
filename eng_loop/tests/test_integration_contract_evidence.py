@@ -451,17 +451,19 @@ class TestContractGateEnsureDict:
         result = _ensure_dict('{"verdict": "PASS"}')
         assert result == {"verdict": "PASS"}
 
-    def test_plain_string_with_fail(self):
+    def test_plain_string_mention_only_has_no_verdict(self):
+        # Substring mentions of FAIL/PASS are NOT a verdict — the old
+        # `"FAIL" in value` fallback treated any mention as one (4.3.8).
         from eng_loop.tools.contract_gate import _ensure_dict
 
-        result = _ensure_dict("Something went wrong, FAIL")
-        assert result["verdict"] == "FAIL"
+        assert "verdict" not in _ensure_dict("Something went wrong, FAIL")
+        assert "verdict" not in _ensure_dict("All tests PASS")
 
-    def test_plain_string_with_pass(self):
+    def test_plain_string_explicit_verdict_marker(self):
         from eng_loop.tools.contract_gate import _ensure_dict
 
-        result = _ensure_dict("All tests PASS")
-        assert result["verdict"] == "PASS"
+        assert _ensure_dict("Verdict: FAIL — coverage gap")["verdict"] == "FAIL"
+        assert _ensure_dict('verdict: "PASS"')["verdict"] == "PASS"
 
     def test_non_dict_non_string(self):
         from eng_loop.tools.contract_gate import _ensure_dict

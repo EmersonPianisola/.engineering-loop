@@ -187,15 +187,8 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
     fix_iteration = state.get("fix_iteration", 0)
     is_fix_mode = bool(fix_tasks)
 
-    # Load lessons
-    confirmed_lessons = ""
-    if config.get("lessons", {}).get("enabled", True):
-        from eng_loop.tools.lessons import get_confirmed_lessons, load_lessons
-
-        lessons_data = load_lessons(paths.get("artifact_root", ""))
-        confirmed = get_confirmed_lessons(lessons_data)
-        if confirmed:
-            confirmed_lessons = json.dumps(confirmed, indent=2, ensure_ascii=False)
+    # Lessons are injected centrally by PromptBuilder (## LESSONS section:
+    # confirmed + top-N candidates for this stage) — no inline dump here.
 
     # Build prompt based on mode
     if is_fix_mode:
@@ -211,11 +204,9 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
             "1. For each gap, read the file at the given evidence location\n"
             "2. Understand what's wrong\n"
             "3. Apply the minimal fix needed\n"
-            "4. Run the relevant tests to confirm the fix\n"
+            "4. Run the relevant tests to confirm the fix works\n"
             "5. Do NOT rewrite the entire implementation — only fix the gaps\n"
         )
-        if confirmed_lessons:
-            extra_sections += f"\n## CONFIRMED LESSONS\n{confirmed_lessons}\n"
 
         role_description = "Implementation Fix agent — address verifier findings"
         instructions = (
@@ -225,8 +216,6 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
         )
     else:
         extra_sections = ""
-        if confirmed_lessons:
-            extra_sections = f"## CONFIRMED LESSONS\n{confirmed_lessons}"
 
         role_description = "Implementation agent"
         instructions = (

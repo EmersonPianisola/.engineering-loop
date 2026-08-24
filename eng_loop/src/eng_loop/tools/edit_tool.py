@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+
+from eng_loop.tools.sandbox import check_path
 
 
 class EditInput(BaseModel):
@@ -29,7 +31,9 @@ def _edit(file_path: str = "", old_string: str = "", new_string: str = "", **kwa
         return "Error: old_string is required"
     if old_string == new_string:
         return "Error: old_string and new_string are identical"
-    p = Path(file_path)
+    p = check_path(file_path, kwargs.get("_sandbox"))
+    if p is None:
+        return f"Error: path '{file_path}' is outside the project root — blocked by sandbox"
     if not p.exists():
         return f"Error: file not found: {file_path}"
 
@@ -58,7 +62,10 @@ def _edit(file_path: str = "", old_string: str = "", new_string: str = "", **kwa
     return f"Edited {file_path}: replaced {len(old_string)} chars with {len(new_string)} chars"
 
 
-def create_edit_tool() -> StructuredTool:
+def create_edit_tool(sandbox: dict[str, Any] | None = None) -> StructuredTool:
+    def _edit_sandboxed(file_path: str = "", old_string: str = "", new_string: str = "", **kwargs) -> str:
+        return _edit(file_path, old_string, new_string, **{**kwargs, "_sandbox": sandbox})
+
     return StructuredTool(
         name="edit",
         description=textwrap.dedent("""\
@@ -67,8 +74,9 @@ def create_edit_tool() -> StructuredTool:
             The old_string must appear exactly once in the file.
             Provide enough surrounding context (neighboring lines) to make it unique.
             Do NOT include line numbers in old_string — only the actual file content.
+            Paths are relative to the project root and must stay inside it.
         """).strip(),
-        func=_edit,
+        func=_edit_sandboxed,
         args_schema=EditInput,
     )
 

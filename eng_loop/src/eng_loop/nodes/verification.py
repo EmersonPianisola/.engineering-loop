@@ -406,11 +406,25 @@ def _check_e2e_prerequisites(paths: dict[str, Any]) -> str | None:
     return None
 
 
+def _parallel_dispatch_active(state: dict[str, Any]) -> bool:
+    """True when the graph is built with the parallel QA fan-out (dispatcher)."""
+    config = state.get("config", {})
+    if not config.get("dynamic_graph", {}).get("parallel_qa", False):
+        return False
+    from eng_loop.nodes.qa_parallel import _get_active_qa_nodes
+
+    return len(_get_active_qa_nodes(state)) >= 2
+
+
 def _post_verify(state: dict[str, Any]) -> str:
+    if _parallel_dispatch_active(state):
+        return "qa-dispatcher"
     return resolve_next("qa-static", state)
 
 
 def _post_e2e(state: dict[str, Any]) -> str:
+    if _parallel_dispatch_active(state):
+        return "qa-dispatcher"
     complexity = state.get("complexity", "small")
     if complexity in ("medium", "large", "complex"):
         return resolve_next("qa-security", state)

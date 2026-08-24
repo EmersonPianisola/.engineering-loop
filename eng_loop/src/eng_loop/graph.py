@@ -286,6 +286,7 @@ def compile_graph(
     """
     if dynamic and state is not None:
         parallel_qa = (config or {}).get("dynamic_graph", {}).get("parallel_qa", False)
+        state.setdefault("config", {}).setdefault("dynamic_graph", {})["parallel_qa"] = parallel_qa
         builder = GraphBuilder(parallel_qa=parallel_qa)
         compiled, topology = builder.compile(state, config, checkpointer)
         return compiled, topology

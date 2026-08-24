@@ -104,18 +104,18 @@ STAGE_ARTIFACT_INCLUDES: dict[str, list[str]] = {
     "impl.design": ["architecture"],
     "impl.code": ["blueprint", "lessons"],
     "doc.update": ["blueprint", "diff"],
-    "verify": ["blueprint", "diff"],
-    "qa.static": ["blueprint", "diff"],
-    "qa.unit": ["blueprint", "diff"],
-    "qa.integration": ["blueprint", "diff"],
-    "e2e.execute": ["blueprint"],
-    "qa.security": ["blueprint", "diff"],
-    "qa.api-contract": ["blueprint", "diff"],
-    "qa.performance": ["blueprint", "diff"],
+    "verify": ["blueprint", "diff", "lessons"],
+    "qa.static": ["blueprint", "diff", "lessons"],
+    "qa.unit": ["blueprint", "diff", "lessons"],
+    "qa.integration": ["blueprint", "diff", "lessons"],
+    "e2e.execute": ["blueprint", "lessons"],
+    "qa.security": ["blueprint", "diff", "lessons"],
+    "qa.api-contract": ["blueprint", "diff", "lessons"],
+    "qa.performance": ["blueprint", "diff", "lessons"],
     "qa.human.flow": ["blueprint"],
     "qa.human.ux": ["blueprint"],
-    "deploy.prepare": ["blueprint", "diff"],
-    "smoke.test": ["blueprint"],
+    "deploy.prepare": ["blueprint", "diff", "lessons"],
+    "smoke.test": ["blueprint", "lessons"],
     "doc.decisions": [],
     "doc.project": ["blueprint"],
     "post": [],
@@ -253,6 +253,28 @@ class StageContext:
         self.graphify_injection = graphify_injection
         self.use_references = use_references
 
+    def _build_recovery_section(self) -> str:
+        """Recovery guidance set by the fix applier (handoffs).
+
+        Injects the retry guidance + lessons from the last recovery into the
+        prompt of the re-executed stage.
+        """
+        handoffs = self.state.get("handoffs", {})
+        if not isinstance(handoffs, dict):
+            return ""
+        fix_prompt = handoffs.get("recovery_fix_prompt", "")
+        recovery_lessons = handoffs.get("recovery_lessons", "")
+        if not fix_prompt and not recovery_lessons:
+            return ""
+
+        lines = ["## RECOVERY GUIDANCE"]
+        if fix_prompt:
+            lines.append(f"Previous failure context: {fix_prompt}")
+        if recovery_lessons:
+            lines.append("Recovery lessons:")
+            lines.append(recovery_lessons)
+        return "\n".join(lines) + "\n"
+
     def build(self) -> str:
         parts = []
 
@@ -278,11 +300,41 @@ class StageContext:
         if artifact_sections:
             parts.append(artifact_sections)
 
+        recovery_section = self._build_recovery_section()
+        if recovery_section:
+            parts.append(recovery_section)
+
         handoff_sections = self._build_handoff_sections()
         if handoff_sections:
             parts.append(handoff_sections)
 
         return "\n".join(parts)
+
+    def _build_lessons_section(self) -> str:
+        """Curated ## LESSONS section: confirmed + top-N candidates for this stage.
+
+        Replaces the raw lessons.json dump — bounded and stage-relevant.
+        """
+        if not self.config.get("lessons", {}).get("enabled", True):
+            return ""
+        artifact_root = self.paths.get("artifact_root", "")
+        if not artifact_root:
+            return ""
+
+        from eng_loop.tools.lessons import get_lessons_for_stage, load_lessons
+
+        relevant = get_lessons_for_stage(self.stage_id, load_lessons(artifact_root))
+        if not relevant:
+            return ""
+
+        lines = []
+        for lesson in relevant:
+            status = lesson.get("status", "candidate")
+            lines.append(
+                f"- [{status}] {lesson.get('failure', '')} → fix: {lesson.get('fix', '')} "
+                f"(stage: {lesson.get('stage') or 'any'}, occurrences: {lesson.get('occurrences', 1)})"
+            )
+        return "## LESSONS\n" + "\n".join(lines) + "\n"
 
     def _build_artifact_sections(self) -> str:
         includes = STAGE_ARTIFACT_INCLUDES.get(self.stage_id, [])
@@ -294,6 +346,12 @@ class StageContext:
         artifact_root = self.paths.get("artifact_root", "")
 
         for key in includes:
+            if key == "lessons":
+                lessons_section = self._build_lessons_section()
+                if lessons_section:
+                    parts.append(lessons_section)
+                continue
+
             mapping = ARTIFECT_KEY_MAP.get(key)
             if not mapping:
                 continue

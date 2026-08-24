@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -208,11 +209,12 @@ def _ensure_dict(value: Any) -> dict[str, Any]:
         except (ValueError, SyntaxError, MemoryError):
             pass
 
-    # Fallback: extract verdict/gaps from plain string
-    if "FAIL" in value:
-        return {"verdict": "FAIL", "output": value}
-    if "PASS" in value:
-        return {"verdict": "PASS", "output": value}
+    # Fallback: explicit verdict marker in a plain string ("Verdict: FAIL").
+    # Substring matching is too loose — any mention of PASS/FAIL anywhere in the
+    # text (e.g. "tests did not PASS") would set the verdict.
+    match = re.search(r"\bverdict\s*[:=]\s*[\"']?(PASS|FAIL)\b", value, re.IGNORECASE)
+    if match:
+        return {"verdict": match.group(1).upper(), "output": value}
     return {"output": value}
 
 
@@ -261,13 +263,16 @@ def check_contract(
         )
 
         if rule.on_fail == "retry_source":
-            # Check if source has exhausted attempts — block instead of infinite retry
-            if source_stage.get("attempts", 0) >= source_max_attempts:
+            # Check if source has exhausted attempts — block instead of infinite
+            # retry. total_attempts is cumulative (survives rollbacks), so a
+            # source that already burned its budget blocks even after a reset.
+            effective_attempts = max(source_stage.get("attempts", 0), source_stage.get("total_attempts", 0))
+            if effective_attempts >= source_max_attempts:
                 logger.error(
                     "Contract violation [%s→%s]: source exhausted %d attempts, blocking pipeline",
                     rule.source,
                     rule.target,
-                    source_max_attempts,
+                    effective_attempts,
                 )
                 return "block", {
                     "status": "blocked",

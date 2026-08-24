@@ -53,36 +53,21 @@ class ContextBus:
     propagation.
     """
 
-    # Cross-lingual synonym map (PT ←→ EN high-frequency domain words)
-    _SYNONYM_MAP: dict[str, set[str]] = {
-        "laranja": {"orange"},
-        "orange": {"laranja"},
-        "bolo": {"cake"},
-        "cake": {"bolo"},
-        "chocolate": {"chocolate", "chocolates"},
-        "chocolates": {"chocolate"},
-        "receita": {"recipe"},
-        "recipe": {"receita"},
-        "formato": {"format"},
-        "format": {"formato"},
-        "arquivo": {"file"},
-        "file": {"arquivo"},
-        "gluten": {"gluten"},
-        "markdown": {"md"},
-        "md": {"markdown"},
-    }
-
     def __init__(
         self,
         max_entries: int = 200,
         flush_path: str | None = None,
         cross_session: bool = False,
+        synonyms: dict[str, set[str]] | None = None,
     ) -> None:
         self._entries: list[BusEntry] = []
         self._max_entries = max_entries
         self._version = 0
         self._flush_path = flush_path
         self._cross_session = cross_session
+        # Cross-lingual synonym map — config-driven (context_bus.synonyms),
+        # empty by default.
+        self._synonyms: dict[str, set[str]] = {str(k): set(v) for k, v in (synonyms or {}).items()}
 
         if cross_session and flush_path:
             self._load_from_disk()
@@ -154,13 +139,12 @@ class ContextBus:
 
         return False
 
-    @staticmethod
-    def _expand_synonyms(tokens: set[str]) -> set[str]:
-        """Expand tokens with known cross-lingual synonyms."""
+    def _expand_synonyms(self, tokens: set[str]) -> set[str]:
+        """Expand tokens with the configured cross-lingual synonyms."""
         expanded = set(tokens)
         for tok in tokens:
-            if tok in ContextBus._SYNONYM_MAP:
-                expanded |= ContextBus._SYNONYM_MAP[tok]
+            if tok in self._synonyms:
+                expanded |= self._synonyms[tok]
         return expanded
 
     # ── Snapshot / Restore ───────────────────────────────────────
@@ -181,8 +165,8 @@ class ContextBus:
         }
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> ContextBus:
-        bus = cls()
+    def from_snapshot(cls, data: dict[str, Any], synonyms: dict[str, set[str]] | None = None) -> ContextBus:
+        bus = cls(synonyms=synonyms)
         bus._version = data.get("version", 0)
         for e in data.get("entries", []):
             bus._entries.append(
@@ -291,3 +275,12 @@ def _normalize(text: str) -> set[str]:
     ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
     no_punct = ascii_only.translate(_PUNCT_TABLE)
     return set(no_punct.split())
+
+
+def synonyms_from_config(config: dict[str, Any] | None) -> dict[str, set[str]]:
+    """Read the cross-lingual synonym map from config (context_bus.synonyms).
+
+    Format: {token: [synonym, ...]}. Empty when the config provides none.
+    """
+    raw = (config or {}).get("context_bus", {}).get("synonyms") or {}
+    return {str(k): set(v) for k, v in raw.items()}

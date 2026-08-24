@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import logging
 import platform
 import shutil
 import subprocess
 import textwrap
 from pathlib import Path
+from typing import Any
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from eng_loop.tools.sandbox import check_bash_command
+
 _SYSTEM = platform.system()
+logger = logging.getLogger(__name__)
 
 _BASH_EXE: str | None = None
 if _SYSTEM == "Windows":
@@ -60,6 +65,7 @@ def _run_command(command: str, cwd: str, timeout: int) -> str:
 def create_bash_tool(
     workdir: str,
     timeout: int = 120,
+    sandbox: dict[str, Any] | None = None,
 ) -> StructuredTool:
     bash_exe_info = _BASH_EXE if _BASH_EXE else "fallback to cmd.exe"
 
@@ -73,6 +79,13 @@ def create_bash_tool(
         if not workdir_path.exists():
             return f"Error: working directory does not exist: {workdir}"
 
+        # Sandbox guard — screen the command before it touches the shell
+        blocked = check_bash_command(command, sandbox)
+        if blocked:
+            logger.info("bash tool: command blocked in %s: %s", workdir, command[:300])
+            return blocked
+
+        logger.debug("bash tool: executing in %s: %s", workdir, command[:300])
         try:
             return _run_command(command, str(workdir_path), timeout)
         except subprocess.TimeoutExpired:

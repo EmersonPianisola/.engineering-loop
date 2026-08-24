@@ -72,15 +72,17 @@ def _is_safe_inspection(tool_name: str, tool_args: dict) -> bool:
                 command = str(tool_args[key]).strip()
                 break
         if command:
-            first_token = command.split()[0].lower() if command.split() else ""
-            if first_token in SAFE_INSPECTION_COMMANDS:
-                return True
-            if first_token in SAFE_IDEMPOTENT_COMMANDS:
-                return True
-            norm = command.strip().lower()
+            tokens = command.lower().split()
+            # Match safe commands by whole-token prefix — never substrings, so
+            # "catfish x" does not match "cat" and "lsblk" does not match "ls".
+            # Multi-token entries (e.g. "git status") match their token sequence
+            # ("git status --short" is still a safe inspection).
             for safe_cmd in SAFE_INSPECTION_COMMANDS:
-                if norm.startswith(safe_cmd.lower()):
+                safe_tokens = safe_cmd.lower().split()
+                if tokens[: len(safe_tokens)] == safe_tokens:
                     return True
+            if tokens and tokens[0] in SAFE_IDEMPOTENT_COMMANDS:
+                return True
 
     return False
 
@@ -219,7 +221,11 @@ class StallDetector:
 
         if consecutive >= self.same_tool_threshold:
             last = window[-1]
-            severity = "soft" if _is_safe_inspection(last_name, last.args_raw) else "hard"
+            run = window[-consecutive:]
+            distinct_args = {c.args_hash for c in run}
+            # Varying args across the run means the agent is actually making
+            # progress (scaffolding, exploring) — steer, don't abort.
+            severity = "soft" if len(distinct_args) > 1 or _is_safe_inspection(last_name, last.args_raw) else "hard"
             return StallReport(
                 stall_type="same_tool_repeat",
                 tool_name=last_name,

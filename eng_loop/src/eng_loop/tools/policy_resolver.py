@@ -30,8 +30,7 @@ RISK_KEYWORDS: list[str] = [
 
 
 def resolve_allowed_tools(
-    requested_capabilities: tuple[str, ...],
-    workspace_root: str,
+    requested_capabilities: list[str] | tuple[str, ...],
     state: dict[str, Any],
 ) -> list[Tool]:
     """Validate requested capabilities against safe pool and resolve to Tool instances.
@@ -61,20 +60,22 @@ def get_tools_by_names(
     from eng_loop.tools.glob_tool import create_glob_tool
     from eng_loop.tools.grep_tool import create_grep_tool
     from eng_loop.tools.read_tool import create_read_tool
+    from eng_loop.tools.sandbox import build_sandbox
     from eng_loop.tools.write_tool import create_write_tool
 
     paths = state.get("paths", {})
     config = state.get("config", {})
     project_root = paths.get("project_root", ".")
     bash_timeout = config.get("agent", {}).get("tool_timeout", 120)
+    sandbox = build_sandbox(project_root, config)
 
     creator_map = {
-        "read": create_read_tool,
-        "write": create_write_tool,
-        "edit": create_edit_tool,
-        "bash": lambda: create_bash_tool(workdir=project_root, timeout=bash_timeout),
-        "glob": create_glob_tool,
-        "grep": create_grep_tool,
+        "read": lambda: create_read_tool(sandbox=sandbox),
+        "write": lambda: create_write_tool(sandbox=sandbox),
+        "edit": lambda: create_edit_tool(sandbox=sandbox),
+        "bash": lambda: create_bash_tool(workdir=project_root, timeout=bash_timeout, sandbox=sandbox),
+        "glob": lambda: create_glob_tool(sandbox=sandbox),
+        "grep": lambda: create_grep_tool(sandbox=sandbox),
         "ask_user": create_ask_user_tool,
     }
 
@@ -133,6 +134,7 @@ def _sanitize_validation_rules(
     Rather than waste 3 retries per bad rule, filter them at policy time.
     """
     from eng_loop.schemas import DynamicStep, ValidationRule
+    from eng_loop.tools.sandbox import resolve_in_root
 
     root = Path(project_root).resolve()
     sanitized = []
@@ -143,7 +145,10 @@ def _sanitize_validation_rules(
         for rule in rules:
             if rule.type == "files_exist":
                 paths = getattr(rule.payload, "paths", [])
-                existing = [p for p in paths if (root / p).exists()]
+                # Drop paths that escape the project root (sandbox) before the
+                # existence check — '../etc/passwd' would pass (root / p).exists()
+                contained = [p for p in paths if resolve_in_root(p, root) is not None]
+                existing = [p for p in contained if (root / p).exists()]
                 if not existing:
                     continue
                 if len(existing) < len(paths):
@@ -154,8 +159,9 @@ def _sanitize_validation_rules(
                 kept.append(rule)
             elif rule.type == "contains_symbol":
                 target = getattr(rule.payload, "target_file", "")
-                if target and not (root / target).exists():
-                    continue
+                if target:
+                    if resolve_in_root(target, root) is None or not (root / target).exists():
+                        continue
                 kept.append(rule)
             else:
                 kept.append(rule)
@@ -285,6 +291,11 @@ def _validate_connectivity(proposal: GraphTopologyProposal) -> None:
             # __end__ is not in stage_set, skip this edge for connectivity check
             # (it just means the source node can reach the exit)
             continue
+        # Self-edges (only loopbacks pass layer 1) reroute on failure — they
+        # are not forward edges and must not count as a cycle (consistent with
+        # the parallelism computation in layer 6).
+        if from_id == to_id:
+            continue
         if from_id in stage_set and to_id in stage_set:
             adj.setdefault(from_id, []).append(to_id)
 
@@ -343,7 +354,11 @@ def _validate_semantic_policy(
     """Layer 5: Semantic policy — context-aware restrictions.
 
     Returns policy notes string (may be empty for clean pass).
-    Raises TopologyValidationError for fatal policy violations.
+    Raises TopologyValidationError for fatal violations.
+
+    Fatal set (documented): UI-only stages (e2e.execute, smoke.test) in a
+    non-UI project — those stages can never activate (is_stage_active), so
+    the compiled pipeline would block forever. Everything else stays a note.
     """
     notes = []
     work_item = get_work_item_text(state).lower()
@@ -355,12 +370,15 @@ def _validate_semantic_policy(
     if any(kw in work_item for kw in RISK_KEYWORDS):
         notes.append("Risk keywords detected in work item — topology authorized with monitoring")
 
-    # UI-only stages without UI project
+    # UI-only stages without UI project — FATAL: they can never run, so the
+    # topology is broken, not just suspicious.
     ui_only_stages = {"e2e.execute", "smoke.test"}
     if not ui_project:
-        for s in ui_only_stages:
-            if s in stage_set:
-                notes.append(f"UI-only stage '{s}' included but project is not a UI project")
+        for s in sorted(ui_only_stages & stage_set):
+            raise TopologyValidationError(
+                "semantic",
+                f"UI-only stage '{s}' cannot run in a non-UI project — remove it from the topology",
+            )
 
     # Min-complexity violations (warning, not fatal)
     from eng_loop.state import COMPLEXITY_ORDER, STAGE_MIN_COMPLEXITY

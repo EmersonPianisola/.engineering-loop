@@ -98,7 +98,6 @@ class GraphBuilder:
             tags=tags,
             work_type=work_type,
         )
-        {s.id for s in active_specs}
         active_node_names = {s.node_name for s in active_specs}
 
         topology = GraphTopology()
@@ -251,7 +250,6 @@ class GraphBuilder:
                 handler = with_contract_gate(spec.node_name)(handler)
             builder.add_node(spec.node_name, handler)
             active_node_names.add(spec.node_name)
-            stage_id_to_name[stage_id] = spec.node_name
             logger.info("  [proposal] Node: %s (%s)", spec.node_name, spec.description)
 
         # Build edges from proposal
@@ -292,6 +290,10 @@ class GraphBuilder:
         interrupt_before: list[str] | None = None,
         authorized_topology: AuthorizedGraphTopology | None = None,
     ) -> tuple[Any, GraphTopology]:
+        # Single source of truth: nodes read the effective parallel-QA mode from
+        # state config for routing decisions (e.g. verify → qa-dispatcher). It
+        # must match the wiring this builder produces (self.parallel_qa).
+        state.setdefault("config", {}).setdefault("dynamic_graph", {})["parallel_qa"] = self.parallel_qa
         builder, topology = self.build(state, config, authorized_topology)
         kwargs: dict[str, Any] = {}
         if checkpointer:
@@ -303,6 +305,17 @@ class GraphBuilder:
         compiled = builder.compile(**kwargs)
         return compiled, topology
 
+    def _routing_mode(self, node_name: str) -> str:
+        """Return the routing ownership of a node: "command" or "edges".
+
+        Nodes not in the registry (e.g. qa-dispatcher/qa-join, added directly by
+        _add_parallel_qa) default to "command" — all such nodes return Command.
+        """
+        for spec in self.registry.all_specs():
+            if spec.node_name == node_name:
+                return spec.routing
+        return "command"
+
     def _add_edges(
         self,
         builder: StateGraph,
@@ -311,6 +324,14 @@ class GraphBuilder:
         state: dict[str, Any],
         topology: GraphTopology,
     ) -> None:
+        """Register graph edges from resolved rules.
+
+        SINGLE SOURCE OF ROUTING (FASE 1.1): nodes with routing="command" own
+        their routing via Command(goto=...). LangGraph evaluates declared edges
+        IN PARALLEL with a Command's goto — registering any outgoing edge for a
+        command-routed node causes double execution. Only nodes with
+        routing="edges" (plain-dict handlers) receive declared edges.
+        """
         fixed_edges: dict[str, list[str]] = {}
         conditional_sources: dict[str, list[EdgeRule]] = {}
 
@@ -319,6 +340,10 @@ class GraphBuilder:
             to_name = self._to_node_name(rule.to_node)
 
             if rule.edge_type == "fixed":
+                # Command-routed nodes must not get fixed edges (double fire).
+                # __start__ is not a node — its entry edges always register.
+                if from_name != "__start__" and self._routing_mode(from_name) == "command":
+                    continue
                 fixed_edges.setdefault(from_name, []).append(to_name)
                 topology.edges.append(
                     {
@@ -328,6 +353,10 @@ class GraphBuilder:
                     }
                 )
             else:
+                # Conditional edges only for edge-routed nodes (currently none —
+                # every handler returns Command).
+                if from_name != "__start__" and self._routing_mode(from_name) != "edges":
+                    continue
                 conditional_sources.setdefault(from_name, []).append(rule)
 
         for from_name, to_names in fixed_edges.items():
@@ -373,7 +402,10 @@ class GraphBuilder:
 
     def _route(self, rules: list[EdgeRule], state: dict[str, Any]) -> str:
         current = state.get("current_stage", "")
-        for rule in rules:
+        # Higher priority first — loopbacks (priority 10) must beat
+        # happy-path conditionals (priority 0) when both match, so a failed
+        # stage routes to its loopback instead of forward.
+        for rule in sorted(rules, key=lambda r: r.priority, reverse=True):
             if rule.evaluate(state):
                 _trace.route_decision(
                     function="_route",
@@ -409,8 +441,9 @@ class GraphBuilder:
         - qa-human: human.flow + human.ux (after security/performance)
 
         IMPORTANT: qa-dispatcher and qa-join are NOT in the registry.
-        They are added here directly. The edge_rules parallel_qa block
-        does NOT add verify→qa-dispatcher edges (those are added here).
+        They are added here directly. No fixed edges are declared for the
+        fan-out/fan-in: upstream and worker nodes route to the dispatcher and
+        join via Command (see routing invariant in _add_edges).
         """
         from eng_loop.nodes.qa_parallel import (
             PARALLEL_GROUPS,
@@ -442,24 +475,21 @@ class GraphBuilder:
             logger.warning("qa parallel: no upstream node found, skipping")
             return
 
-        # Replace upstream → qa edges with upstream → qa-dispatcher
-        for upstream in upstream_nodes:
-            builder.add_edge(upstream, "qa-dispatcher")
+        # Routing is Command-only (routing invariant: no declared edges out of
+        # command-routed nodes — LangGraph would evaluate a declared edge in
+        # parallel with the Command's goto, causing double execution when the
+        # targets diverge):
+        #   - upstream (verify / e2e-execute) → Command(goto="qa-dispatcher")
+        #     when _parallel_dispatch_active(state) matches this wiring
+        #   - each QA worker → Command(goto="qa-join") in parallel mode
+        #     (fan-in via Command is validated: the join waits for all workers)
+        # The upstream→qa-dispatcher and qa→qa-join fixed edges are therefore
+        # redundant and intentionally NOT added.
 
-        # Each QA node → qa-join (replaces sequential QA chain)
-        for qa_name in qa_node_names:
-            builder.add_edge(qa_name, "qa-join")
-
-        # qa-join → deploy-prepare (or impl-code on rollback)
-        builder.add_conditional_edges(
-            "qa-join",
-            lambda s: "deploy-prepare",
-            path_map={
-                "deploy-prepare": "deploy-prepare",
-                "impl-code": "impl-code",
-                "__end__": END,
-            },
-        )
+        # qa-join owns its routing via Command (PASS→deploy-prepare,
+        # FAIL→impl-code, BLOCKED→__end__). NO conditional edge is registered:
+        # LangGraph would evaluate it in parallel with the Command's goto,
+        # running deploy-prepare even on BLOCKED/FAIL (double execution).
 
         # Record parallel groups in topology
         for group_name, group_nodes in PARALLEL_GROUPS.items():
@@ -486,5 +516,8 @@ def build_dynamic_graph(
     authorized_topology: AuthorizedGraphTopology | None = None,
 ) -> tuple[Any, GraphTopology]:
     parallel_qa = (config or {}).get("dynamic_graph", {}).get("parallel_qa", False)
+    # Single source of truth: nodes read the effective parallel-QA mode from
+    # state config for routing decisions (e.g. verify → qa-dispatcher).
+    state.setdefault("config", {}).setdefault("dynamic_graph", {})["parallel_qa"] = parallel_qa
     builder = GraphBuilder(parallel_qa=parallel_qa)
     return builder.compile(state, config, checkpointer, authorized_topology=authorized_topology)

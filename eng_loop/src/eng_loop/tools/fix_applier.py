@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import copy
+import logging
 from typing import Any
 
 from eng_loop.schemas import Lesson, RecoveryPlan
-from eng_loop.state import make_stage
+from eng_loop.state import make_stage, rollback_to_stage, to_stage_id
+
+logger = logging.getLogger(__name__)
 
 
 def apply_recovery_plan(state: dict[str, Any], plan: RecoveryPlan) -> dict[str, Any]:
@@ -30,13 +33,45 @@ def apply_recovery_plan(state: dict[str, Any], plan: RecoveryPlan) -> dict[str, 
 def _selective_rollback(state: dict[str, Any], stages_to_rollback: list[str]) -> dict[str, Any]:
     """Reset only the specified stages (not the full impl.code chain).
 
+    Targets are normalized via to_stage_id (node names like "qa-security" are
+    accepted). Unrecognized targets are logged and discarded. If NO target is
+    valid, falls back to the standard impl.code -> current_stage chain
+    rollback instead of a silent no-op.
+
     Respects the invariant: never reset BLOCKED or WAITING_FOR_INPUT stages.
     """
     if not stages_to_rollback:
         return state
 
     stages = state.get("stages", {})
-    for stage_id in stages_to_rollback:
+
+    valid_ids: list[str] = []
+    for name in stages_to_rollback:
+        stage_id = to_stage_id(name)
+        if stage_id is None:
+            logger.warning("_selective_rollback: unrecognized stage %r — discarded", name)
+            continue
+        if stage_id not in valid_ids:
+            valid_ids.append(stage_id)
+
+    if not valid_ids:
+        current = to_stage_id(state.get("current_stage", ""))
+        if current is None:
+            logger.warning(
+                "_selective_rollback: no valid targets in %r and current stage %r not normalizable — no rollback",
+                stages_to_rollback,
+                state.get("current_stage"),
+            )
+            return state
+        logger.warning(
+            "_selective_rollback: no valid targets in %r — falling back to chain rollback (impl.code -> %s)",
+            stages_to_rollback,
+            current,
+        )
+        state["stages"] = rollback_to_stage(current_stages=stages, target_stage=current, reset_from="impl.code")
+        return state
+
+    for stage_id in valid_ids:
         if stage_id not in stages:
             continue
 
@@ -44,14 +79,18 @@ def _selective_rollback(state: dict[str, Any], stages_to_rollback: list[str]) ->
         if existing.get("status") in ("blocked", "waiting_for_input"):
             continue
 
-        stages[stage_id] = make_stage()
+        fresh = make_stage()
+        # Cumulative counter survives the reset — anti-loop guards
+        # (contract gate) must still see an exhausted stage.
+        fresh["total_attempts"] = existing.get("total_attempts", 0) + existing.get("attempts", 0)
+        stages[stage_id] = fresh
 
     state["stages"] = stages
 
     fix_tasks = state.get("fix_tasks", [])
     if fix_tasks:
-        stage_ids = set(stages_to_rollback)
-        state["fix_tasks"] = [ft for ft in fix_tasks if ft.get("source") not in stage_ids]
+        known_sources = set(valid_ids) | set(stages_to_rollback)
+        state["fix_tasks"] = [ft for ft in fix_tasks if ft.get("source") not in known_sources]
 
     return state
 
@@ -129,15 +168,4 @@ def _inject_fix_guidance(state: dict[str, Any], plan: RecoveryPlan) -> dict[str,
     if plan.fix_prompt_injection:
         handoffs["recovery_fix_prompt"] = plan.fix_prompt_injection
 
-    return state
-
-
-def reset_stage_for_retry(state: dict[str, Any], stage_id: str) -> dict[str, Any]:
-    """Reset a single stage for retry, preserving completed downstream stages."""
-    stages = state.get("stages", {})
-    if stage_id in stages:
-        stages[stage_id] = make_stage()
-    state["stages"] = stages
-    state["blocking_condition"] = ""
-    state["status"] = "running"
     return state

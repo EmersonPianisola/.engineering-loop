@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +24,14 @@ class RecoveryLogger:
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    def log_lessons(self, lessons: list[Lesson], artifact_root: str) -> None:
-        """Persist lessons to the existing lessons.json system."""
-        from eng_loop.tools.lessons import load_lessons, save_lessons
+    def log_lessons(self, lessons: list[Lesson], artifact_root: str, stage_id: str = "") -> None:
+        """Persist lessons to the existing lessons.json system.
+
+        Ids are deterministic (hash of stage + pattern), so repeated failures
+        upsert the same entry and accumulate `occurrences` instead of creating
+        duplicate candidates.
+        """
+        from eng_loop.tools.lessons import lesson_id_for, load_lessons, save_lessons
 
         art = Path(artifact_root)
         lessons_data = load_lessons(str(art))
@@ -37,19 +41,27 @@ class RecoveryLogger:
             lessons_data["local"] = local
 
         for lesson in lessons:
-            key = uuid.uuid4().hex[:8]
-            lesson_id = f"REC-{key.upper()}"
-            local[lesson_id] = {
-                "id": lesson_id,
-                "stage": "",
-                "failure": lesson.pattern,
-                "root_cause": lesson.context,
-                "fix": lesson.fix_strategy,
-                "category": lesson.category,
-                "occurrences": 1,
-                "status": "candidate",
-                "confirmed": lesson.confirmed,
-            }
+            lesson_id = lesson_id_for(stage_id, lesson.pattern)
+            existing = local.get(lesson_id)
+            if isinstance(existing, dict):
+                existing["occurrences"] = existing.get("occurrences", 1) + 1
+                existing["confirmed"] = bool(existing.get("confirmed")) or bool(lesson.confirmed)
+                if lesson.fix_strategy:
+                    existing["fix"] = lesson.fix_strategy
+                if lesson.category:
+                    existing["category"] = lesson.category
+            else:
+                local[lesson_id] = {
+                    "id": lesson_id,
+                    "stage": stage_id,
+                    "failure": lesson.pattern,
+                    "root_cause": lesson.context,
+                    "fix": lesson.fix_strategy,
+                    "category": lesson.category,
+                    "occurrences": 1,
+                    "status": "candidate",
+                    "confirmed": lesson.confirmed,
+                }
 
         lessons_data["local"] = local
         save_lessons(str(art), local, "lessons.json")

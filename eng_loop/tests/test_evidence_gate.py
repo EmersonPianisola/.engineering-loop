@@ -3,8 +3,6 @@ from __future__ import annotations
 """Tests for evidence gate validation across all stage types."""
 
 from eng_loop.tools.evidence_gate import (
-    parse_llm_response,
-    should_retry_stage,
     validate_stage_output,
 )
 
@@ -183,47 +181,3 @@ class TestValidateEmptyResult:
         valid, err = validate_stage_output("verify", {}, "")
         assert valid is False
         assert "Empty result" in err
-
-
-# ============================================================
-# PARSE LLM RESPONSE
-# ============================================================
-
-
-class TestParseLLMResponse:
-    def test_parse_valid_json(self):
-        content = '{"verdict": "PASS", "complete": true}'
-        result, err = parse_llm_response("verify", content)
-        assert err == ""
-        assert result["verdict"] == "PASS"
-
-    def test_parse_markdown_json(self):
-        content = '```json\n{"verdict": "PASS"}\n```'
-        result, err = parse_llm_response("verify", content)
-        assert err == ""
-        assert result["verdict"] == "PASS"
-
-    def test_parse_invalid_json(self):
-        content = "This is not JSON at all"
-        result, _err = parse_llm_response("verify", content)
-        # extract_json fallback returns dict with raw_output, not error
-        assert isinstance(result, dict)
-
-
-# ============================================================
-# SHOULD RETRY
-# ============================================================
-
-
-class TestShouldRetry:
-    def test_retry_with_error_and_attempts_left(self):
-        assert should_retry_stage("verify", {}, "some error", 1, 3) is True
-
-    def test_no_retry_without_error(self):
-        assert should_retry_stage("verify", {}, "", 1, 3) is False
-
-    def test_no_retry_max_attempts_reached(self):
-        assert should_retry_stage("verify", {}, "error", 3, 3) is False
-
-    def test_retry_exactly_at_limit_minus_one(self):
-        assert should_retry_stage("verify", {}, "error", 2, 3) is True

@@ -50,7 +50,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
         if stages.get(stage_id, {}).get("done", False):
             if parallel_mode:
                 return Command(
-                    update={"stages": stages},
+                    update={"stages": {stage_id: stages[stage_id]}},
                     goto="qa-join",
                 )
             next_node = _resolve_next_qa(stage_id, state)
@@ -69,20 +69,19 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             if parallel_mode:
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "status": "blocked",
                         "blocking_condition": f"{stage_id} non-convergence",
                     },
                     goto="qa-join",
                 )
-            next_node = _resolve_next_qa(stage_id, state)
             return Command(
                 update={
-                    "stages": stages,
+                    "stages": {stage_id: stages[stage_id]},
                     "status": "blocked",
                     "blocking_condition": f"{stage_id} non-convergence",
                 },
-                goto=next_node,
+                goto="__end__",
             )
 
         is_heuristic = stage_id in HEURISTIC_STAGES
@@ -153,9 +152,21 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             log_stage_fail(stage_id, agent_result.error)
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             if stages[stage_id]["attempts"] < max_attempts:
+                if parallel_mode:
+                    # No self-retry in fan-out: sibling workers schedule qa-join in
+                    # the next superstep anyway; a self-goto would race the join.
+                    return Command(
+                        update={
+                            "stages": {stage_id: stages[stage_id]},
+                            "errors": [f"{stage_id} agent error: {agent_result.error}"],
+                            "current_stage": stage_id,
+                            "iteration": state.get("iteration", 0) + 1,
+                        },
+                        goto="qa-join",
+                    )
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "errors": [f"{stage_id} agent error: {agent_result.error}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
@@ -168,13 +179,20 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             stages[stage_id]["verdict"] = "BLOCKED"
             if parallel_mode:
                 return Command(
-                    update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
+                    update={
+                        "stages": {stage_id: stages[stage_id]},
+                        "status": "blocked",
+                        "blocking_condition": f"{stage_id} agent error",
+                    },
                     goto="qa-join",
                 )
-            next_node = _resolve_next_qa(stage_id, state)
             return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
-                goto=next_node,
+                update={
+                    "stages": {stage_id: stages[stage_id]},
+                    "status": "blocked",
+                    "blocking_condition": f"{stage_id} agent error",
+                },
+                goto="__end__",
             )
 
         is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -182,9 +200,20 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             log_stage_fail(stage_id, f"evidence gate: {error_msg}")
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             if stages[stage_id]["attempts"] < max_attempts:
+                if parallel_mode:
+                    # No self-retry in fan-out — see agent-error path above.
+                    return Command(
+                        update={
+                            "stages": {stage_id: stages[stage_id]},
+                            "errors": [f"{stage_id} evidence: {error_msg}"],
+                            "current_stage": stage_id,
+                            "iteration": state.get("iteration", 0) + 1,
+                        },
+                        goto="qa-join",
+                    )
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "errors": [f"{stage_id} evidence: {error_msg}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
@@ -208,9 +237,20 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             log_stage_fail(stage_id, f"BLOCKED: {blocked_reason}")
 
             if stages[stage_id]["attempts"] < max_attempts:
+                if parallel_mode:
+                    # No self-retry in fan-out — see agent-error path above.
+                    return Command(
+                        update={
+                            "stages": {stage_id: stages[stage_id]},
+                            "errors": [f"{stage_id} BLOCKED: {blocked_reason}"],
+                            "current_stage": stage_id,
+                            "iteration": state.get("iteration", 0) + 1,
+                        },
+                        goto="qa-join",
+                    )
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "errors": [f"{stage_id} BLOCKED: {blocked_reason}"],
                         "current_stage": stage_id,
                         "iteration": state.get("iteration", 0) + 1,
@@ -222,20 +262,19 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             if parallel_mode:
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "status": "blocked",
                         "blocking_condition": f"{stage_id} BLOCKED: {blocked_reason}",
                     },
                     goto="qa-join",
                 )
-            next_node = _resolve_next_qa(stage_id, state)
             return Command(
                 update={
-                    "stages": stages,
+                    "stages": {stage_id: stages[stage_id]},
                     "status": "blocked",
                     "blocking_condition": f"{stage_id} BLOCKED: {blocked_reason}",
                 },
-                goto=next_node,
+                goto="__end__",
             )
 
         # Handle FAIL verdict — apply failure policy
@@ -252,7 +291,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
                 if parallel_mode:
                     return Command(
                         update={
-                            "stages": stages,
+                            "stages": {stage_id: stages[stage_id]},
                             "iteration": state.get("iteration", 0) + 1,
                         },
                         goto="qa-join",
@@ -260,7 +299,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
                 stages["impl.code"]["done"] = False
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "current_stage": "impl-code",
                         "errors": [f"{stage_id} FAIL: {critical}"],
                         "iteration": state.get("iteration", 0) + 1,
@@ -270,9 +309,20 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             elif action == "repair":
                 # Inline repair — re-attempt with repair context
                 if stages[stage_id]["attempts"] < max_attempts:
+                    if parallel_mode:
+                        # No self-retry in fan-out — the join applies the failure policy.
+                        return Command(
+                            update={
+                                "stages": {stage_id: stages[stage_id]},
+                                "errors": [f"{stage_id} repair needed: {critical}"],
+                                "current_stage": stage_id,
+                                "iteration": state.get("iteration", 0) + 1,
+                            },
+                            goto="qa-join",
+                        )
                     return Command(
                         update={
-                            "stages": stages,
+                            "stages": {stage_id: stages[stage_id]},
                             "errors": [f"{stage_id} repair needed: {critical}"],
                             "current_stage": stage_id,
                             "iteration": state.get("iteration", 0) + 1,
@@ -286,14 +336,14 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
                 stages[stage_id]["verdict"] = "PASS"
                 if parallel_mode:
                     return Command(
-                        update={"stages": stages, "iteration": state.get("iteration", 0) + 1},
+                        update={"stages": {stage_id: stages[stage_id]}, "iteration": state.get("iteration", 0) + 1},
                         goto="qa-join",
                     )
                 handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
                 next_node = _resolve_next_qa(stage_id, state)
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         **handoff_update,
                         "current_stage": next_node,
                         "iteration": state.get("iteration", 0) + 1,
@@ -305,7 +355,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             if parallel_mode:
                 return Command(
                     update={
-                        "stages": stages,
+                        "stages": {stage_id: stages[stage_id]},
                         "iteration": state.get("iteration", 0) + 1,
                     },
                     goto="qa-join",
@@ -313,7 +363,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
             stages["impl.code"]["done"] = False
             return Command(
                 update={
-                    "stages": stages,
+                    "stages": {stage_id: stages[stage_id], "impl.code": stages["impl.code"]},
                     "current_stage": "impl-code",
                     "errors": [f"{stage_id} FAIL: {critical}"],
                     "iteration": state.get("iteration", 0) + 1,
@@ -331,7 +381,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
         if parallel_mode:
             return Command(
                 update={
-                    "stages": stages,
+                    "stages": {stage_id: stages[stage_id]},
                     "iteration": state.get("iteration", 0) + 1,
                 },
                 goto="qa-join",
@@ -341,7 +391,7 @@ def qa_node(stage_id: str, parallel_mode: bool = False):
         next_node = _resolve_next_qa(stage_id, state)
         return Command(
             update={
-                "stages": stages,
+                "stages": {stage_id: stages[stage_id]},
                 **handoff_update,
                 "current_stage": next_node,
                 "iteration": state.get("iteration", 0) + 1,

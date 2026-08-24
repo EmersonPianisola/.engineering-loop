@@ -3,15 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from eng_loop.schemas import get_schema
-from eng_loop.tools.json_parse import extract_json
-from eng_loop.tools.parse_retry import validate_against_schema
-
 logger = logging.getLogger(__name__)
-
-# DEPRECATED: This module is superseded by stage_gate.py (EvidenceGate, DependencyGate,
-# PolicyGate, TransitionGate). Kept for backward compatibility with existing node handlers.
-# New QA stages should use stage_gate.run_stage_gate() directly.
 
 
 MIN_OUTPUT_LENGTH = 50
@@ -90,40 +82,3 @@ def validate_stage_output(stage_id: str, result: dict[str, Any], content: str) -
             logger.warning("Stage %s output very short: %d chars", stage_id, len(output_str))
 
     return True, ""
-
-
-def parse_llm_response(stage_id: str, content: str) -> tuple[dict[str, Any], str]:
-    """Parse LLM response using structured output or JSON extraction.
-
-    Returns (result_dict, error_message).
-    If error_message is non-empty, the parse failed.
-    """
-    output_schema = get_schema(stage_id)
-
-    # Try JSON extraction
-    try:
-        result = extract_json(content)
-    except (ValueError, KeyError) as e:
-        error_msg = f"JSON parse failed for {stage_id}: {e}"
-        logger.error("[PARSE ERROR] %s", error_msg)
-        logger.error("[PARSE ERROR] Content preview: %s", content[:300])
-        return {}, error_msg
-
-    # Validate against schema if available
-    if output_schema and result:
-        is_valid, validation_error = validate_against_schema(result, output_schema, stage_id)
-        if not is_valid:
-            logger.warning("[SCHEMA VALIDATION] %s", validation_error)
-            return {}, validation_error
-
-    return result, ""
-
-
-def should_retry_stage(stage_id: str, result: dict[str, Any], error: str, attempts: int, max_attempts: int) -> bool:
-    """Determine if a stage should be retried based on output quality.
-
-    Returns True if the stage should be retried.
-    """
-    if not error:
-        return False
-    return not attempts >= max_attempts

@@ -114,11 +114,14 @@ class TestEvalFilesExist:
             assert "a.py" in err
             assert "b.py" in err
 
-    def test_empty_paths_pass(self):
+    def test_empty_paths_malformed(self):
+        # 4.3.7 — an empty paths payload is a malformed rule and must FAIL the
+        # step; the old behavior silently passed (vacuously true check).
         with tempfile.TemporaryDirectory() as tmp:
             payload = FilesExistPayload(paths=())
             passed, err = _eval_files_exist(payload, tmp)
-            assert passed is True
+            assert passed is False
+            assert "malformed rule payload" in (err or "")
 
     def test_nested_directory_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -336,11 +339,26 @@ class TestUnknownRuleType:
     """Unknown validation rule type returns error."""
 
     def test_unknown_rule_type(self):
-        # Use FilesExistPayload as a valid payload type, but with unknown rule type
-        # This won't work because ValidationRule enforces type-payload correlation.
-        # Instead, test that evaluate_validation_rules handles unknown types gracefully.
-        # The actual validation rules are typed, so we can't create an invalid one.
-        # Test the _evaluate_single_rule path instead.
+        # ValidationRule enforces type-payload correlation, so an invalid
+        # type/payload pair can't be built — test the _evaluate_single_rule path.
+        from eng_loop.tools.dynamic_validation import _evaluate_single_rule
+
+        class FakeRule:
+            type = "unknown_type"
+            payload = object()
+
+        passed, err = _evaluate_single_rule(
+            FakeRule(),
+            {},
+            ".",
+            {},
+        )
+        assert passed is False
+        assert "Unknown validation rule type" in err
+
+    def test_none_payload_is_malformed(self):
+        # 4.3.7 — a missing payload is malformed (fails closed) before the
+        # rule-type dispatch.
         from eng_loop.tools.dynamic_validation import _evaluate_single_rule
 
         class FakeRule:
@@ -354,4 +372,4 @@ class TestUnknownRuleType:
             {},
         )
         assert passed is False
-        assert "Unknown validation rule type" in err
+        assert "malformed rule payload" in (err or "")

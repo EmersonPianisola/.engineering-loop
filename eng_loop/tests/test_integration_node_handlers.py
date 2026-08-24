@@ -294,8 +294,13 @@ class TestQAJoinNode:
         from eng_loop.nodes.qa_parallel import _get_active_qa_nodes
 
         active = _get_active_qa_nodes(state)
+        from eng_loop.state import to_stage_id
+
         for qa_node in active:
-            qa_id = qa_node.replace("-", ".", 1)
+            # FASE 1.3: stages must be keyed by their canonical dotted id —
+            # replace("-", ".", 1) yields the ghost key "qa.human-flow" for
+            # qa-human-flow, which the join no longer reads.
+            qa_id = to_stage_id(qa_node)
             # Heuristic stages need friction_score and confidence in output
             if qa_id in ("qa.human.flow", "qa.human.ux"):
                 state["stages"][qa_id] = dict(

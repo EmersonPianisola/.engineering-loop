@@ -11,7 +11,7 @@ from eng_loop.schemas import DynamicAuditEntry, DynamicRuntime, ValidationRule
 from eng_loop.tools.agent_runner import AgentResult, run_agent
 from eng_loop.tools.dynamic_validation import evaluate_validation_rules
 from eng_loop.tools.node_helpers import build_node_prompt
-from eng_loop.tools.policy_resolver import SAFE_TOOL_POOL, get_tools_by_names
+from eng_loop.tools.policy_resolver import resolve_allowed_tools
 from eng_loop.tools.progress import log_stage_done, log_stage_fail, ui
 from eng_loop.tools.timing import format_time, token_tracker
 
@@ -166,12 +166,7 @@ def _resolve_step_tools(
     requested = step.get("required_tools", step.get("requested_capabilities", []))
     if isinstance(requested, tuple):
         requested = list(requested)
-
-    approved = [t for t in requested if t in SAFE_TOOL_POOL]
-    if not approved:
-        approved = ["read", "glob"]
-
-    return get_tools_by_names(approved, state)
+    return resolve_allowed_tools(requested, state)
 
 
 def _build_step_prompt(

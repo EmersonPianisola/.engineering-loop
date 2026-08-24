@@ -108,8 +108,13 @@ def essence_gate(stage_id: str):
                 return Command(
                     update={
                         "status": "blocked",
-                        "blocking_condition": f"Essence Lens 4 tension in {stage_id}: {essence.tension}",
-                        "stages": stages,
+                        "blocking_condition": f"Essence gate blocked {stage_id}: {essence.tension}",
+                        # Post-gate state — the gate may have auto-adjusted
+                        # complexity/stages in place (F3.4); the stale `stages`
+                        # snapshot captured above would revert them.
+                        "stages": state.get("stages", stages),
+                        "complexity": state.get("complexity", "unset"),
+                        "essence": state.get("essence", {}),
                         "essence_tension": essence.tension,
                     },
                     goto="__end__",
@@ -121,7 +126,8 @@ def essence_gate(stage_id: str):
                     update={
                         "status": "waiting_for_input",
                         "blocking_condition": "essence_clarification_needed",
-                        "stages": stages,
+                        "stages": state.get("stages", stages),
+                        "complexity": state.get("complexity", "unset"),
                         "essence": essence_state,
                         "essence_clarifying_questions": essence.clarifying_questions,
                     },
@@ -217,6 +223,8 @@ def run_essence_gate(
     tools = get_essence_tools(paths)
     max_agent_iterations = config.get("agent", {}).get("max_agent_iterations", 15)
 
+    last_agent_error = ""
+    error_attempts = 0
     for attempt in range(max_retries):
         agent_result: AgentResult = run_agent(
             model=model,
@@ -229,12 +237,17 @@ def run_essence_gate(
         )
 
         if agent_result.error:
+            last_agent_error = agent_result.error
+            error_attempts += 1
             logger.warning(
-                "Essence gate agent error for %s: %s",
+                "Essence gate agent error for %s (attempt %d/%d): %s",
                 stage_id,
-                agent_result.error,
+                attempt + 1,
+                max_retries,
+                last_agent_error,
             )
-            return EssenceResult(passed=True, decision=EssenceDecision.PASS)
+            continue
+        error_attempts = 0
 
         result = agent_result.data
 
@@ -453,6 +466,9 @@ def run_essence_gate(
                     config,
                 )
                 auto_adjust_attempts += 1
+                # Persist so the counter accumulates across gate invocations
+                # (F3.4) — build_essence_state reads it back on the next run.
+                _persist_essence_counters(stage_id, state, clarification_attempts, auto_adjust_attempts)
                 logger.info(
                     "Essence gate for %s: applied %d adjustments, re-running (auto-adjust %d/%d)",
                     stage_id,
@@ -496,6 +512,26 @@ def run_essence_gate(
             max_retries,
         )
 
+    if error_attempts == max_retries:
+        # Every attempt ended in an agent error — block the stage instead of
+        # the legacy silent PASS (F3.4). The skip is recorded so downstream
+        # can tell the gate never validated this stage.
+        essence_state = state.setdefault("essence", {})
+        skipped = essence_state.setdefault("skipped_stages", [])
+        if stage_id not in skipped:
+            skipped.append(stage_id)
+        logger.warning(
+            "Essence gate for %s: agent failed after %d attempts — blocking (no silent pass)",
+            stage_id,
+            max_retries,
+        )
+        return EssenceResult(
+            blocked=True,
+            decision=EssenceDecision.BLOCKED,
+            tension=f"Essence gate agent failed after {max_retries} attempts: {last_agent_error[:200]}",
+            updated_state={"stages": stages, "essence": essence_state},
+        )
+
     # Max retries exhausted — proceed with warning
     logger.warning(
         "Essence gate for %s: exhausted %d retries, proceeding anyway",
@@ -506,6 +542,23 @@ def run_essence_gate(
 
 
 # ── Policy helpers ─────────────────────────────────────────────────────
+def _persist_essence_counters(
+    stage_id: str,
+    state: dict[str, Any],
+    clarification_attempts: int,
+    auto_adjust_attempts: int,
+) -> None:
+    """Write the effective per-stage counters back into state["essence"].
+
+    Counters are scoped per stage (blocked_stage). Setting blocked_stage to
+    the current stage keeps build_essence_state from resetting them.
+    """
+    essence_state = state.setdefault("essence", {})
+    essence_state["blocked_stage"] = stage_id
+    essence_state["clarification_attempts"] = clarification_attempts
+    essence_state["auto_adjust_attempts"] = auto_adjust_attempts
+
+
 def _get_severity(finding: dict) -> str:
     """Extract severity from a finding dict, defaulting to 'low'."""
     sev = finding.get("severity", "low")

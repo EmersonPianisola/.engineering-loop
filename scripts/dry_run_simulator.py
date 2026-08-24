@@ -390,6 +390,23 @@ def mock_run_agent_qa_fanout_fail(
             "critical_findings": [],
             "complete": True,
         },
+        # FASE 1.3: the join now reads qa.human.flow under its canonical key and
+        # applies the heuristic confidence check for real. The evidence contract
+        # (stage_gate.py) requires friction_score + confidence + persona_name;
+        # without them the join HALTs (confidence 0 < 0.70) instead of rolling
+        # back on the scripted qa.api-contract FAIL.
+        "qa.human.flow": {
+            "verdict": "PASS",
+            "friction_score": 2.0,
+            "confidence": 0.85,
+            "persona_name": "First-time user setting up authentication",
+            "confusion_points": [],
+            "jargon_found": [],
+            "recommendations": [],
+            "findings": [],
+            "critical_findings": [],
+            "complete": True,
+        },
         "qa.api-contract": {
             "verdict": "FAIL",
             "findings": [
@@ -641,22 +658,50 @@ def run_scenario(
         print(f"    [mock] stage={stage_id}, data_keys={list(result.data.keys())[:5]}")
         return result
 
-    with patch("eng_loop.tools.agent_runner.run_agent", side_effect=patched_run_agent):
-        with patch("eng_loop.model.create_model_from_config", return_value=MagicMock()):
-            try:
-                final_state = compiled_graph.invoke(state)
+    def clean_essence(model, tools, prompt, stage_id, output_schema=None,
+                      max_iterations=25, config=None, **kwargs):
+        return AgentResult(
+            data={
+                "clean": True,
+                "lens_1_subjective_terms": [],
+                "lens_2_hidden_assumptions": [],
+                "lens_3_literal_traps": [],
+                "lens_4_conflicts": [],
+                "adjustments": [],
+                "clarifying_questions": [],
+                "summary": "Dry-run: inputs clean",
+            },
+            iterations=1,
+            elapsed=0.001,
+            tool_calls_made=0,
+        )
 
-                print(f"\n  Graph execution completed.")
-                if tracker:
-                    print(f"  Invocations: {tracker.calls}")
+    # Several modules bind run_agent at module level (from ... import run_agent),
+    # which escapes a patch on eng_loop.tools.agent_runner.run_agent. Patch every
+    # such binding so the simulator stays hermetic (no real LLM calls).
+    with (
+        patch("eng_loop.tools.agent_runner.run_agent", side_effect=patched_run_agent),
+        patch("eng_loop.model.create_model_from_config", return_value=MagicMock()),
+        patch("eng_loop.tools.essence_gate.run_agent", side_effect=clean_essence),
+        patch("eng_loop.tools.essence_gate.create_model_from_config", return_value=MagicMock()),
+        patch("eng_loop.nodes.dynamic_architect.run_agent", side_effect=patched_run_agent),
+        patch("eng_loop.nodes.meta_executor.run_agent", side_effect=patched_run_agent),
+        patch("eng_loop.tools.autosizing.run_agent", side_effect=patched_run_agent),
+    ):
+        try:
+            final_state = compiled_graph.invoke(state)
 
-                return final_state
+            print(f"\n  Graph execution completed.")
+            if tracker:
+                print(f"  Invocations: {tracker.calls}")
 
-            except Exception as e:
-                print(f"\n  Graph execution raised exception: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+            return final_state
+
+        except Exception as e:
+            print(f"\n  Graph execution raised exception: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
 
 def test_happy_path():
@@ -856,17 +901,20 @@ def test_qa_fanout_fail():
         f"qa.security should have PASS verdict. output={qa_sec_output[:200]}",
     )
 
-    # fix_tasks should be non-empty (from qa-join aggregation)
-    assert_non_empty(
-        fix_tasks,
-        "fix_tasks should contain QA failure tasks from qa-join aggregation",
-    )
-
-    # rollback_target should be set
-    assert_equals(
-        state.get("rollback_target", ""),
-        "impl.code",
-        "rollback_target should be 'impl.code' after QA failure",
+    # qa-join must have aggregated the REAL failure data from the workers.
+    # Evidence: "QA join: N issues from parallel QA" with N > 0 — a stale/empty
+    # aggregation (H15 race) would log "0 issues".
+    #
+    # NOTE (FASE 1.1): fix_tasks/rollback_target are no longer asserted in the
+    # final state. With single-source routing (no declared edges out of
+    # command nodes), qa-join runs exactly once per round; impl.code then
+    # consumes the tasks and clears fix_tasks/rollback_target on success
+    # (implementation.py). Pre-1.1 they survived in the final state only as a
+    # byproduct of the C1 double-execution (qa-join scheduled twice per round,
+    # its later rollback update overwriting the cleared values).
+    assert_true(
+        any("issues from parallel QA" in e and "0 issues" not in e for e in errors),
+        f"fix_tasks should contain QA failure tasks from qa-join aggregation. errors={errors[-5:]}",
     )
 
     # fix_iteration should be >= 1 (rollback occurred)

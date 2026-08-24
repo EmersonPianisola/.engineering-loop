@@ -5,7 +5,7 @@ from typing import Any
 
 from langgraph.types import Command, Send
 
-from eng_loop.state import rollback_to_stage
+from eng_loop.state import rollback_to_stage, to_stage_id
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +107,14 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
     all_passed = True
     any_blocked = False
     any_critical_fail = False
+    critical_stage: str | None = None
     all_fix_tasks: list[dict[str, Any]] = []
 
     for qa_node in qa_nodes:
-        # Convert node name to stage ID: qa-security → qa.security, qa-api-contract → qa.api-contract
-        # Only replace the first hyphen (after "qa") with a dot
-        qa_stage_id = qa_node.replace("-", ".", 1)
+        qa_stage_id = to_stage_id(qa_node)
+        if qa_stage_id is None:
+            logger.warning("qa_join: unrecognized QA node %r — skipping", qa_node)
+            continue
         qa_stage = stages.get(qa_stage_id, {})
 
         # Check verdict from stage metadata first
@@ -154,6 +156,7 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                 verdict = "FAIL"
                 all_passed = False
                 any_critical_fail = True
+                critical_stage = critical_stage or qa_stage_id
                 all_fix_tasks.append(
                     {
                         "source": qa_stage_id,
@@ -175,6 +178,7 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
             severity = output_data.get("severity", "critical")
             if severity in ("critical", "high"):
                 any_critical_fail = True
+                critical_stage = critical_stage or qa_stage_id
 
             gaps = output_data.get("findings", []) + output_data.get("critical_findings", [])
             for gap in gaps:
@@ -224,15 +228,21 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
 
         # Critical failure → rollback; low severity → continue with warnings
         if any_critical_fail:
+            # Rollback target: the first critically-failed QA stage (canonical
+            # dotted id); fallback to the last active stage of the QA chain.
+            # (The previous hardcoded "qa-performance" node name is not a valid
+            # stage id and used to trigger a full-chain wipe.)
+            target = critical_stage or to_stage_id(qa_nodes[-1])
             reset_stages = rollback_to_stage(
                 current_stages=stages,
-                target_stage="qa-performance",
+                target_stage=target,
                 reset_from="impl.code",
             )
 
             logger.warning(
-                "qa_join: %d critical QA issues, rolling back to impl.code (fix_iteration=%d)",
+                "qa_join: %d critical QA issues, rolling back to impl.code (target=%s, fix_iteration=%d)",
                 len(all_fix_tasks),
+                target,
                 fix_iteration,
             )
 

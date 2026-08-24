@@ -7,7 +7,7 @@ from pathlib import Path
 """Tests for agent runner: structured output extraction, message compaction, error handling."""
 
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langchain_core.tools import Tool
 from pydantic import BaseModel
 
@@ -15,7 +15,6 @@ from eng_loop.tools.agent_runner import (
     AgentResult,
     ToolResultCache,
     _build_agent_prompt,
-    _compact_messages,
     _compact_skill,
     _execute_tool,
     _execute_tool_cached,
@@ -24,7 +23,6 @@ from eng_loop.tools.agent_runner import (
     _get_allowed_tools,
     _inject_compact_skill,
     _is_error_output,
-    _last_ai_message,
     _summarize_error,
 )
 from eng_loop.tools.bash_tool import create_bash_tool
@@ -277,27 +275,6 @@ class TestExecuteToolCached:
 
 
 # ============================================================
-# COMPACT MESSAGES
-# ============================================================
-
-
-class TestCompactMessages:
-    def test_no_compaction_under_limit(self):
-        messages = [HumanMessage(content=f"msg{i}") for i in range(30)]
-        compacted = _compact_messages(messages)
-        assert len(compacted) == 30
-
-    def test_compaction_over_limit(self):
-        messages = [
-            SystemMessage(content="system"),
-            HumanMessage(content="first"),
-        ] + [ToolMessage(content=f"tool{i}", tool_call_id=str(i)) for i in range(50)]
-        compacted = _compact_messages(messages)
-        assert len(compacted) < len(messages)
-        assert any("summary" in m.content.lower() for m in compacted if isinstance(m, HumanMessage))
-
-
-# ============================================================
 # ERROR DETECTION
 # ============================================================
 
@@ -353,37 +330,6 @@ class TestGetAllowedTools:
         allowed = _get_allowed_tools("impl.code", tools)
         assert "read" in allowed
         assert "write" in allowed
-
-
-# ============================================================
-# LAST AI MESSAGE
-# ============================================================
-
-
-class TestLastAIMessage:
-    def test_finds_clean_ai_message(self):
-        messages = [
-            AIMessage(content="call tool", tool_calls=[{"name": "read", "args": {}, "id": "1"}]),
-            ToolMessage(content="result", tool_call_id="1"),
-            AIMessage(content="Final answer: done"),
-        ]
-        last = _last_ai_message(messages)
-        assert last is not None
-        assert "Final answer" in last.content
-
-    def test_fallback_to_any_ai_message(self):
-        messages = [
-            AIMessage(content="call tool", tool_calls=[{"name": "read", "args": {}, "id": "1"}]),
-            ToolMessage(content="result", tool_call_id="1"),
-        ]
-        last = _last_ai_message(messages)
-        assert last is not None
-        assert "call tool" in last.content
-
-    def test_no_ai_message(self):
-        messages = [HumanMessage(content="hello")]
-        last = _last_ai_message(messages)
-        assert last is None
 
 
 # ============================================================
