@@ -156,11 +156,14 @@ class EdgeRulesEngine:
         recovery paths, not forward-progress edges. If a loopback target is
         inactive, the rule is dropped entirely.
 
+        If multiple bypass rules target the same (from, to) pair, the one
+        whose condition evaluates True in the current state is kept.
+
         Example: init-ideate -> init-bdd -> init-refine
         If init-bdd is inactive, resolves to: init-ideate -> init-refine
         """
-        resolved = []
-        visited_bypasses: set[tuple[str, str]] = set()
+        resolved: list[EdgeRule] = []
+        bypass_map: dict[tuple[str, str], EdgeRule] = {}
 
         for rule in self._rules:
             # Skip rules whose source is not active (and not wildcard)
@@ -199,9 +202,22 @@ class EdgeRulesEngine:
                     description=f"BYPASS: {rule.description} (skipped inactive {target})",
                 )
                 bypass_key = (rule.from_node, bypass_target)
-                if bypass_key not in visited_bypasses:
+
+                # If a bypass already exists for this key, keep the one whose
+                # condition evaluates True (prefer rules matching current config).
+                if bypass_key in bypass_map:
+                    existing = bypass_map[bypass_key]
+                    existing_ok = existing.condition is None or existing.condition(state)
+                    new_ok = new_rule.condition is None or new_rule.condition(state)
+                    if new_ok and not existing_ok:
+                        # Replace with the one that matches
+                        resolved = [r for r in resolved if (r.from_node, r.to_node) != bypass_key]
+                        bypass_map.pop(bypass_key)
+                        bypass_map[bypass_key] = new_rule
+                        resolved.append(new_rule)
+                else:
+                    bypass_map[bypass_key] = new_rule
                     resolved.append(new_rule)
-                    visited_bypasses.add(bypass_key)
 
         return resolved
 
@@ -217,7 +233,7 @@ class EdgeRulesEngine:
 
         Recursively traverses inactive nodes until an active one is found.
         Only follows forward-progress edges (fixed, conditional, bypass).
-        Loopback edges are excluded unless allow_loopback=True.
+        Loopback and terminal edges are excluded — we only want forward progress.
         Returns None if no path to an active node exists.
         """
         if visited is None:
@@ -232,15 +248,14 @@ class EdgeRulesEngine:
         if not outgoing:
             return None
 
-        # Filter out loopback edges unless explicitly allowed
-        if not allow_loopback:
-            outgoing = [r for r in outgoing if r.edge_type != "loopback"]
+        # Filter out loopback and terminal edges — only follow forward-progress
+        outgoing = [r for r in outgoing if r.edge_type not in ("loopback", "terminal")]
 
         # Prefer fixed edges, then conditional edges that evaluate to True
         for rule in sorted(outgoing, key=lambda r: (0 if r.edge_type == "fixed" else 1, -r.priority)):
             target = rule.to_node
 
-            if target in active_node_ids or target == "__end__":
+            if target in active_node_ids:
                 return target
 
             # Target is also inactive — recurse
@@ -976,83 +991,7 @@ def build_rules_from_proposal(
                 description=edge.description,
             )
 
-    # Inject standard failure-routing for stages that need it
-    # These are operational policies, not topology decisions
-    _inject_failure_routing(engine, stage_set, proposal)
+    # Failure routing (loopback/terminal) is now handled by GraphBuilder.FAILURE_ROUTES
+    # and the unified edge evaluator. The architect should NOT propose failure edges.
 
     return engine
-
-
-def _inject_failure_routing(
-    engine: EdgeRulesEngine,
-    stage_set: set[str],
-    proposal: GraphTopologyProposal,
-) -> None:
-    """Inject standard loopback/terminal edges for verification, QA, and deploy stages.
-
-    The architect proposes the happy-path topology. Failure routing is
-    an operational concern handled by the framework, not the LLM.
-
-    Uses metadata-driven approach: any stage whose node name starts with
-    'qa-' or is a known verification/deploy stage gets automatic failure routing.
-    """
-    # Build a lookup of execution policies from the proposal
-    policy_map = {}
-    for pol in proposal.execution_policies:
-        policy_map[pol.stage_id] = pol
-
-    # Build normalized set: both dot and hyphen notation
-    normalized_set = set()
-    for s in stage_set:
-        normalized_set.add(s)
-        normalized_set.add(s.replace(".", "-").replace("_", "-"))
-
-    # Core failure routing stages (always apply)
-    core_failure_stages = {
-        "verify": {"stage_key": "verify"},
-        "e2e-execute": {"stage_key": "e2e.execute"},
-        "deploy-prepare": {"stage_key": "deploy.prepare"},
-        "smoke-test": {"stage_key": "smoke.test"},
-    }
-
-    # Discover QA stages from the proposal's canonical (dotted) stage ids.
-    # stage_key MUST stay dotted: "qa.api-contract" -> node "qa-api-contract",
-    # stage_key = "qa.api-contract" (the pre-fix full hyphen→dot replace on the
-    # node name would yield "qa.api.contract", an unknown id, so _stage_done
-    # was always False and the loopback fired for done stages).
-    qa_failure_stages = {}
-    for stage_id in proposal.required_stages:
-        node_name = stage_id.replace(".", "-").replace("_", "-")
-        if node_name.startswith("qa-"):
-            qa_failure_stages[node_name] = {"stage_key": stage_id}
-
-    all_failure_stages = {**core_failure_stages, **qa_failure_stages}
-
-    for node_name, info in all_failure_stages.items():
-        if node_name not in normalized_set:
-            continue
-
-        stage_key = info["stage_key"]
-        loopback_target = "impl-code"
-
-        # Check if a custom failure route was specified in the policy
-        policy = policy_map.get(stage_key)
-        if policy and policy.failure_route:
-            loopback_target = policy.failure_route.replace(".", "-").replace("_", "-")
-
-        if loopback_target in normalized_set:
-            engine.add_loopback(
-                node_name,
-                loopback_target,
-                condition=lambda s, sk=stage_key: not _stage_done(s, sk) and not _is_blocked(s),
-                description=f"{node_name} FAIL → retry {loopback_target}",
-            )
-
-        # Terminal edge for blocked state
-        engine.add_conditional(
-            node_name,
-            "__end__",
-            condition=_is_blocked,
-            edge_type="terminal",
-            description=f"{node_name} BLOCKED → terminate",
-        )

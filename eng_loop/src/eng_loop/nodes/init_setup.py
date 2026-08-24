@@ -4,8 +4,6 @@ import logging
 import time
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.state import get_work_item_text
 from eng_loop.tools.autosizing import (
     classify_complexity,
@@ -20,7 +18,7 @@ from eng_loop.tools.progress import log_complexity
 logger = logging.getLogger(__name__)
 
 
-def init_setup_node(state: dict[str, Any]) -> Command[str]:
+def init_setup_node(state: dict[str, Any]) -> dict[str, Any]:
     """Deterministic setup node — runs ONCE per pipeline.
 
     Performs all non-LLM work: complexity classification, work type
@@ -37,10 +35,7 @@ def init_setup_node(state: dict[str, Any]) -> Command[str]:
 
     if state.get("codebase_facts"):
         logger.info("init_setup: codebase_facts already cached, skipping")
-        return Command(
-            update={"current_stage": "dynamic-architect"},
-            goto="dynamic-architect",
-        )
+        return {}
 
     work_item = get_work_item_text(state)
 
@@ -89,15 +84,11 @@ def init_setup_node(state: dict[str, Any]) -> Command[str]:
         elapsed,
     )
 
-    return Command(
-        update={
-            "complexity": complexity,
-            "work_type": work_type,
-            "ui_project": ui_project,
-            "stages": stages,
-            "codebase_facts": codebase_facts,
-            "graphify": graphify_state,
-            "current_stage": "dynamic-architect",
-        },
-        goto="dynamic-architect",
-    )
+    return {
+        "complexity": complexity,
+        "work_type": work_type,
+        "ui_project": ui_project,
+        "stages": stages,
+        "codebase_facts": codebase_facts,
+        "graphify": graphify_state,
+    }

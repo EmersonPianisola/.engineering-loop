@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import ArchOutput
 from eng_loop.tools.essence_gate import essence_gate
-from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
     log_artifact,
@@ -21,16 +18,10 @@ ARCH_STAGES = {
     "arch.review": "architecture-reviewer",
 }
 
-ARCH_NEXT_MAP = {
-    "arch.requirements": "arch-solution",
-    "arch.solution": "_arch_post_solution",
-    "arch.review": "impl-design",
-}
-
 
 def arch_node(stage_id: str):
     @essence_gate(stage_id)
-    def node_fn(state: dict[str, Any]) -> Command[str]:
+    def node_fn(state: dict[str, Any]) -> dict[str, Any]:
         from eng_loop.tools.agent_runner import AgentResult, run_agent
         from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -39,10 +30,7 @@ def arch_node(stage_id: str):
         paths = state.get("paths", {})
 
         if stages.get(stage_id, {}).get("done", False):
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1}
-            )
+            return {}
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -50,11 +38,7 @@ def arch_node(stage_id: str):
 
         if stages[stage_id].get("attempts", 0) >= max_attempts:
             stages[stage_id]["done"] = True
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"},
-                goto=next_node,
-            )
+            return {"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"}
 
         context = _build_arch_context(stage_id, state)
 
@@ -96,34 +80,18 @@ def arch_node(stage_id: str):
             log_stage_fail(stage_id, agent_result.error)
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             if stages[stage_id]["attempts"] < max_attempts:
-                return Command(
-                    update={
-                        "stages": stages,
-                        "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                        "current_stage": stage_id,
-                        "iteration": state.get("iteration", 0) + 1,
-                    },
-                    goto=stage_id.replace(".", "-").replace("_", "-"),
-                )
+                return {
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+                }
             stages[stage_id]["done"] = True
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
-                goto=next_node,
-            )
+            return {"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"}
 
         critical_findings = result.get("critical_findings", [])
         if critical_findings and stage_id == "arch.review":
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             log_stage_fail(stage_id, f"critical findings: {critical_findings}")
-            return Command(
-                update={
-                    "stages": stages,
-                    "current_stage": "arch-requirements",
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="arch-requirements",
-            )
+            return {}
 
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
@@ -149,22 +117,16 @@ def arch_node(stage_id: str):
 
             record_decision({"decisions": new_decisions}, d)
 
-        next_node = _resolve_next(stage_id, state)
         log_stage_done(stage_id, f"output: {len(arch_output)} chars, tools: {agent_result.tool_calls_made}")
 
         handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
 
-        return Command(
-            update={
-                "stages": stages,
-                "decisions": new_decisions,
-                "stage_artifacts": {**state.get("stage_artifacts", {}), stage_id: arch_output},
-                **handoff_update,
-                "current_stage": next_node,
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto=next_node,
-        )
+        return {
+            "stages": stages,
+            "decisions": new_decisions,
+            "stage_artifacts": {**state.get("stage_artifacts", {}), stage_id: arch_output},
+            **handoff_update,
+        }
 
     return node_fn
 
@@ -181,20 +143,6 @@ def _build_arch_context(stage_id: str, state: dict[str, Any]) -> str:
         if sol:
             parts.append(f"## Solution\n{sol}")
     return "\n".join(parts) if parts else "No prior architecture artifacts."
-
-
-def _resolve_next(stage_id: str, state: dict[str, Any]) -> str:
-    complexity = state.get("complexity", "small")
-    if stage_id == "arch.solution":
-        if complexity == "complex":
-            return resolve_next("arch-review", state)
-        return resolve_next("impl-design", state)
-    if stage_id == "arch.review":
-        return resolve_next("impl-design", state)
-    intended = ARCH_NEXT_MAP.get(stage_id, "impl-design")
-    if intended.startswith("_"):
-        intended = "impl-design"
-    return resolve_next(intended, state)
 
 
 def get_arch_nodes() -> list[tuple[str, str]]:

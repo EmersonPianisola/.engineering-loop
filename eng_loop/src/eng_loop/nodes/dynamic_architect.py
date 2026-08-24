@@ -4,8 +4,6 @@ import json
 import logging
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import (
     DynamicBlueprint,
@@ -247,7 +245,7 @@ def _build_context_budget_context(config: dict[str, Any]) -> str:
 # ───────────────────────────────────────────────────────────────────
 
 
-def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
+def dynamic_architect_node(state: dict[str, Any]) -> dict[str, Any]:
     """Runtime intercept node: evaluates if micro-augmentation is needed.
 
     This runs INSIDE the compiled graph, after init-setup.
@@ -268,8 +266,8 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
         logger.info("dynamic_architect: dynamic plan already exists, skipping")
         plan = state["dynamic_plan"]
         if plan.get("trigger") == "augment" and plan.get("steps"):
-            return Command(goto="meta-executor")
-        return Command(goto="init")
+            return {}
+        return {}
 
     instructions = (
         f"Evaluate this work item and determine if dynamic step augmentation is needed.\n\n"
@@ -342,14 +340,14 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
 
     if agent_result.error:
         logger.warning("dynamic_architect: LLM error, defaulting to no augmentation: %s", agent_result.error)
-        return _build_passthrough_command()
+        return _build_passthrough()
 
     proposal_data = agent_result.data
     try:
         proposal = DynamicBlueprintProposal(**proposal_data)
     except Exception as e:
         log_stage_fail("dynamic.architect", f"Invalid proposal schema: {e}")
-        return _build_passthrough_command()
+        return _build_passthrough()
 
     if proposal.trigger != "augment" or not proposal.steps:
         logger.info("dynamic_architect: no augmentation proposed")
@@ -360,25 +358,19 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
             steps=(),
             rationale="No augmentation needed.",
         )
-        return Command(
-            update={
-                "dynamic_plan": blueprint.model_dump(),
-                "dynamic_runtime": DynamicRuntime(status="completed").model_dump(),
-            },
-            goto="init",
-        )
+        return {
+            "dynamic_plan": blueprint.model_dump(),
+            "dynamic_runtime": DynamicRuntime(status="completed").model_dump(),
+        }
 
     blueprint = authorize_blueprint(proposal, state)
 
     if blueprint.authorized_complexity == "restricted":
         log_stage_fail("dynamic.architect", "Restricted complexity — human approval required")
-        return Command(
-            update={
-                "status": "blocked",
-                "blocking_condition": "Restricted complexity class enforced by framework policy. Human approval required.",
-            },
-            goto="__end__",
-        )
+        return {
+            "status": "blocked",
+            "blocking_condition": "Restricted complexity class enforced by framework policy. Human approval required.",
+        }
 
     logger.info(
         "dynamic_architect: authorized blueprint %s with %d steps (%s)",
@@ -388,16 +380,13 @@ def dynamic_architect_node(state: dict[str, Any]) -> Command[str]:
     )
     log_stage_done("dynamic.architect", f"blueprint {blueprint.plan_id}: {len(blueprint.steps)} steps")
 
-    return Command(
-        update={
-            "dynamic_plan": blueprint.model_dump(),
-            "dynamic_runtime": DynamicRuntime(status="running").model_dump(),
-        },
-        goto="meta-executor",
-    )
+    return {
+        "dynamic_plan": blueprint.model_dump(),
+        "dynamic_runtime": DynamicRuntime(status="running").model_dump(),
+    }
 
 
-def _build_passthrough_command() -> Command[str]:
+def _build_passthrough() -> dict[str, Any]:
     blueprint = DynamicBlueprint(
         plan_id="none",
         trigger="none",
@@ -405,10 +394,7 @@ def _build_passthrough_command() -> Command[str]:
         steps=(),
         rationale="Architect node error — defaulting to standard pipeline.",
     )
-    return Command(
-        update={
-            "dynamic_plan": blueprint.model_dump(),
-            "dynamic_runtime": DynamicRuntime(status="completed").model_dump(),
-        },
-        goto="init",
-    )
+    return {
+        "dynamic_plan": blueprint.model_dump(),
+        "dynamic_runtime": DynamicRuntime(status="completed").model_dump(),
+    }

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
-
-from langgraph.types import Command, Send
 
 from eng_loop.state import rollback_to_stage, to_stage_id
 
@@ -45,20 +44,17 @@ def _get_active_qa_nodes(state: dict[str, Any]) -> list[str]:
     return active
 
 
-def qa_dispatcher_node(state: dict[str, Any]) -> Command[str]:
-    """Deterministic Fan-Out node.
+def qa_dispatcher_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Static fan-out node.
 
-    Evaluates complexity and dispatches active QA nodes in parallel
-    using LangGraph Send API.
+    The graph builder creates static edges from this node to each active
+    QA node. No Send/API fan-out needed — the routing is declarative.
     """
     qa_nodes = _get_active_qa_nodes(state)
 
     if not qa_nodes:
         logger.info("qa_dispatcher: no QA nodes active, routing to deploy-prepare")
-        return Command(
-            goto="deploy-prepare",
-            update={"current_stage": "deploy-prepare", "iteration": state.get("iteration", 0) + 1},
-        )
+        return {"qa_results": {"fan_out": [], "join": ""}}
 
     logger.info(
         "qa_dispatcher: fanning out to %d QA nodes: %s",
@@ -66,16 +62,10 @@ def qa_dispatcher_node(state: dict[str, Any]) -> Command[str]:
         qa_nodes,
     )
 
-    # Use Command.goto with list[Send] for parallel fan-out
-    # Convert state to plain dict for Send arg compatibility
-    plain_state = dict(state)
-    return Command(
-        goto=[Send(node, plain_state) for node in qa_nodes],
-        update={"current_stage": qa_nodes[0], "iteration": state.get("iteration", 0) + 1},
-    )
+    return {"qa_results": {"fan_out": qa_nodes, "join": ""}}
 
 
-def qa_join_node(state: dict[str, Any]) -> Command[str]:
+def qa_join_node(state: dict[str, Any]) -> dict[str, Any]:
     """Deterministic Fan-In node.
 
     Aggregates results from all parallel QA nodes. Applies failure policy:
@@ -85,8 +75,6 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
     - BLOCKED → retry (never rollback)
     - Heuristic friction above threshold → FAIL
     """
-    import json
-
     stages = dict(state.get("stages", {}))
     qa_nodes = _get_active_qa_nodes(state)
     config = state.get("config", {})
@@ -96,13 +84,9 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
     min_confidence = human_policy.get("min_confidence", 0.70)
 
     if not qa_nodes:
-        return Command(
-            goto="deploy-prepare",
-            update={
-                "current_stage": "deploy-prepare",
-                "iteration": state.get("iteration", 0) + 1,
-            },
-        )
+        return {
+            "qa_results": {"join": "deploy-prepare"},
+        }
 
     all_passed = True
     any_blocked = False
@@ -195,16 +179,12 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
     # BLOCKED takes priority — halt, don't rollback
     if any_blocked:
         logger.warning("qa_join: one or more QA stages BLOCKED, halting pipeline")
-        return Command(
-            update={
-                "stages": stages,
-                "status": "blocked",
-                "blocking_condition": "QA stage BLOCKED (infrastructure)",
-                "current_stage": "__end__",
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="__end__",
-        )
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": "QA stage BLOCKED (infrastructure)",
+            "qa_results": {"join": "__end__"},
+        }
 
     if not all_passed:
         fix_iteration = state.get("fix_iteration", 0) + 1
@@ -215,16 +195,13 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                 "qa_join: fix iteration limit reached (%d), blocking pipeline",
                 max_fix_iterations,
             )
-            return Command(
-                update={
-                    "stages": stages,
-                    "status": "blocked",
-                    "blocking_condition": f"QA fix iteration limit reached ({max_fix_iterations})",
-                    "errors": [f"QA fix iteration limit: {max_fix_iterations}"],
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="__end__",
-            )
+            return {
+                "stages": stages,
+                "status": "blocked",
+                "blocking_condition": f"QA fix iteration limit reached ({max_fix_iterations})",
+                "errors": [f"QA fix iteration limit: {max_fix_iterations}"],
+                "qa_results": {"join": "__end__"},
+            }
 
         # Critical failure → rollback; low severity → continue with warnings
         if any_critical_fail:
@@ -246,35 +223,27 @@ def qa_join_node(state: dict[str, Any]) -> Command[str]:
                 fix_iteration,
             )
 
-            return Command(
-                update={
-                    "stages": reset_stages,
-                    "current_stage": "impl-code",
-                    "rollback_target": "impl.code",
-                    "fix_tasks": all_fix_tasks
-                    or [
-                        {
-                            "source": "qa.join",
-                            "gap": "QA failure detected",
-                            "evidence": "",
-                            "severity": "critical",
-                            "suggested_fix": "",
-                        }
-                    ],
-                    "fix_iteration": fix_iteration,
-                    "errors": [f"QA join: {len(all_fix_tasks)} issues from parallel QA"],
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="impl-code",
-            )
+            return {
+                "stages": reset_stages,
+                "rollback_target": "impl.code",
+                "fix_tasks": all_fix_tasks
+                or [
+                    {
+                        "source": "qa.join",
+                        "gap": "QA failure detected",
+                        "evidence": "",
+                        "severity": "critical",
+                        "suggested_fix": "",
+                    }
+                ],
+                "fix_iteration": fix_iteration,
+                "errors": [f"QA join: {len(all_fix_tasks)} issues from parallel QA"],
+                "qa_results": {"join": "impl-code"},
+            }
 
     logger.info("qa_join: all QA stages passed, routing to deploy-prepare")
 
-    return Command(
-        update={
-            "stages": stages,
-            "current_stage": "deploy-prepare",
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto="deploy-prepare",
-    )
+    return {
+        "stages": stages,
+        "qa_results": {"join": "deploy-prepare"},
+    }

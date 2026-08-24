@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
     from eng_loop.schemas import AuthorizedGraphTopology
 
 logger = logging.getLogger(__name__)
+
+
+class TopologyCompilationError(Exception):
+    """Raised when graph topology cannot be compiled (missing forward target, etc.)."""
 
 
 def _get_contract_sources() -> set[str]:
@@ -129,8 +134,31 @@ class GraphBuilder:
             builder.add_node(spec.node_name, handler)
             logger.info("  Node registered: %s (%s)", spec.node_name, spec.description)
 
-        bypassed_rules = self.rules.resolve_with_bypass(active_node_names | {"__start__"}, state)
-        self._add_edges(builder, bypassed_rules, active_node_names, state, topology)
+        # Build synthetic state: ALL stages done=True for rule resolution
+        # This ensures forward-edge conditions (e.g., _stage_done) evaluate
+        # based on build-time config, not runtime state.
+        # Must include ALL registry stages (not just active) because
+        # resolve_with_bypass follows chains through inactive nodes.
+        synthetic_state = dict(state)
+        synthetic_stages = dict(state.get("stages", {}))
+        for spec in self.registry.all_specs():
+            sid = spec.id
+            if sid not in synthetic_stages:
+                synthetic_stages[sid] = {}
+            synthetic_stages[sid]["done"] = True
+            # Provide minimal output for impl.design so _blueprint_valid passes
+            if sid == "impl.design":
+                synthetic_stages[sid]["output"] = json.dumps(
+                    {
+                        "tasks": [{"id": 1, "description": "t"}],
+                        "blueprint": "x" * 100,
+                    }
+                )
+        synthetic_state["stages"] = synthetic_stages
+        synthetic_state["status"] = "running"
+
+        bypassed_rules = self.rules.resolve_with_bypass(active_node_names | {"__start__"}, synthetic_state)
+        self._add_edges(builder, bypassed_rules, active_node_names, synthetic_state, topology)
 
         if self.parallel_qa:
             self._add_parallel_qa(builder, active_specs, active_node_names, state, topology)
@@ -305,16 +333,89 @@ class GraphBuilder:
         compiled = builder.compile(**kwargs)
         return compiled, topology
 
-    def _routing_mode(self, node_name: str) -> str:
-        """Return the routing ownership of a node: "command" or "edges".
+    # ── Failure routing table (new in strict routing refactor) ────────────
+    # Maps stage node names to their rollback target.
+    # Stages not listed have no failure route (only terminal / self-retry).
+    FAILURE_ROUTES: dict[str, str] = {
+        "verify": "impl-code",
+        "e2e-execute": "impl-code",
+        "deploy-prepare": "impl-code",
+        "smoke-test": "impl-code",
+        "arch.review": "arch-requirements",
+    }
 
-        Nodes not in the registry (e.g. qa-dispatcher/qa-join, added directly by
-        _add_parallel_qa) default to "command" — all such nodes return Command.
+    def _failure_target(self, node_name: str) -> str | None:
+        """Return the rollback target for a stage, or None if none."""
+        return self.FAILURE_ROUTES.get(node_name)
+
+    def _resolve_forward_target(
+        self,
+        node_name: str,
+        rules: list[EdgeRule],
+        active_names: set[str],
+        state: dict[str, Any],
+    ) -> str | None:
+        """Resolve the forward (happy-path) target for a node.
+
+        For proposal paths: the authorized edge from the node.
+        For deterministic paths: the edge whose condition evaluates True
+        (with bypass of inactive intermediaries).
+
+        Uses a synthetic state where all active stages are done=True
+        so forward targets depend only on known build-time config
+        (complexity, ui_project, work_type), not runtime state.
+
+        Returns None if no forward target found — this is a compilation error.
         """
-        for spec in self.registry.all_specs():
-            if spec.node_name == node_name:
-                return spec.routing
-        return "command"
+        from_node = node_name
+
+        # Build synthetic state: all active stages done=True, status=running
+        # This lets us evaluate complexity/ui_project/work_type conditions
+        # without depending on runtime stage completion.
+        synthetic = dict(state)
+        stages = synthetic.get("stages", {})
+        # Ensure the current node's stage is done (it's the source of the outgoing rule)
+        current_stage_key = node_name.replace("-", ".")
+        if current_stage_key not in stages:
+            stages[current_stage_key] = {"done": True}
+        stages[current_stage_key]["done"] = True
+        for sid in stages:
+            stages[sid]["done"] = True
+            # Provide a minimal output for impl.design so _blueprint_valid passes
+            if sid == "impl.design":
+                stages[sid]["output"] = json.dumps(
+                    {
+                        "tasks": [{"id": 1, "description": "task1"}],
+                        "blueprint": "x" * 100,
+                    }
+                )
+        synthetic["status"] = "running"
+
+        # Filter rules that originate from this node
+        outgoing = [r for r in rules if r.from_node == from_node or r.from_node == "*"]
+
+        # Look for forward-progress edges (not loopback, not terminal)
+        # Higher priority first — loopbacks beat forward edges
+        for rule in sorted(outgoing, key=lambda r: r.priority, reverse=True):
+            if rule.edge_type == "loopback":
+                continue
+            if rule.edge_type == "terminal":
+                continue
+
+            to_name = self._to_node_name(rule.to_node)
+            # For conditional rules, check if the condition evaluates
+            if rule.condition is None:
+                # Fixed edge — just check if target is active
+                if to_name in active_names or to_name == "__end__":
+                    return to_name
+            else:
+                # Conditional edge — evaluate the condition against synthetic state
+                if rule.evaluate(synthetic):
+                    if to_name in active_names or to_name == "__end__":
+                        return to_name
+
+        # No forward target found — return None (will cause compilation error)
+        return None
 
     def _add_edges(
         self,
@@ -324,105 +425,421 @@ class GraphBuilder:
         state: dict[str, Any],
         topology: GraphTopology,
     ) -> None:
-        """Register graph edges from resolved rules.
+        """Register graph edges using unified routing.
 
-        SINGLE SOURCE OF ROUTING (FASE 1.1): nodes with routing="command" own
-        their routing via Command(goto=...). LangGraph evaluates declared edges
-        IN PARALLEL with a Command's goto — registering any outgoing edge for a
-        command-routed node causes double execution. Only nodes with
-        routing="edges" (plain-dict handlers) receive declared edges.
+        ALL nodes receive declared edges (no more "command" exclusion).
+        Routing is determined by edge condition evaluators, not by handler return type.
+
+        Each stage node gets ONE conditional edge with destinations:
+        - __end__ (terminal: status=blocked/waiting)
+        - failure_target (rollback: verdict=FAIL)
+        - self (retry: not done, verdict != FAIL)
+        - forward_target (forward: done)
+
+        The unified evaluator (_route_unified) selects the right destination.
         """
-        fixed_edges: dict[str, list[str]] = {}
-        conditional_sources: dict[str, list[EdgeRule]] = {}
+        # Track which nodes have forward targets for validation
+        unregistered: set[str] = set()
 
-        for rule in rules:
-            from_name = self._to_node_name(rule.from_node)
+        # ── 1. Register entry edge from START ──────────────────────────
+        start_rules = [r for r in rules if r.from_node == "__start__"]
+        for rule in start_rules:
             to_name = self._to_node_name(rule.to_node)
-
-            if rule.edge_type == "fixed":
-                # Command-routed nodes must not get fixed edges (double fire).
-                # __start__ is not a node — its entry edges always register.
-                if from_name != "__start__" and self._routing_mode(from_name) == "command":
-                    continue
-                fixed_edges.setdefault(from_name, []).append(to_name)
+            if to_name in active_names:
+                builder.add_edge(START, to_name)
                 topology.edges.append(
                     {
-                        "from": rule.from_node,
+                        "from": "__start__",
                         "to": rule.to_node,
                         "type": "fixed",
                     }
                 )
-            else:
-                # Conditional edges only for edge-routed nodes (currently none —
-                # every handler returns Command).
-                if from_name != "__start__" and self._routing_mode(from_name) != "edges":
-                    continue
-                conditional_sources.setdefault(from_name, []).append(rule)
 
-        for from_name, to_names in fixed_edges.items():
-            if from_name not in active_names:
-                continue
-            for to_name in to_names:
-                if to_name == "__end__":
-                    builder.add_edge(from_name, END)
-                elif to_name == "__start__":
-                    builder.add_edge(START, from_name)
-                elif to_name in active_names:
-                    builder.add_edge(from_name, to_name)
-
-        start_targets = fixed_edges.get("__start__", [])
-        for target in start_targets:
-            if target in active_names:
-                builder.add_edge(START, target)
-
-        for from_name, cond_rules in conditional_sources.items():
-            if from_name not in active_names:
+        # ── 2. Register unified conditional edge for each stage node ────
+        # Exclude meta nodes — they get special edges in _add_meta_node_edges
+        META_NODE_NAMES = {"dynamic-architect", "meta-executor"}
+        for node_name in active_names:
+            if node_name in ("__start__", "__end__") or node_name in META_NODE_NAMES:
                 continue
 
-            choices: dict[str, Any] = {}
-            for rule in cond_rules:
-                label = rule.to_node
-                to_name = self._to_node_name(rule.to_node)
-                if to_name == "__end__":
-                    choices[label] = END
-                elif to_name == "__start__":
-                    choices[label] = START
-                else:
-                    choices[label] = to_name
+            failure_target = self._failure_target(node_name)
+            forward_target = self._resolve_forward_target(node_name, rules, active_names, state)
 
-            if "__end__" not in choices:
-                choices["__end__"] = END
+            if forward_target is None:
+                unregistered.add(node_name)
+                continue
 
-            rules_capture = list(cond_rules)
+            # Build destinations dict for LangGraph branch lookup
+            destinations: dict[str, Any] = {
+                "__end__": END,
+                node_name: node_name,  # self-retry
+            }
+            if failure_target and failure_target in active_names:
+                destinations[failure_target] = failure_target
+            destinations[forward_target] = forward_target
+
+            # Register the unified conditional edge
+            # Close over forward_target and failure_target via default args
             builder.add_conditional_edges(
-                from_name,
-                lambda s, r=rules_capture: self._route(r, s),
-                choices,
+                node_name,
+                lambda s, nn=node_name, ft=forward_target, fbt=failure_target: self._route_unified(
+                    nn,
+                    s,
+                    terminal_cond=lambda s: s.get("status") in ("blocked", "waiting_for_input"),
+                    failure_target=fbt,
+                    forward_target=ft,
+                ),
+                destinations,
             )
 
-    def _route(self, rules: list[EdgeRule], state: dict[str, Any]) -> str:
-        current = state.get("current_stage", "")
-        # Higher priority first — loopbacks (priority 10) must beat
-        # happy-path conditionals (priority 0) when both match, so a failed
-        # stage routes to its loopback instead of forward.
-        for rule in sorted(rules, key=lambda r: r.priority, reverse=True):
-            if rule.evaluate(state):
-                _trace.route_decision(
-                    function="_route",
-                    decision=rule.to_node,
-                    reason=f"rule:{rule.from_node}->{rule.to_node} matched ({rule.description})",
-                    state_snippet={
-                        "current_stage": current,
-                        "status": state.get("status", ""),
-                        "rule": f"{rule.from_node}->{rule.to_node}",
-                    },
+            # Record edge in topology
+            topology.edges.append(
+                {
+                    "from": node_name,
+                    "to": forward_target,
+                    "type": "forward",
+                }
+            )
+            topology.edges.append(
+                {
+                    "from": node_name,
+                    "to": "__end__",
+                    "type": "terminal",
+                }
+            )
+            if failure_target and failure_target in active_names:
+                topology.edges.append(
+                    {
+                        "from": node_name,
+                        "to": failure_target,
+                        "type": "rollback",
+                    }
                 )
-                return rule.to_node
+
+        # ── 3. Register meta-node specific edges (dynamic-architect, etc.) ──
+        self._add_meta_node_edges(builder, active_names, rules, state, topology)
+
+        # ── 4. Register parallel QA edges ──────────────────────────────
+        if self.parallel_qa:
+            self._add_parallel_qa_new(builder, active_names, rules, state, topology)
+
+        # ── 5. Validate: every node (except post/__end__) must have forward target ──
+        if unregistered:
+            stage_names_in_graph = sorted(active_names)
+            raise TopologyCompilationError(
+                f"Graph compilation failed: {len(unregistered)} node(s) have no forward target.\n"
+                f"Nodes without forward: {unregistered}\n"
+                f"Active nodes: {stage_names_in_graph}\n"
+                f"Ensure the topology proposal or deterministic rules provide a forward edge for each stage."
+            )
+
+        # ── 6. Register post → __end__ ─────────────────────────────────
+        if "post" in active_names:
+            builder.add_edge("post", END)
+            topology.edges.append(
+                {
+                    "from": "post",
+                    "to": "__end__",
+                    "type": "fixed",
+                }
+            )
+
+    def _add_meta_node_edges(
+        self,
+        builder: StateGraph,
+        active_names: set[str],
+        rules: list[EdgeRule],
+        state: dict[str, Any],
+        topology: GraphTopology,
+    ) -> None:
+        """Register edges for meta nodes (dynamic-architect, meta-executor).
+
+        These nodes have special routing that doesn't follow the standard pattern.
+        """
+        # dynamic-architect → meta-executor (if augment) OR init (if no augment)
+        if "dynamic-architect" in active_names:
+            builder.add_conditional_edges(
+                "dynamic-architect",
+                lambda s: (
+                    (
+                        (s.get("dynamic_plan") or {}).get("trigger") == "augment"
+                        and (s.get("dynamic_plan") or {}).get("steps")
+                    )
+                    and "meta-executor"
+                    or "init"
+                ),
+                ["meta-executor", "init"],
+            )
+            topology.edges.append(
+                {
+                    "from": "dynamic-architect",
+                    "to": "meta-executor",
+                    "type": "conditional",
+                    "description": "Augment → meta executor",
+                }
+            )
+            topology.edges.append(
+                {
+                    "from": "dynamic-architect",
+                    "to": "init",
+                    "type": "conditional",
+                    "description": "No augmentation → pipeline",
+                }
+            )
+
+        # meta-executor: self-loop (running) → init (completed) → __end__ (blocked)
+        if "meta-executor" in active_names:
+            builder.add_conditional_edges(
+                "meta-executor",
+                lambda s: (
+                    "__end__"
+                    if s.get("dynamic_runtime", {}).get("status") in ("blocked",)
+                    else "init"
+                    if s.get("dynamic_runtime", {}).get("status") == "completed"
+                    else "meta-executor"
+                ),
+                {"meta-executor": "meta-executor", "init": "init", "__end__": END},
+            )
+            topology.edges.append(
+                {
+                    "from": "meta-executor",
+                    "to": "meta-executor",
+                    "type": "conditional",
+                    "description": "Self-loop (running)",
+                }
+            )
+            topology.edges.append(
+                {
+                    "from": "meta-executor",
+                    "to": "init",
+                    "type": "conditional",
+                    "description": "All dynamic steps done → pipeline",
+                }
+            )
+            topology.edges.append(
+                {
+                    "from": "meta-executor",
+                    "to": "__end__",
+                    "type": "conditional",
+                    "description": "Dynamic step blocked → terminate",
+                }
+            )
+
+    def _add_parallel_qa_new(
+        self,
+        builder: StateGraph,
+        active_names: set[str],
+        rules: list[EdgeRule],
+        state: dict[str, Any],
+        topology: GraphTopology,
+    ) -> None:
+        """Register fan-out/fan-in edges for parallel QA using static edges.
+
+        The dispatcher fans out to all active QA workers (static edges).
+        Each worker has a fixed edge to qa-join.
+        No Command/Send remains — routing is purely edge-based.
+        """
+        from eng_loop.nodes.qa_parallel import _get_active_qa_nodes
+
+        qa_nodes = _get_active_qa_nodes(state)
+        if len(qa_nodes) < 2:
+            return
+
+        # Find upstream: e2e-execute (preferred) or verify
+        upstream_nodes = []
+        if "e2e-execute" in active_names:
+            upstream_nodes.append("e2e-execute")
+        elif "verify" in active_names:
+            upstream_nodes.append("verify")
+
+        if not upstream_nodes:
+            return
+
+        # Register qa-dispatcher and qa-join as nodes
+        from eng_loop.nodes.qa_parallel import qa_dispatcher_node, qa_join_node
+
+        builder.add_node("qa-dispatcher", qa_dispatcher_node)
+        builder.add_node("qa-join", qa_join_node)
+        active_names.add("qa-dispatcher")
+        active_names.add("qa-join")
+
+        # Fan-out: upstream → qa-dispatcher (static edge)
+        for upstream in upstream_nodes:
+            builder.add_edge(upstream, "qa-dispatcher")
+            topology.edges.append(
+                {
+                    "from": upstream,
+                    "to": "qa-dispatcher",
+                    "type": "fixed",
+                }
+            )
+
+        # Fan-out: qa-dispatcher → each QA worker (static edges)
+        for qa_node in qa_nodes:
+            builder.add_edge("qa-dispatcher", qa_node)
+            topology.edges.append(
+                {
+                    "from": "qa-dispatcher",
+                    "to": qa_node,
+                    "type": "fixed",
+                }
+            )
+
+        # Fan-in: each QA worker → qa-join (static edges)
+        for qa_node in qa_nodes:
+            builder.add_edge(qa_node, "qa-join")
+            topology.edges.append(
+                {
+                    "from": qa_node,
+                    "to": "qa-join",
+                    "type": "fixed",
+                }
+            )
+
+        # qa-join → deploy-prepare or impl-code (conditional)
+        builder.add_conditional_edges(
+            "qa-join",
+            lambda s: self._route_qa_join(s),
+            {"deploy-prepare": "deploy-prepare", "impl-code": "impl-code", "__end__": END},
+        )
+        topology.edges.append(
+            {
+                "from": "qa-join",
+                "to": "deploy-prepare",
+                "type": "conditional",
+                "description": "PASS → deploy",
+            }
+        )
+        topology.edges.append(
+            {
+                "from": "qa-join",
+                "to": "impl-code",
+                "type": "conditional",
+                "description": "ROLLBACK → impl-code",
+            }
+        )
+        topology.edges.append(
+            {
+                "from": "qa-join",
+                "to": "__end__",
+                "type": "conditional",
+                "description": "BLOCKED → end",
+            }
+        )
+
+    def _route_qa_join(self, state: dict[str, Any]) -> str:
+        """Route from qa-join based on aggregated QA results.
+
+        Returns: "deploy-prepare", "impl-code", or "__end__".
+        """
+
+        stages = state.get("stages", {})
+        qa_results = state.get("qa_results", {})
+
+        # Decision may be pre-computed by qa_join_node
+        decision = qa_results.get("join", {}).get("decision", "")
+
+        if not decision:
+            # Fallback: compute from individual QA stage verdicts
+            any_blocked = False
+            any_critical_fail = False
+
+            for stage_id, stage_data in stages.items():
+                if not stage_id.startswith("qa."):
+                    continue
+                status = stage_data.get("status", "")
+                verdict = stage_data.get("verdict", "")
+
+                if status == "blocked" or verdict == "BLOCKED":
+                    any_blocked = True
+                    continue
+
+                if verdict == "FAIL":
+                    any_critical_fail = True
+
+            if any_blocked:
+                return "__end__"
+            if any_critical_fail:
+                return "impl-code"
+            return "deploy-prepare"
+
+        if decision == "rollback":
+            return "impl-code"
+        if decision == "blocked":
+            return "__end__"
+        return "deploy-prepare"
+
+    def _route_unified(
+        self,
+        node_name: str,
+        state: dict[str, Any],
+        terminal_cond: Callable[[dict[str, Any]], bool],
+        failure_target: str | None = None,
+        forward_target: str | None = None,
+    ) -> str:
+        """Unified routing evaluator for all stage nodes.
+
+        Priority order (mutually exclusive by construction):
+        20  terminal:    status in (blocked, waiting_for_input) → __end__
+        10  rollback:    verdict == "FAIL" → failure target
+        10  self-retry:  not done and verdict != "FAIL" → self
+        0   forward:     done → forward target
+        """
+        # Priority 20: Terminal
+        if terminal_cond(state):
+            _trace.route_decision(
+                function="_route_unified",
+                decision="__end__",
+                reason=f"terminal: status={state.get('status')}",
+                state_snippet={"node": node_name, "status": state.get("status")},
+            )
+            return "__end__"
+
+        # Priority 10: Rollback (verdict == FAIL)
+        if failure_target:
+            stages = state.get("stages", {})
+            stage_data = stages.get(node_name.replace("-", "."), {})
+            verdict = stage_data.get("verdict", "")
+            if verdict == "FAIL":
+                _trace.route_decision(
+                    function="_route_unified",
+                    decision=failure_target,
+                    reason="rollback: verdict=FAIL",
+                    state_snippet={"node": node_name, "verdict": verdict},
+                )
+                return failure_target
+
+        # Self-retry: not done and verdict != FAIL
+        stages = state.get("stages", {})
+        stage_data = stages.get(node_name.replace("-", "."), {})
+        done = stage_data.get("done", False)
+        verdict = stage_data.get("verdict", "")
+
+        if not done and verdict != "FAIL":
+            _trace.route_decision(
+                function="_route_unified",
+                decision=node_name,
+                reason=f"self-retry: done={done}, verdict={verdict!r}",
+                state_snippet={"node": node_name, "done": done, "verdict": verdict},
+            )
+            return node_name
+
+        # Forward: done
+        if forward_target:
+            _trace.route_decision(
+                function="_route_unified",
+                decision=forward_target,
+                reason="forward: done=True",
+                state_snippet={"node": node_name, "done": True},
+            )
+            return forward_target
+
+        # Default: terminal (safety net)
         _trace.route_decision(
-            function="_route",
+            function="_route_unified",
             decision="__end__",
-            reason="no rules matched",
-            state_snippet={"current_stage": current, "status": state.get("status", "")},
+            reason="no route matched (safety terminal)",
+            state_snippet={"node": node_name},
         )
         return "__end__"
 

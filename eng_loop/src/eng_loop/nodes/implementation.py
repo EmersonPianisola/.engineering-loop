@@ -3,13 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DocUpdateOutput, ImplCodeOutput, ImplDesignOutput
 from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
     log_artifact,
@@ -19,7 +16,7 @@ from eng_loop.tools.progress import (
 
 
 @essence_gate("impl.design")
-def impl_design_node(state: dict[str, Any]) -> Command[str]:
+def impl_design_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -29,21 +26,17 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "impl.design"
 
     if stages.get(stage_id, {}).get("done", False):
-        _n = resolve_next("impl-code", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_impl_design_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(
-            update={
-                "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} non-convergence",
-            },
-            goto="__end__",
-        )
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} non-convergence",
+        }
 
     prompt = build_node_prompt(
         stage_id,
@@ -79,39 +72,26 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="impl-design",
-            )
-        stages[stage_id]["done"] = True
-        return Command(
-            update={
+            return {
                 "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} agent error",
-            },
-            goto="__end__",
-        )
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
+        stages[stage_id]["done"] = True
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} agent error",
+        }
 
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
     if not is_valid:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="impl-design",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -141,22 +121,16 @@ def impl_design_node(state: dict[str, Any]) -> Command[str]:
     )
 
     handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
-    _n = resolve_next("impl-code", state)
-    return Command(
-        update={
-            "stages": stages,
-            "decisions": new_decisions,
-            "stage_artifacts": {**state.get("stage_artifacts", {}), "impl.design": blueprint},
-            **handoff_update,
-            "current_stage": _n,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=_n,
-    )
+    return {
+        "stages": stages,
+        "decisions": new_decisions,
+        "stage_artifacts": {**state.get("stage_artifacts", {}), "impl.design": blueprint},
+        **handoff_update,
+    }
 
 
 @essence_gate("impl.code")
-def impl_code_node(state: dict[str, Any]) -> Command[str]:
+def impl_code_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -166,21 +140,17 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "impl.code"
 
     if stages.get(stage_id, {}).get("done", False):
-        _n = resolve_next("doc-update", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_impl_code_attempts", 3)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(
-            update={
-                "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} non-convergence",
-            },
-            goto="__end__",
-        )
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} non-convergence",
+        }
 
     # Read structured feedback from verifier/QA
     fix_tasks = state.get("fix_tasks", [])
@@ -259,39 +229,26 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="impl-code",
-            )
-        stages[stage_id]["done"] = True
-        return Command(
-            update={
+            return {
                 "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} agent error",
-            },
-            goto="__end__",
-        )
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
+        stages[stage_id]["done"] = True
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} agent error",
+        }
 
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
     if not is_valid:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="impl-code",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -320,25 +277,19 @@ def impl_code_node(state: dict[str, Any]) -> Command[str]:
             f"files: {len(result.get('files_created', []))}, tests: {result.get('tests_passed')}, tools: {agent_result.tool_calls_made}",
         )
 
-    _n = resolve_next("doc-update", state)
-    return Command(
-        update={
-            "stages": stages,
-            "decisions": new_decisions,
-            "stage_artifacts": new_artifacts,
-            **handoff_update,
-            # Clear fix state on successful completion
-            "fix_tasks": [],
-            "rollback_target": "",
-            "current_stage": _n,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=_n,
-    )
+    return {
+        "stages": stages,
+        "decisions": new_decisions,
+        "stage_artifacts": new_artifacts,
+        **handoff_update,
+        # Clear fix state on successful completion
+        "fix_tasks": [],
+        "rollback_target": "",
+    }
 
 
 @essence_gate("doc.update")
-def doc_update_node(state: dict[str, Any]) -> Command[str]:
+def doc_update_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -348,15 +299,13 @@ def doc_update_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "doc.update"
 
     if stages.get(stage_id, {}).get("done", False):
-        _n = resolve_next("verify", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_doc_update_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        _n = resolve_next("verify", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     prompt = build_node_prompt(
         stage_id,
@@ -391,18 +340,12 @@ def doc_update_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="doc-update",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
         stages[stage_id]["done"] = True
-        _n = resolve_next("verify", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -410,12 +353,6 @@ def doc_update_node(state: dict[str, Any]) -> Command[str]:
 
     log_stage_done(stage_id, f"updated: {result.get('files_updated', [])}, tools: {agent_result.tool_calls_made}")
 
-    _n = resolve_next("verify", state)
-    return Command(
-        update={
-            "stages": stages,
-            "current_stage": _n,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=_n,
-    )
+    return {
+        "stages": stages,
+    }

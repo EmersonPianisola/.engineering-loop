@@ -928,8 +928,39 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     finally:
-        _final_status = state.get("status", "unknown")
-        _trace.system_event("PIPELINE_END", status=_final_status, current_stage=state.get("current_stage", ""))
+        # Use final_state from _run_loop_with_recovery, not the stale local `state`
+        _final_status = final_state.get("status", "unknown")
+        _current_stage = final_state.get("current_stage", "")
+
+        # Post-stream validation: if pipeline ended with status="running" and
+        # there are active nodes that never completed, treat as an error.
+        # This catches silent routing failures (e.g., Command(goto=unknown_node)
+        # being silently discarded by LangGraph).
+        if _final_status == "running" and final_state.get("stages"):
+            pending = [
+                sid for sid, sd in final_state["stages"].items() if not sd.get("done", False) and sid not in ("post",)
+            ]
+            if pending:
+                final_state["status"] = "halted"
+                final_state["blocking_condition"] = (
+                    f"pipeline ended unexpectedly at {_current_stage} — stages pending: {pending}"
+                )
+                _final_status = "halted"
+                _trace.system_event(
+                    "PIPELINE_ERROR",
+                    error=f"Pipeline ended prematurely at {_current_stage}",
+                    pending_stages=pending,
+                )
+                ui.console.print()
+                ui.console.print(
+                    Panel(
+                        f"[bold red]Pipeline ended prematurely at {_current_stage}[/bold red]\n"
+                        f"[dim]Pending stages: {', '.join(pending)}[/dim]",
+                        border_style="red",
+                    )
+                )
+
+        _trace.system_event("PIPELINE_END", status=_final_status, current_stage=_current_stage)
         _trace.stop()
         if hud:
             hud.stop()

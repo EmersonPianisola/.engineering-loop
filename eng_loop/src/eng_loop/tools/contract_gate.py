@@ -6,8 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from langgraph.types import Command
-
 logger = logging.getLogger(__name__)
 
 
@@ -281,7 +279,6 @@ def check_contract(
                 }
             return "retry_source", {
                 "errors": [f"Contract {rule.source}→{rule.target}: {msg}"],
-                "current_stage": rule.source,
             }
         elif rule.on_fail == "block":
             return "block", {
@@ -300,56 +297,55 @@ def check_contract(
 
 def contract_gate_middleware(
     source_node: str,
-    handler_result: Command[str],
+    handler_result: dict[str, Any],
     source_output: dict[str, Any],
     state: dict[str, Any],
-) -> Command[str]:
-    """Intercept a node's Command result and validate the handoff contract.
+) -> dict[str, Any]:
+    """Intercept a node's dict result and validate the handoff contract.
 
-    If the contract passes, returns the original Command unchanged.
-    If it fails, overrides the Command with retry/block routing.
+    If the contract passes, returns the original dict unchanged.
+    If it fails, overrides the result with retry/block routing keys.
     """
-    target_node = handler_result.goto
-    if target_node == "__end__":
+    # Check if this is a terminal pass-through (post_node returns _terminal=True)
+    if handler_result.get("_terminal"):
         return handler_result
 
     # Skip validation if node is in "already done" pass-through mode.
-    # When a node sees done=True, it returns a minimal Command without
+    # When a node sees done=True, it returns an empty dict without
     # stage output in the update. The contract gate should not re-validate
     # output that was already validated on the first successful run.
-    stages_in_cmd = handler_result.update.get("stages", {}) if handler_result.update else {}
+    stages_in_result = handler_result.get("stages", {})
     stage_key = source_node.replace("-", ".")
-    if not source_output and stage_key not in stages_in_cmd and source_node not in stages_in_cmd:
+    if not source_output and stage_key not in stages_in_result and source_node not in stages_in_result:
         source_stage = state.get("stages", {}).get(stage_key, {})
         if source_stage.get("done", False) and source_stage.get("output"):
             return handler_result
 
-    action, update = check_contract(source_node, target_node, source_output, state)
+    action, update = check_contract(source_node, "next", source_output, state)
 
     if action == "proceed":
-        merged_update = {**handler_result.update, **update} if update else handler_result.update
-        return Command(update=merged_update, goto=handler_result.goto)
+        merged_update = {**handler_result, **update} if update else handler_result
+        return merged_update
 
     if action == "retry_source":
-        merged_update = dict(handler_result.update) if handler_result.update else {}
+        merged_update = dict(handler_result) if handler_result else {}
         merged_update.update(update)
-        merged_update["iteration"] = state.get("iteration", 0) + 1
         # Reset done flag so the node re-executes instead of short-circuiting
         if "stages" not in merged_update:
             merged_update["stages"] = {}
         stage_id = source_node.replace("-", ".")
         if stage_id in merged_update["stages"]:
             merged_update["stages"][stage_id]["done"] = False
-        return Command(update=merged_update, goto=source_node)
+        return merged_update
 
     if action == "block":
-        # Node already exhausted attempts — pass through its __end__ Command
+        # Node already exhausted attempts — pass through its terminal dict
         # to avoid conflicting state updates (status, blocking_condition)
-        if handler_result.update and handler_result.update.get("status") == "blocked":
-            return Command(goto="__end__", update=handler_result.update)
-        merged_update = dict(handler_result.update) if handler_result.update else {}
+        if handler_result.get("status") == "blocked":
+            return handler_result
+        merged_update = dict(handler_result) if handler_result else {}
         merged_update.update(update)
-        return Command(update=merged_update, goto="__end__")
+        return merged_update
 
     return handler_result
 
@@ -359,21 +355,15 @@ def with_contract_gate(source_node: str):
     import functools
     from collections.abc import Callable as C
 
-    def decorator(handler: C[[dict[str, Any]], Command[str]]) -> C[[dict[str, Any]], Any]:
+    def decorator(handler: C[[dict[str, Any]], dict[str, Any]]) -> C[[dict[str, Any]], dict[str, Any]]:
         @functools.wraps(handler)
-        def wrapper(state: dict[str, Any]) -> Any:
+        def wrapper(state: dict[str, Any]) -> dict[str, Any]:
             result = handler(state)
 
-            # Pass through list[Send] returns (e.g., qa-dispatcher fan-out)
-            if isinstance(result, list):
-                return result
-
-            cmd: Command[str] = result
-
-            # Extract stage output from the Command's stages update.
+            # Extract stage output from the handler's dict result.
             # The stage key can be either node name ("impl-design") or stage ID ("impl.design").
             stage_output = {}
-            stages_data = cmd.update.get("stages", {}) if cmd.update else {}
+            stages_data = result.get("stages", {}) if isinstance(result, dict) else {}
 
             # Try node name first (e.g., "impl-design")
             if source_node in stages_data:
@@ -392,7 +382,7 @@ def with_contract_gate(source_node: str):
                 if artifact:
                     stage_output = {"output": artifact}
 
-            return contract_gate_middleware(source_node, cmd, stage_output, state)
+            return contract_gate_middleware(source_node, result, stage_output, state)
 
         return wrapper
 

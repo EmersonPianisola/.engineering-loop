@@ -1428,6 +1428,10 @@ def log_stall_warning(stage_id: str, report_msg: str) -> None:
 def trace_node(stage_id: str):
     """Decorator that logs stage entry, activates spinner, times execution, and renders handoff panel.
 
+    Also merges {"current_stage": stage_id, "iteration": state.iteration + 1} into
+    the handler's return value. This is the single source of truth for stage identity
+    and iteration count in snapshots — handlers no longer write these fields.
+
     In dry-run mode (ENG_DRY_RUN=1), spinner is suppressed to avoid context pollution.
     If the handler called log_stage_skip, renders a skip panel instead of
     a completed panel so the visual output is consistent.
@@ -1475,6 +1479,11 @@ def trace_node(stage_id: str):
                         tool_calls=tool_count,
                         summary=inner_summary,
                     )
+                # Merge current_stage and iteration into the return value
+                if isinstance(result, dict):
+                    result = {**result, "current_stage": stage_id, "iteration": iteration + 1}
+                elif result is None:
+                    result = {"current_stage": stage_id, "iteration": iteration + 1}
                 return result
             except Exception as e:
                 elapsed = time.monotonic() - t0

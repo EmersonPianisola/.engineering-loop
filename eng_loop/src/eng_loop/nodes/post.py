@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import PostOutput
 from eng_loop.state import compute_task_outcome, get_work_item_text
@@ -18,7 +16,7 @@ from eng_loop.tools.progress import (
 
 
 @essence_gate("post")
-def post_node(state: dict[str, Any]) -> Command[str]:
+def post_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -29,7 +27,7 @@ def post_node(state: dict[str, Any]) -> Command[str]:
     artifact_root = paths.get("artifact_root", "")
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(goto="__end__")
+        return {"_terminal": True}
 
     stage_file = get_stage_file(stage_id)
     stage_proc = load_stage_procedure(paths.get("framework_stage_root", ""), stage_file)
@@ -169,14 +167,10 @@ Set final_status to "failed" if artifacts are missing or work item was not compl
     # Compute honest task outcome — post failure means task failure
     task_outcome = compute_task_outcome(stages, post_final_status)
 
-    return Command(
-        update={
-            "stages": stages,
-            "status": task_outcome,
-            "task_outcome": task_outcome,
-            "artifact_evidence": artifact_evidence,
-            "current_stage": "",
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto="__end__",
-    )
+    return {
+        "stages": stages,
+        "status": task_outcome,
+        "task_outcome": task_outcome,
+        "artifact_evidence": artifact_evidence,
+        "_terminal": True,
+    }

@@ -11,10 +11,13 @@ if TYPE_CHECKING:
 
 
 def _event_bus_trace_handler(event: PipelineEvent) -> None:
-    """Subscribe to event bus and forward events to trace logger."""
+    """Subscribe to event bus and forward events to trace logger.
+
+    NOTE: stage_enter is now emitted only by trace_node (the handler decorator).
+    The event bus no longer emits stage_enter to avoid duplicate ENTER events.
+    """
     event_type = event.event_type
     if event_type.startswith("node."):
-        _trace.stage_enter(event.node_id, iteration=event.attempt) if "started" in event_type else None
         _trace.system_event(
             event_type,
             node_id=event.node_id,

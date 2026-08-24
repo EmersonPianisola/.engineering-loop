@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DesignOutput
 from eng_loop.tools.essence_gate import essence_gate
-from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
     log_artifact,
@@ -24,19 +21,10 @@ DESIGN_STAGES = [
     "design.visual-design",
 ]
 
-DESIGN_NEXT_MAP = {
-    "design.user-research": "design-personas",
-    "design.personas": "design-info-arch",
-    "design.info-arch": "design-interaction",
-    "design.interaction": "design-design-system",
-    "design.design-system": "design-visual-design",
-    "design.visual-design": "_design_complete",
-}
-
 
 def design_node(stage_id: str):
     @essence_gate(stage_id)
-    def node_fn(state: dict[str, Any]) -> Command[str]:
+    def node_fn(state: dict[str, Any]) -> dict[str, Any]:
         from eng_loop.tools.agent_runner import AgentResult, run_agent
         from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -45,10 +33,7 @@ def design_node(stage_id: str):
         paths = state.get("paths", {})
 
         if stages.get(stage_id, {}).get("done", False):
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1}
-            )
+            return {}
 
         max_attempts = config.get("constraints", {}).get(
             f"max_{stage_id.replace('.', '_').replace('-', '_')}_attempts", 2
@@ -56,11 +41,7 @@ def design_node(stage_id: str):
 
         if stages[stage_id].get("attempts", 0) >= max_attempts:
             stages[stage_id]["done"] = True
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"},
-                goto=next_node,
-            )
+            return {"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} non-convergence"}
 
         prompt = build_node_prompt(
             stage_id,
@@ -98,21 +79,12 @@ def design_node(stage_id: str):
             log_stage_fail(stage_id, agent_result.error)
             stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
             if stages[stage_id]["attempts"] < max_attempts:
-                return Command(
-                    update={
-                        "stages": stages,
-                        "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                        "current_stage": stage_id,
-                        "iteration": state.get("iteration", 0) + 1,
-                    },
-                    goto=stage_id.replace(".", "-").replace("_", "-"),
-                )
+                return {
+                    "stages": stages,
+                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+                }
             stages[stage_id]["done"] = True
-            next_node = _resolve_next(stage_id, state)
-            return Command(
-                update={"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"},
-                goto=next_node,
-            )
+            return {"stages": stages, "status": "blocked", "blocking_condition": f"{stage_id} agent error"}
 
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         stages[stage_id]["done"] = True
@@ -138,37 +110,17 @@ def design_node(stage_id: str):
 
             record_decision({"decisions": new_decisions}, d)
 
-        next_node = _resolve_next(stage_id, state)
         log_stage_done(stage_id, f"output: {len(design_output)} chars, tools: {agent_result.tool_calls_made}")
 
         handoff_update = build_handoff_update(stage_id, result, new_decisions, state)
 
-        return Command(
-            update={
-                "stages": stages,
-                "decisions": new_decisions,
-                **handoff_update,
-                "current_stage": next_node,
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto=next_node,
-        )
+        return {
+            "stages": stages,
+            "decisions": new_decisions,
+            **handoff_update,
+        }
 
     return node_fn
-
-
-def _resolve_next(stage_id: str, state: dict[str, Any]) -> str:
-    next_node = DESIGN_NEXT_MAP.get(stage_id, _post_design(state))
-    if next_node == "_design_complete":
-        next_node = _post_design(state)
-    return next_node
-
-
-def _post_design(state: dict[str, Any]) -> str:
-    complexity = state.get("complexity", "small")
-    if complexity in ("medium", "large", "complex"):
-        return resolve_next("arch-requirements", state)
-    return resolve_next("impl-design", state)
 
 
 def get_design_nodes() -> list[tuple[str, str]]:

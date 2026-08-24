@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
-from langgraph.types import Command
-
 from eng_loop.context_bus import ContextBus
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import EssenceDecision, EssenceOutput, Severity
@@ -88,16 +86,17 @@ def essence_gate(stage_id: str):
 
     Usage:
         @essence_gate("impl.code")
-        def impl_code_node(state: dict[str, Any]) -> Command[str]:
+        def impl_code_node(state: dict[str, Any]) -> dict[str, Any]:
             ...
 
     The decorator extracts config and paths from state, runs the essence
-    gate, and returns a blocked/waiting Command based on the policy decision.
+    gate, and returns a blocked/waiting dict based on the policy decision.
+    The terminal edge (status=blocked/waiting) routes to __end__.
     """
 
-    def decorator(fn: Callable[[dict[str, Any]], Command[str]]) -> Callable[[dict[str, Any]], Command[str]]:
+    def decorator(fn: Callable[[dict[str, Any]], dict[str, Any]]) -> Callable[[dict[str, Any]], dict[str, Any]]:
         @wraps(fn)
-        def wrapper(state: dict[str, Any]) -> Command[str]:
+        def wrapper(state: dict[str, Any]) -> dict[str, Any]:
             config = state.get("config", {})
             paths = state.get("paths", {})
             stages = dict(state.get("stages", {}))
@@ -105,34 +104,28 @@ def essence_gate(stage_id: str):
             essence = run_essence_gate(stage_id, state, paths, config)
 
             if essence.blocked:
-                return Command(
-                    update={
-                        "status": "blocked",
-                        "blocking_condition": f"Essence gate blocked {stage_id}: {essence.tension}",
-                        # Post-gate state — the gate may have auto-adjusted
-                        # complexity/stages in place (F3.4); the stale `stages`
-                        # snapshot captured above would revert them.
-                        "stages": state.get("stages", stages),
-                        "complexity": state.get("complexity", "unset"),
-                        "essence": state.get("essence", {}),
-                        "essence_tension": essence.tension,
-                    },
-                    goto="__end__",
-                )
+                return {
+                    "status": "blocked",
+                    "blocking_condition": f"Essence gate blocked {stage_id}: {essence.tension}",
+                    # Post-gate state — the gate may have auto-adjusted
+                    # complexity/stages in place (F3.4); the stale `stages`
+                    # snapshot captured above would revert them.
+                    "stages": state.get("stages", stages),
+                    "complexity": state.get("complexity", "unset"),
+                    "essence": state.get("essence", {}),
+                    "essence_tension": essence.tension,
+                }
 
             if essence.waiting_for_input:
                 essence_state = build_essence_state(stage_id, essence, state, config)
-                return Command(
-                    update={
-                        "status": "waiting_for_input",
-                        "blocking_condition": "essence_clarification_needed",
-                        "stages": state.get("stages", stages),
-                        "complexity": state.get("complexity", "unset"),
-                        "essence": essence_state,
-                        "essence_clarifying_questions": essence.clarifying_questions,
-                    },
-                    goto="__end__",
-                )
+                return {
+                    "status": "waiting_for_input",
+                    "blocking_condition": "essence_clarification_needed",
+                    "stages": state.get("stages", stages),
+                    "complexity": state.get("complexity", "unset"),
+                    "essence": essence_state,
+                    "essence_clarifying_questions": essence.clarifying_questions,
+                }
 
             if essence.updated_state and essence.updated_state.get("stages"):
                 state["stages"] = essence.updated_state["stages"]

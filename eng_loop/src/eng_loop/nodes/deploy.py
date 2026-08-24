@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import DeployPrepareOutput, SmokeTestOutput
 from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
     log_artifact,
@@ -18,7 +15,7 @@ from eng_loop.tools.progress import (
 
 
 @essence_gate("deploy.prepare")
-def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
+def deploy_prepare_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -28,18 +25,14 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "deploy.prepare"
 
     if stages.get(stage_id, {}).get("done", False):
-        next_node = _post_deploy(state)
-        return Command(goto=next_node, update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_deploy_prepare_attempts", 2)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
-        return Command(
-            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
-            goto="impl-code",
-        )
+        return {"stages": stages}
 
     prompt = build_node_prompt(
         stage_id,
@@ -81,21 +74,13 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="deploy-prepare",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
-        return Command(
-            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
-            goto="impl-code",
-        )
+        return {"stages": stages}
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -103,15 +88,10 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="deploy-prepare",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     verdict = result.get("verdict", "PASS")
 
@@ -120,15 +100,10 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
         stages[stage_id]["done"] = False
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         log_stage_fail(stage_id, f"FAIL: {result.get('errors', [])}")
-        return Command(
-            update={
-                "stages": stages,
-                "current_stage": "impl-code",
-                "errors": list(state.get("errors", [])) + [f"deploy.prepare FAIL: {result.get('errors', [])}"],
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="impl-code",
-        )
+        return {
+            "stages": stages,
+            "errors": list(state.get("errors", [])) + [f"deploy.prepare FAIL: {result.get('errors', [])}"],
+        }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -136,20 +111,14 @@ def deploy_prepare_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
-    next_node = _post_deploy(state)
-    return Command(
-        update={
-            "stages": stages,
-            **handoff_update,
-            "current_stage": next_node,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=next_node,
-    )
+    return {
+        "stages": stages,
+        **handoff_update,
+    }
 
 
 @essence_gate("smoke.test")
-def smoke_test_node(state: dict[str, Any]) -> Command[str]:
+def smoke_test_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -159,18 +128,14 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "smoke.test"
 
     if stages.get(stage_id, {}).get("done", False):
-        _n = resolve_next("doc-decisions", state)
-        return Command(goto=_n, update={"current_stage": _n, "iteration": state.get("iteration", 0) + 1})
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_smoke_test_attempts", 3)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
-        return Command(
-            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
-            goto="impl-code",
-        )
+        return {"stages": stages}
 
     prompt = build_node_prompt(
         stage_id,
@@ -217,21 +182,13 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="smoke-test",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
         stages["impl.code"]["done"] = False
         stages[stage_id]["done"] = True
-        return Command(
-            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
-            goto="impl-code",
-        )
+        return {"stages": stages}
 
     # Evidence gate
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
@@ -239,15 +196,10 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="smoke-test",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     verdict = result.get("verdict", "PASS")
 
@@ -262,10 +214,9 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
         stages[stage_id]["done"] = False
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         log_stage_fail(stage_id, "FAIL")
-        return Command(
-            update={"stages": stages, "current_stage": "impl-code", "iteration": state.get("iteration", 0) + 1},
-            goto="impl-code",
-        )
+        return {
+            "stages": stages,
+        }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -273,25 +224,7 @@ def smoke_test_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
-    _n = resolve_next("doc-decisions", state)
-    return Command(
-        update={
-            "stages": stages,
-            **handoff_update,
-            "current_stage": _n,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=_n,
-    )
-
-
-def _post_deploy(state: dict[str, Any]) -> str:
-    ui_project = state.get("ui_project", False)
-    complexity = state.get("complexity", "small")
-
-    if ui_project:
-        return resolve_next("smoke-test", state)
-
-    if complexity in ("medium", "large", "complex"):
-        return resolve_next("doc-decisions", state)
-    return resolve_next("post", state)
+    return {
+        "stages": stages,
+        **handoff_update,
+    }

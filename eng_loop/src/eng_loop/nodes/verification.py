@@ -3,14 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from langgraph.types import Command
-
 from eng_loop.model import create_model_from_config
 from eng_loop.schemas import E2eOutput, VerifyOutput
 from eng_loop.state import rollback_to_stage
 from eng_loop.tools.essence_gate import essence_gate
 from eng_loop.tools.evidence_gate import validate_stage_output
-from eng_loop.tools.next_active import resolve_next
 from eng_loop.tools.node_helpers import build_handoff_update, build_node_prompt
 from eng_loop.tools.progress import (
     log_artifact,
@@ -43,7 +40,7 @@ def _build_fix_tasks(
 
 
 @essence_gate("verify")
-def verify_node(state: dict[str, Any]) -> Command[str]:
+def verify_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -53,26 +50,17 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "verify"
 
     if stages.get(stage_id, {}).get("done", False):
-        return Command(
-            goto=_post_verify(state),
-            update={
-                "current_stage": _post_verify(state),
-                "iteration": state.get("iteration", 0) + 1,
-            },
-        )
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_verify_attempts", 3)
 
     if stages[stage_id].get("attempts", 0) >= max_attempts:
         stages[stage_id]["done"] = True
-        return Command(
-            update={
-                "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} non-convergence",
-            },
-            goto="__end__",
-        )
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} non-convergence",
+        }
 
     prompt = build_node_prompt(
         stage_id,
@@ -115,39 +103,26 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="verify",
-            )
-        stages[stage_id]["done"] = True
-        return Command(
-            update={
+            return {
                 "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} agent error",
-            },
-            goto="__end__",
-        )
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
+        stages[stage_id]["done"] = True
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} agent error",
+        }
 
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
     if not is_valid:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="verify",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     verdict = result.get("verdict", "PASS")
 
@@ -172,18 +147,13 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
         fix_iteration = state.get("fix_iteration", 0) + 1
         log_stage_fail(stage_id, f"FAIL ({fix_iteration}): {len(gaps)} gaps")
 
-        return Command(
-            update={
-                "stages": reset_stages,
-                "current_stage": "impl-code",
-                "rollback_target": "impl.code",
-                "fix_tasks": fix_tasks,
-                "fix_iteration": fix_iteration,
-                "errors": list(state.get("errors", [])) + [f"Verify FAIL (iteration {fix_iteration}): {gaps}"],
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="impl-code",
-        )
+        return {
+            "stages": reset_stages,
+            "rollback_target": "impl.code",
+            "fix_tasks": fix_tasks,
+            "fix_iteration": fix_iteration,
+            "errors": list(state.get("errors", [])) + [f"Verify FAIL (iteration {fix_iteration}): {gaps}"],
+        }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -191,20 +161,14 @@ def verify_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
-    next_node = _post_verify(state)
-    return Command(
-        update={
-            "stages": stages,
-            **handoff_update,
-            "current_stage": next_node,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=next_node,
-    )
+    return {
+        "stages": stages,
+        **handoff_update,
+    }
 
 
 @essence_gate("e2e.execute")
-def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
+def e2e_execute_node(state: dict[str, Any]) -> dict[str, Any]:
     from eng_loop.tools.agent_runner import AgentResult, run_agent
     from eng_loop.tools.agent_tools import get_tools_for_stage
 
@@ -214,11 +178,7 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
     stage_id = "e2e.execute"
 
     if stages.get(stage_id, {}).get("done", False):
-        next_node = _post_e2e(state)
-        return Command(
-            goto=next_node,
-            update={"current_stage": next_node, "iteration": state.get("iteration", 0) + 1},
-        )
+        return {}
 
     max_attempts = config.get("constraints", {}).get("max_e2e_execute_attempts", 3)
 
@@ -229,31 +189,23 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
             [],
         )
         reset_stages = rollback_to_stage(stages, "e2e.execute", "impl.code")
-        return Command(
-            update={
-                "stages": reset_stages,
-                "current_stage": "impl-code",
-                "rollback_target": "impl.code",
-                "fix_tasks": fix_tasks,
-                "fix_iteration": state.get("fix_iteration", 0) + 1,
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="impl-code",
-        )
+        return {
+            "stages": reset_stages,
+            "rollback_target": "impl.code",
+            "fix_tasks": fix_tasks,
+            "fix_iteration": state.get("fix_iteration", 0) + 1,
+        }
 
     # Pre-flight: verify Playwright can launch before expensive agent run
     _e2e_error = _check_e2e_prerequisites(paths)
     if _e2e_error:
         log_stage_fail(stage_id, f"pre-flight: {_e2e_error}")
         stages[stage_id]["done"] = True
-        return Command(
-            update={
-                "stages": stages,
-                "status": "blocked",
-                "blocking_condition": f"{stage_id} pre-flight failed: {_e2e_error}",
-            },
-            goto="__end__",
-        )
+        return {
+            "stages": stages,
+            "status": "blocked",
+            "blocking_condition": f"{stage_id} pre-flight failed: {_e2e_error}",
+        }
 
     prompt = build_node_prompt(
         stage_id,
@@ -289,43 +241,28 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
         log_stage_fail(stage_id, agent_result.error)
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="e2e-execute",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} agent error: {agent_result.error}"],
+            }
         fix_tasks = _build_fix_tasks("e2e.execute", [f"E2E agent error: {agent_result.error}"], [])
         reset_stages = rollback_to_stage(stages, "e2e.execute", "impl.code")
-        return Command(
-            update={
-                "stages": reset_stages,
-                "current_stage": "impl-code",
-                "rollback_target": "impl.code",
-                "fix_tasks": fix_tasks,
-                "fix_iteration": state.get("fix_iteration", 0) + 1,
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="impl-code",
-        )
+        return {
+            "stages": reset_stages,
+            "rollback_target": "impl.code",
+            "fix_tasks": fix_tasks,
+            "fix_iteration": state.get("fix_iteration", 0) + 1,
+        }
 
     is_valid, error_msg = validate_stage_output(stage_id, result, str(result))
     if not is_valid:
         log_stage_fail(stage_id, f"evidence gate: {error_msg}")
         stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
         if stages[stage_id]["attempts"] < max_attempts:
-            return Command(
-                update={
-                    "stages": stages,
-                    "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
-                    "current_stage": stage_id,
-                    "iteration": state.get("iteration", 0) + 1,
-                },
-                goto="e2e-execute",
-            )
+            return {
+                "stages": stages,
+                "errors": list(state.get("errors", [])) + [f"{stage_id} evidence: {error_msg}"],
+            }
 
     verdict = result.get("verdict", "PASS")
 
@@ -341,17 +278,12 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
 
         reset_stages = rollback_to_stage(stages, "e2e.execute", "impl.code")
         log_stage_fail(stage_id, f"FAIL: {len(test_results)} test failures")
-        return Command(
-            update={
-                "stages": reset_stages,
-                "current_stage": "impl-code",
-                "rollback_target": "impl.code",
-                "fix_tasks": fix_tasks,
-                "fix_iteration": state.get("fix_iteration", 0) + 1,
-                "iteration": state.get("iteration", 0) + 1,
-            },
-            goto="impl-code",
-        )
+        return {
+            "stages": reset_stages,
+            "rollback_target": "impl.code",
+            "fix_tasks": fix_tasks,
+            "fix_iteration": state.get("fix_iteration", 0) + 1,
+        }
 
     stages[stage_id]["attempts"] = stages[stage_id].get("attempts", 0) + 1
     stages[stage_id]["done"] = True
@@ -359,16 +291,10 @@ def e2e_execute_node(state: dict[str, Any]) -> Command[str]:
     log_stage_done(stage_id, f"PASS (tools: {agent_result.tool_calls_made})")
 
     handoff_update = build_handoff_update(stage_id, result, state.get("decisions", []), state)
-    next_node = _post_e2e(state)
-    return Command(
-        update={
-            "stages": stages,
-            **handoff_update,
-            "current_stage": next_node,
-            "iteration": state.get("iteration", 0) + 1,
-        },
-        goto=next_node,
-    )
+    return {
+        "stages": stages,
+        **handoff_update,
+    }
 
 
 def _check_e2e_prerequisites(paths: dict[str, Any]) -> str | None:
@@ -414,18 +340,3 @@ def _parallel_dispatch_active(state: dict[str, Any]) -> bool:
     from eng_loop.nodes.qa_parallel import _get_active_qa_nodes
 
     return len(_get_active_qa_nodes(state)) >= 2
-
-
-def _post_verify(state: dict[str, Any]) -> str:
-    if _parallel_dispatch_active(state):
-        return "qa-dispatcher"
-    return resolve_next("qa-static", state)
-
-
-def _post_e2e(state: dict[str, Any]) -> str:
-    if _parallel_dispatch_active(state):
-        return "qa-dispatcher"
-    complexity = state.get("complexity", "small")
-    if complexity in ("medium", "large", "complex"):
-        return resolve_next("qa-security", state)
-    return resolve_next("qa-human-flow", state)
