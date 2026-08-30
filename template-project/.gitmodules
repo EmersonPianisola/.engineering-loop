@@ -1,0 +1,4 @@
+[submodule ".eng"]
+    path = .eng
+    url = C:/Users/emers/Documents/Claude/Projects/.engineering-loop
+    ignore = all

@@ -1,0 +1,68 @@
+# .eng tooling (submodule, ignored)
+.eng/
+
+# FF workspace (project state)
+.ff/
+
+# Project artifacts
+artifacts/
+
+# Model config
+.opencode/
+
+# Project config (if used)
+config.yaml
+state.json
+STATE.md
+context.md
+
+# Application code
+node_modules/
+dist/
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+android
+ios
+.svelte-kit
+.next
+coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*.swo
+*~
+*.service-keys
+.service-keys/
+service-account.json
+e2e/.e2e-token
+e2e/test-results/
+test-results/
+playwright-report/
+debug-check.mjs
+
+# Graphify cache
+graphify-out/
+
+# BMad framework
+_bmad-output/
+_bmad/
+
+# ESLint configs (project has no lint)
+.eslintrc.json
+eslint.config.mjs
+
+# E2E results
+e2e-results.json
+
+# Windows artifact
+nul

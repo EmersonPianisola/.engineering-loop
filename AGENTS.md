@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v12 Framework Repo
+# AGENTS.md — Engineering Loop v12.4.0
 
 ## What This Repo Is
 
@@ -15,6 +15,61 @@ Framework for an AI-assisted development loop engine. Consumer projects install 
 | `eng_loop/` (Python package) | — |
 
 If you're about to edit a file that should be project-specific, you're in the wrong place.
+
+## Development Mode: FF
+
+This project uses **FF (Fail Fast)** as its default development mode.
+
+### FF Protocol
+
+FF is a protocol for parallel swarm-based software development. The main agent orchestrates, sub-agents execute. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
+
+**Protocol:**
+1. **Phase 0: Clarify** — Essence check, resolve scope tensions
+2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
+3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
+4. **Phase 3: Validate** — Cross-check plan vs. reality
+5. **Phase 4: Lessons** — Capture lessons, report results
+
+**Key:** The plan is built by two sub-agents (structural + adversarial), consolidated by the main agent, and approved by a judge sub-agent. Only after approval does swarm execution begin. No waves. No graphs. Just blocks.
+
+### Autonomy Score
+
+| Score | Mode | Behavior |
+|-------|------|----------|
+| ≥ 0.8 | FULL AUTO | Execute without asking |
+| 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
+| < 0.5 | MANUAL | Ask before each block |
+
+### Hard Rules (Never Override)
+
+- `rm -rf`, `git push --force` — always ask
+- Writes to Firebase — always ask
+- Changes to `.env` — always ask
+- Operations outside workspace — always block
+
+### .eng/ is Trimmed
+
+The `.eng/` directory has been trimmed: the loop motor (LangGraph, Python orchestrator, 34 stages) has been removed. What remains:
+- `references/` — 14 reference docs (decision log, anti-patterns, lessons, etc.)
+- `skills/` — 22 ideação/verificação skills
+- `artifacts/` — trace JSONL files
+- `AGENTS.md`, `skill-index.md` — framework documentation
+
+Consumer projects that install this repo as a git submodule will be broken by these changes. They must migrate to FF protocol.
+
+### artifacts/
+
+Trace files are stored in `artifacts/trace-*.jsonl`. These are historical execution traces from previous loop iterations. They are not part of the FF protocol.
+
+### .ff/
+
+The `.ff/` directory is the FF workspace:
+- `state.json` — Current FF session state
+- `lessons.json` — Accumulated lessons (append-only)
+- `README.md` — Documentation
+
+---
 
 ## Python Package: `eng_loop/`
 
