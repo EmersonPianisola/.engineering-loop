@@ -1,0 +1,16 @@
+# Project-specific files (generated per project)
+config.yaml
+state.json
+STATE.md
+context.md
+
+# Project artifacts
+artifacts/
+
+# Graphify — local tracking only (graph.json etc. are committed)
+graphify-out/cost.json
+graphify-out/cache/
+
+# Global skills live in ~/.agents/skills — local copies are not tracked
+.agents/skills/
+.claude/skills/
