@@ -1,0 +1,204 @@
+{
+  "skills": {
+    "algorithmic-art": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "belt": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "brand-guidelines": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "canvas-design": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "caveman": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "claude-api": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "data-science-expert": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "deep-agents-core": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "deep-agents-memory": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "deep-agents-orchestration": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "deepagents-python-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "deepagents-typescript-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "doc-coauthoring": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "docx": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "ecosystem-primer": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "essence": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "eval-engineering": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "ff": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "find-skills": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "frontend-design": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "internal-comms": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-dependencies": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-fundamentals": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-middleware": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-python-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-rag": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langchain-typescript-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-cli": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-fundamentals": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-human-in-the-loop": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-persistence": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-python-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langgraph-typescript-quickstart": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "langsmith-online-eval-engineering": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "managed-deep-agents": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "mcp-builder": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "parallel-cli-setup": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "parallel-web-search": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "pdf": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "playwright-e2e": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "pptx": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "skill-creator": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "slack-gif-creator": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "swarm": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "template-skill": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "theme-factory": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "web-artifacts-builder": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "web-search": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "webapp-testing": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "xlsx": {
+      "version": "unknown",
+      "status": "synced"
+    }
+  }
+}
