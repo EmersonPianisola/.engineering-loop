@@ -64,11 +64,23 @@ You should:
 
 The Engineering Loop framework is installed as a git submodule at `.eng/`. It is read-only and gitignored.
 
+- `.eng/global-skills/` — 50 versioned global skills (single source of truth)
+- `.eng/skills/` — 22 framework-specific skills
 - `.eng/references/` — 14 reference docs (anti-patterns, decisions, lessons, etc.)
-- `.eng/skills/` — 22 ideação/verificação skills
+- `.eng/scripts/sync-global-skills.py` — Sync global skills to `~/.agents/skills/`
 - `.eng/AGENTS.md` — Framework instructions
 - `.eng/skill-index.md` — Skill registry
 - `.eng/state-template.json` — State template
+
+### Global Skills
+
+Global skills are versioned in `.eng/global-skills/` and deployed to `~/.agents/skills/`. After submodule update:
+
+```bash
+python .eng/scripts/sync-global-skills.py pull
+```
+
+Do NOT edit skills directly in `~/.agents/skills/`. To propose changes, edit in `.eng/global-skills/` and run `pull`.
 
 ---
 

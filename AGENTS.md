@@ -75,6 +75,23 @@ The `.ff/` directory is the FF workspace:
 - `lessons.json` — Accumulated lessons (append-only)
 - `README.md` — Documentation
 
+### Global Skills Management (`global-skills/`)
+
+All global skills for `~/.agents/skills/` are versioned in `global-skills/`. This is the single source of truth — consumer projects sync from here.
+
+**Workflow:**
+- Add/update skill: `python scripts/sync-global-skills.py push [name]`
+- Deploy to local: `python scripts/sync-global-skills.py pull`
+- Check status: `python scripts/sync-global-skills.py status`
+- List skills: `python scripts/sync-global-skills.py list`
+
+**Consumer projects:** After submodule update, run `python .eng/scripts/sync-global-skills.py pull` to sync skills to `~/.agents/skills/`.
+
+**Rules:**
+- All generic/reusable skills MUST be in `global-skills/`, not in consumer projects
+- New generic skills created during FF runs: promote via `skill-creator` → `push` → commit
+- Never edit skills directly in `~/.agents/skills/` — edit in `global-skills/`, then `pull`
+
 ---
 
 ## Python Package: `eng_loop/`

@@ -45,21 +45,40 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
 | `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect (node in `nodes/dynamic_architect.py`) — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
 
-## Global Skills (Fallback)
+## Global Skills
 
-Machine/user-level skills shared across all projects. Not versioned in this repo — resolved at runtime from `config.global_skills.roots` (default `~/.agents/skills`), checked **after** `{framework-root}/skills/`. Name collisions: framework wins. Toggle: `config.global_skills.enabled`.
+Machine/user-level skills shared across all projects. **Versioned in `global-skills/`** (single source of truth) and deployed to `~/.agents/skills/` via `scripts/sync-global-skills.py`.
 
-Examples (full list: `~/.agents/skills`, 48 skills at time of writing):
+Runtime resolution: `{framework-root}/skills/` → `config.global_skills.roots` (default `~/.agents/skills`) → self-construct. Name collisions: framework wins. Toggle: `config.global_skills.enabled`.
 
-| Skill | Typical use in the loop |
-|-------|------------------------|
-| `playwright-e2e` | E2E testing fallback |
-| `web-search` / `parallel-web-search` | Research for self-construction and design stages |
-| `pdf`, `docx`, `pptx`, `xlsx` | Document deliverables (doc.* stages) |
-| `eval-engineering` | Evals/benchmark design |
-| `skill-creator` | Self-construction + promotion of generic skills to the global dir |
-| `essence` | Agent-level intent clarification (framework `essence` wins at runtime) |
-| `langgraph-*` / `langchain-*` | Framework development (see AGENTS.md skill-usage table) |
+### Managed Skills (versioned in `global-skills/`)
+
+50 skills, synced via `scripts/sync-global-skills.py`:
+
+| Category | Skills |
+|----------|--------|
+| **Protocol** | `ff`, `swarm`, `essence`, `skill-creator`, `ecosystem-primer` |
+| **LangChain/LangGraph** | `langchain-fundamentals`, `langchain-middleware`, `langchain-dependencies`, `langchain-rag`, `langgraph-fundamentals`, `langgraph-persistence`, `langgraph-human-in-the-loop`, `langgraph-cli` |
+| **Quickstarts** | `langchain-python-quickstart`, `langchain-typescript-quickstart`, `langgraph-python-quickstart`, `langgraph-typescript-quickstart`, `deepagents-python-quickstart`, `deepagents-typescript-quickstart` |
+| **Deep Agents** | `deep-agents-core`, `deep-agents-memory`, `deep-agents-orchestration`, `managed-deep-agents` |
+| **Research** | `web-search`, `parallel-web-search`, `eval-engineering`, `langsmith-online-eval-engineering` |
+| **Docs/Content** | `doc-coauthoring`, `docx`, `pdf`, `pptx`, `xlsx`, `internal-comms` |
+| **UI/Design** | `frontend-design`, `canvas-design`, `algorithmic-art`, `slack-gif-creator`, `theme-factory`, `brand-guidelines` |
+| **API/CLI** | `claude-api`, `mcp-builder`, `belt`, `parallel-cli-setup` |
+| **Testing** | `playwright-e2e`, `webapp-testing` |
+| **Utils** | `caveman`, `data-science-expert`, `find-skills`, `template-skill`, `web-artifacts-builder` |
+
+### Workflow
+
+- **Add/update skill:** `python scripts/sync-global-skills.py push [name]`
+- **Deploy to local:** `python scripts/sync-global-skills.py pull`
+- **Check status:** `python scripts/sync-global-skills.py status`
+- **Consumer projects:** After submodule update, `python .eng/scripts/sync-global-skills.py pull`
+
+**Rules:**
+- All generic/reusable skills MUST be in `global-skills/`
+- New skills created during FF runs: promote via `skill-creator` → `push` → commit
+- Never edit skills directly in `~/.agents/skills/` — edit in `global-skills/`, then `pull`
 
 ## Self-Constructed Skills
 
