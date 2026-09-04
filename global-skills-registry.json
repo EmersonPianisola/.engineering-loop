@@ -199,6 +199,102 @@
     "xlsx": {
       "version": "unknown",
       "status": "synced"
+    },
+    "api-designer": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "database-design": {
+      "version": "4.1.0",
+      "status": "synced"
+    },
+    "fastapi-tests-design": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "implementing-api-patterns": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "nextjs": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "playwright": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-cli": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-client-api": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-compute": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-database-setup": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-driver-adapter-implementation": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-mongodb-upgrade": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-postgres": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-postgres-setup": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "prisma-upgrade-v7": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "python-fastapi-coding-conventions": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "python-fastapi-test-conventions": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "react": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "security-audit": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "security-review": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "security-reviewer": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "vercel-composition-patterns": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "vercel-react-best-practices": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "vitest": {
+      "version": "unknown",
+      "status": "synced"
     }
   }
 }
