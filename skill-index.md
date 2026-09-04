@@ -53,7 +53,7 @@ Runtime resolution: `{framework-root}/skills/` → `config.global_skills.roots` 
 
 ### Managed Skills (versioned in `global-skills/`)
 
-74 skills, synced via `scripts/sync-global-skills.py`. **24 externally sourced skills** (v2) with governance. See `skill-governance.md`.
+95 skills, synced via `scripts/sync-global-skills.py`. **45 externally sourced skills** (v1+v2) with governance. See `skill-governance.md`.
 
 | Category | Skills |
 |----------|--------|
@@ -65,8 +65,10 @@ Runtime resolution: `{framework-root}/skills/` → `config.global_skills.roots` 
 | **Docs/Content** | `doc-coauthoring`, `docx`, `pdf`, `pptx`, `xlsx`, `internal-comms` |
 | **UI/Design** | `frontend-design`, `canvas-design`, `algorithmic-art`, `slack-gif-creator`, `theme-factory`, `brand-guidelines` |
 | **API/CLI** | `claude-api`, `mcp-builder`, `belt`, `parallel-cli-setup` |
-| **Testing** | `playwright-e2e`, `webapp-testing`, `vitest`, `playwright`, `python-fastapi-test-conventions`, `fastapi-tests-design` |
+| **QA/Testing** | `playwright-e2e`, `webapp-testing`, `vitest`, `playwright`, `python-fastapi-test-conventions`, `fastapi-tests-design`, `comprehensive-test-strategy`, `verifiable-quality-gates`, `test-strategy`, `test-case-writing`, `test-case-review`, `api-testing`, `automated-e2e-testing`, `regression-testing`, `exploratory-testing`, `qa` |
+| **QA/Process** | `bug-analysis`, `requirement-analysis`, `owasp-secure-coding-bdd`, `judge-arch`, `arch-encode`, `release-deployment-safety`, `sre-operational-readiness` |
 | **Backend/API** | `implementing-api-patterns`, `api-designer`, `python-fastapi-coding-conventions` |
+| **Architecture** | `enterprise-architecture-standards`, `architectural-decision-records`, `compliance-data-lifecycle`, `database-design` |
 | **Database** | `database-design`, `prisma-cli`, `prisma-client-api`, `prisma-compute`, `prisma-database-setup`, `prisma-driver-adapter-implementation`, `prisma-mongodb-upgrade`, `prisma-postgres`, `prisma-postgres-setup`, `prisma-upgrade-v7` |
 | **Frontend** | `nextjs`, `react`, `vercel-react-best-practices`, `vercel-composition-patterns` |
 | **Security** | `security-review`, `security-reviewer`, `security-audit` |

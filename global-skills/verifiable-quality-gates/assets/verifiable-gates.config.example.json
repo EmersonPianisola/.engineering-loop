@@ -1,0 +1,8 @@
+{
+  "checksDir": "scripts/ci",
+  "checkPattern": "^check-.*\\.(mjs|js)$",
+  "testsDir": "test/checks",
+  "testPattern": "\\.(test|spec)\\.(mjs|js|ts|tsx)$",
+  "allowlist": "scripts/ci/check-test-allowlist.json",
+  "testCommand": ["node", "--test"]
+}

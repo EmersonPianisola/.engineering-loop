@@ -295,6 +295,90 @@
     "vitest": {
       "version": "unknown",
       "status": "synced"
+    },
+    "api-testing": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "arch-encode": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "architectural-decision-records": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "automated-e2e-testing": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "bug-analysis": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "compliance-data-lifecycle": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "comprehensive-test-strategy": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "core": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "enterprise-architecture-standards": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "exploratory-testing": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "judge-arch": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "owasp-secure-coding-bdd": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "qa": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "regression-testing": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "release-deployment-safety": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "requirement-analysis": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "sre-operational-readiness": {
+      "version": "unknown",
+      "status": "synced"
+    },
+    "test-case-review": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "test-case-writing": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "test-strategy": {
+      "version": "0.7.0",
+      "status": "synced"
+    },
+    "verifiable-quality-gates": {
+      "version": "unknown",
+      "status": "synced"
     }
   }
 }
