@@ -16,9 +16,15 @@ Framework for an AI-assisted development loop engine. Consumer projects install 
 
 If you're about to edit a file that should be project-specific, you're in the wrong place.
 
-## Development Mode: FF
+## Development Mode: FF (MANDATORY)
 
-This project uses **FF (Fail Fast)** as its default development mode.
+This project and all consumer projects using this framework MUST use **FF (Fail Fast)** as the default development mode.
+
+### For Consumer Projects
+
+Consumer projects install this repo as a git submodule at `.eng/` and update their project-level `AGENTS.md` to declare FF as mandatory. Use `template-project/AGENTS.md` as the template.
+
+Key: The consumer project's `AGENTS.md` must instruct the agent to auto-load the ff skill for any substantial work request — no explicit "use FF" invocation should be needed.
 
 ### FF Protocol
 
