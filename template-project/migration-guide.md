@@ -93,15 +93,45 @@ Replace your project's `AGENTS.md` with the following:
 ```markdown
 # AGENTS.md — [Project Name]
 
-## Development Mode: FF
+## Default Development Mode: FF (MANDATORY)
 
-This project uses **FF (Fail Fast)** as its default development mode.
+This project uses **FF (Fail Fast)** as its default development mode. All substantial work items MUST follow the FF protocol.
 
-### FF Protocol
+**CRITICAL:** When the user requests any work item, you MUST evaluate it against the FF activation criteria below. If it qualifies, load the ff skill and execute the protocol WITHOUT waiting for the user to explicitly say "use FF".
 
-FF is a protocol for parallel swarm-based software development. The main agent orchestrates, sub-agents execute. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
+### FF Activation Criteria
 
-**Protocol:**
+Use FF for ANY work request that meets one of these conditions:
+- Touches ≥ 3 files
+- Involves ≥ 5 discrete changes
+- Has unclear dependencies between parts
+- User explicitly requests FF
+- Is a feature, bugfix suite, refactor, test rewrite, or migration
+
+For trivial work (≤ 2 files, clear instructions, single change), execute inline without FF overhead.
+
+### What "Default Mode" Means
+
+When the user says things like:
+- "Implement X"
+- "Fix Y"
+- "Refactor Z"
+- "Add tests for W"
+
+You should:
+1. Load the ff skill (`/skills/ff`)
+2. Run Phase 0: CLARIFY (essence check)
+3. Continue through Phase 1-4 without stopping for protocol questions
+4. Only ask the user about scope clarification and autonomy decisions
+
+**DO NOT:**
+- Wait for the user to say "use FF" or "run FF"
+- Explain what FF is (the user already knows)
+- Ask "Should I use FF for this?" (you already know the answer)
+- Execute substantial work sequentially without FF
+
+### FF Protocol Summary
+
 1. **Phase 0: Clarify** — Essence check, resolve scope tensions
 2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
 3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
@@ -132,6 +162,17 @@ The Engineering Loop framework is installed as a git submodule at `.eng/`. It is
 - `.eng/AGENTS.md` — Framework instructions
 - `.eng/skill-index.md` — Skill registry
 - `.eng/state-template.json` — State template
+
+---
+
+## FF Workspace
+
+The `.ff/` directory is the FF workspace:
+- `state.json` — Current FF session state
+- `lessons.json` — Accumulated lessons (append-only)
+- `README.md` — Documentation
+
+Before Phase 1, load `.ff/lessons.json` and apply relevant lessons to the plan.
 ```
 
 ---
@@ -175,7 +216,7 @@ EOF
 
 ## Step 7: Update README.md
 
-Update your project's `README.md` to include the FF protocol documentation:
+Update your project's `README.md` to document that FF is the default mode:
 
 ```markdown
 # [Project Name]
@@ -185,30 +226,20 @@ Update your project's `README.md` to include the FF protocol documentation:
 ### 1. Clone and Initialize
 
 ```bash
-# Clone the project
 git clone <project-url>
 cd <project-name>
-
-# Initialize submodules
 git submodule init
 git submodule update
 ```
 
-### 2. FF Protocol
+### 2. Development
 
-Run tasks using the Fail Fast (FF) protocol:
+This project uses FF (Fail Fast) as its default development mode. Simply describe what you want done — the agent will automatically apply FF for substantial work items.
 
-```bash
-# Run FF with the task description
-ff "your task description"
-```
-
-The FF protocol will:
-1. Clarify the task (essence check)
-2. Build a plan (two sub-agents cross-analyze, judge approves)
-3. Execute (swarm fan-out per block)
-4. Validate (cross-check plan vs. reality)
-5. Capture lessons
+Example:
+- "Implement user authentication with JWT" → FF activates
+- "Fix the login bug on mobile" → FF activates
+- "Change button color on line 42" → inline (trivial)
 ```
 
 ---

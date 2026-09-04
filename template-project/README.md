@@ -16,19 +16,14 @@ git submodule update
 
 ### 2. FF Protocol
 
-Run tasks using the Fail Fast (FF) protocol:
+FF is the default development mode — it activates automatically when you request work. Simply describe what you want done, and the agent will apply FF when appropriate.
 
-```bash
-# Run FF with the task description
-ff "your task description"
-```
+Example:
+- "Implement user authentication with JWT" → FF activates (multi-file feature)
+- "Fix the login bug on mobile" → FF activates
+- "Change the button color on line 42" → inline execution (trivial)
 
-The FF protocol will:
-1. Clarify the task (essence check)
-2. Build a plan (two sub-agents cross-analyze, judge approves)
-3. Execute (swarm fan-out per block)
-4. Validate (cross-check plan vs. reality)
-5. Capture lessons
+No commands needed. The agent reads `AGENTS.md` and follows FF automatically.
 
 ### 3. Development
 

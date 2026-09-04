@@ -1,14 +1,44 @@
 # AGENTS.md — [Project Name]
 
-## Development Mode: FF
+## Default Development Mode: FF (MANDATORY)
 
-This project uses **FF (Fail Fast)** as its default development mode.
+This project uses **FF (Fail Fast)** as its default development mode. All substantial work items MUST follow the FF protocol.
 
-### FF Protocol
+**CRITICAL:** When the user requests any work item, you MUST evaluate it against the FF activation criteria below. If it qualifies, load the ff skill and execute the protocol WITHOUT waiting for the user to explicitly say "use FF".
 
-FF is a protocol for parallel swarm-based software development. The main agent orchestrates, sub-agents execute. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
+### FF Activation Criteria
 
-**Protocol:**
+Use FF for ANY work request that meets one of these conditions:
+- Touches ≥ 3 files
+- Involves ≥ 5 discrete changes
+- Has unclear dependencies between parts
+- User explicitly requests FF
+- Is a feature, bugfix suite, refactor, test rewrite, or migration
+
+For trivial work (≤ 2 files, clear instructions, single change), execute inline without FF overhead.
+
+### What "Default Mode" Means
+
+When the user says things like:
+- "Implement X"
+- "Fix Y"
+- "Refactor Z"
+- "Add tests for W"
+
+You should:
+1. Load the ff skill (`/skills/ff`)
+2. Run Phase 0: CLARIFY (essence check)
+3. Continue through Phase 1-4 without stopping for protocol questions
+4. Only ask the user about scope clarification and autonomy decisions
+
+**DO NOT:**
+- Wait for the user to say "use FF" or "run FF"
+- Explain what FF is (the user already knows)
+- Ask "Should I use FF for this?" (you already know the answer)
+- Execute substantial work sequentially without FF
+
+### FF Protocol Summary
+
 1. **Phase 0: Clarify** — Essence check, resolve scope tensions
 2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
 3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
@@ -48,3 +78,5 @@ The `.ff/` directory is the FF workspace:
 - `state.json` — Current FF session state
 - `lessons.json` — Accumulated lessons (append-only)
 - `README.md` — Documentation
+
+Before Phase 1, load `.ff/lessons.json` and apply relevant lessons to the plan.
