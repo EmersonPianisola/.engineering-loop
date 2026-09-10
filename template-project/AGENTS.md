@@ -60,6 +60,16 @@ You should:
 - Changes to `.env` — always ask
 - Operations outside workspace — always block
 
+### Anti-Drift: State File is Your Anchor
+
+As FF sessions grow long, the orchestrator may lose track of protocol rules.
+The `.ff/state.json` file is your anchor — always read it before making decisions
+about current phase or block position. Never rely on conversation memory alone.
+
+The `manifest.md` file (in `.eng/global-skills/ff/`) is a compressed checklist
+for each phase gate. Read it before every phase transition. It is designed to
+stay in context throughout long runs.
+
 ### Framework
 
 The Engineering Loop framework is installed as a git submodule at `.eng/`. It is read-only and gitignored.
@@ -82,13 +92,32 @@ python .eng/scripts/sync-global-skills.py pull
 
 Do NOT edit skills directly in `~/.agents/skills/`. To propose changes, edit in `.eng/global-skills/` and run `pull`.
 
+### Skill Usage Guide
+
+| Working on | Load skill first |
+|---|---|
+| FF protocol execution | `ff` (always) |
+| Intent clarification | `essence` (Phase 0) |
+| Code implementation | Framework skill for your stack, or self-construct |
+| Testing strategy | `comprehensive-test-strategy` + `verifiable-quality-gates` |
+| E2E testing | `e2e-playwright` (framework) or `playwright` (global) |
+| Security review | `security-review` or `owasp-secure-coding-bdd` |
+| Architecture decisions | `architectural-decision-records` |
+| API design | `api-designer` or `implementing-api-patterns` |
+| Database | `database-design` + provider-specific skill |
+| Documentation | `doc-coauthoring` |
+| Performance | `sre-operational-readiness` |
+| Business value narrative | `story-flow` (post-validation) |
+| Research | `parallel-web-search` |
+| Skill creation | `skill-creator` |
+
 ---
 
 ## FF Workspace
 
 The `.ff/` directory is the FF workspace:
-- `state.json` — Current FF session state
-- `lessons.json` — Accumulated lessons (append-only)
+- `state.json` — Current FF session state. **Read before every decision about phase or block position.**
+- `lessons.json` — Accumulated lessons (append-only). Loaded at Phase 1.
 - `README.md` — Documentation
 
 Before Phase 1, load `.ff/lessons.json` and apply relevant lessons to the plan.

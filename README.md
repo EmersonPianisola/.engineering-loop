@@ -4,29 +4,28 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.4.0
+# Engineering Loop v12.5.0
 
-**New user? Start with [`AGENTS.md`](AGENTS.md) — quick reference for development mode.**
+**New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
 **Fail Fast (FF)** — orchestrator pattern for parallel swarm-based software development. Fragment any work item into atomic blocks, dispatch parallel tasks via Swarm, validate at each gate, recover isolated failures.
 
 | | |
 |---|---|
-| **Version** | 12.4.0 |
+| **Version** | 12.5.0 |
 | **Development Mode** | FF (Fail Fast) — parallel swarm, judge-approved plans |
-| **Orchestrator** | `eng_loop/` (LangGraph Python, Dynamic Graph, Pydantic schemas) |
-| **Stages** | 34 registered NodeSpec stages |
 | **Skills** | 22 built-in ideação/verificação skills + global skills |
-| **References** | 14 shared reference documents (anti-patterns, exit-conditions, lessons, etc.) |
+| **References** | 15 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
 | **Architecture** | Multi-project via git submodule |
+| **Anti-Drift** | manifest.md, role assertion, context budget, state file anchor |
 
 ---
 
 ## Table of Contents
 
+- [Installation](#installation)
 - [Overview](#overview)
 - [FF Protocol](#ff-protocol)
-- [The Engine (eng_loop/)](#the-engine-eng_loop)
 - [BMAD Ideation](#bmad-ideation)
 - [Essence Sidecar](#essence-sidecar)
 - [Lessons System](#lessons-system)
@@ -41,59 +40,148 @@ description: 'Comprehensive framework documentation.'
 
 ---
 
+## Installation
+
+Install the framework in any project as a git submodule. The framework is self-contained — it brings skills, references, and the FF protocol. Your project only needs `AGENTS.md`, `.ff/` and global skills synced.
+
+### Quick Install (New Project)
+
+```bash
+# 1. Clone your project (or use existing repo)
+cd your-project
+
+# 2. Add framework as submodule
+git submodule add <engineering-loop-repo-url> .eng
+
+# 3. Initialize FF workspace
+mkdir .ff
+echo '[]' > .ff/lessons.json
+
+# 4. Copy AGENTS.md template (replace [Project Name])
+cp .eng/template-project/AGENTS.md AGENTS.md
+sed -i 's/\[Project Name\]/Your Project Name/g' AGENTS.md
+
+# 5. Sync global skills to your machine
+python .eng/scripts/sync-global-skills.py pull
+
+# 6. Add to .gitignore
+cat >> .gitignore << 'EOF'
+
+# FF workspace (project state)
+.ff/
+
+# Project artifacts
+artifacts/
+EOF
+
+# 7. Commit
+git add .eng AGENTS.md .gitignore
+git commit -m "Add Engineering Loop framework with FF protocol"
+```
+
+### Migrate Existing Project
+
+If your project already uses an older version of the framework:
+
+```bash
+# 1. Update submodule to latest
+git submodule update --remote
+
+# 2. Re-sync global skills (new skills may have been added)
+python .eng/scripts/sync-global-skills.py pull
+
+# 3. Update AGENTS.md if needed
+# Copy from template and merge your project-specific sections:
+cp .eng/template-project/AGENTS.md AGENTS.md.new
+# Merge manually, keeping your project-specific additions
+
+# 4. Update .ff/state.json schema if needed
+# The new 'summary' field is optional — the protocol will create it on first use
+```
+
+### Verify Installation
+
+```bash
+# Submodule is active
+git submodule status
+# Should show .eng with a commit hash
+
+# FF skill is available
+ls ~/.agents/skills/ff/SKILL.md
+# Should exist
+
+# Anti-drift manifest is present
+ls .eng/global-skills/ff/manifest.md
+# Should exist
+
+# Skills sync works
+python .eng/scripts/sync-global-skills.py status
+# Should show synced skills
+```
+
+### Daily Usage
+
+Once installed, the framework is hands-off:
+
+| Action | Command |
+|--------|---------|
+| Start working | Describe your task to the AI agent — FF activates automatically |
+| Update framework | `git submodule update --remote && python .eng/scripts/sync-global-skills.py pull` |
+| Check skill status | `python .eng/scripts/sync-global-skills.py status` |
+| View lessons | `cat .ff/lessons.json` |
+| View session state | `cat .ff/state.json` |
+| Add new global skill | `python .eng/scripts/sync-global-skills.py push [name]` |
+
+### What Gets Installed
+
+```
+your-project/
+├── .eng/                    # Framework (git submodule)
+│   ├── global-skills/       # Skills → deployed to ~/.agents/skills/
+│   ├── skills/              # Framework-specific skills (read-only)
+│   ├── references/          # Anti-patterns, lessons, protocol docs
+│   ├── scripts/             # sync-global-skills.py
+│   ├── template-project/    # AGENTS.md template, migration guide
+│   ├── AGENTS.md            # Framework instructions
+│   └── skill-index.md       # Skill registry + improvement log
+│
+├── AGENTS.md                # Your project's instructions (from template)
+├── .ff/                     # FF workspace (gitignored)
+│   ├── state.json           # Session state — your anchor
+│   └── lessons.json         # Accumulated lessons (append-only)
+└── artifacts/               # Project artifacts (gitignored)
+```
+
+### Uninstall
+
+```bash
+git rm .eng
+git commit -m "Remove Engineering Loop framework"
+rm -rf .ff/
+# Remove framework entries from AGENTS.md and .gitignore
+```
+
+---
+
 ## Overview
 
 Engineering Loop is a framework for orchestrating AI sub-agents through the complete software development lifecycle. Instead of a linear pipeline, it operates as a **persistent while-loop** that re-evaluates every stage on each iteration, allowing downstream findings to trigger upstream rework automatically.
 
-The loop is enforced by a **dynamic LangGraph StateGraph** (Python) that is **constructed per work item** — only the nodes required for the task are instantiated based on complexity, UI context, and tags. Stage procedures remain as markdown templates in `stages/`, loaded at runtime and injected as prompts. The orchestrator works with any OpenAI-compatible local model (llama.cpp, vLLM, Ollama).
+Development is orchestrated through the **FF (Fail Fast) protocol** — a parallel swarm-based approach where work items are fragmented into atomic blocks, dispatched to sub-agents in parallel, validated at each gate, and failures recovered in isolation. See [FF Protocol](#ff-protocol) for details.
 
 ### Core Principles
 
-- **Dynamic graph construction** — `GraphBuilder` builds the graph per work item; only active nodes are instantiated
-- **Programmatic flow control** — LangGraph StateGraph enforces stage order, retries, and resets in code (not prompts)
-- **Structured output** — Every stage uses Pydantic schemas via `model.with_structured_output()` — no free-form JSON
-- **Evidence gates** — Every stage output is validated against quality criteria before advancing; failures trigger automatic retry
-- **Declarative routing** — `EdgeRule` rules define connections between nodes; resolved at build time
-- **Node registry** — 34 stages registered as `NodeSpec` with metadata (complexity, phase, parallel group)
-- **Orchestrator is pure delegation** — never executes work directly (except `deploy.prepare` and `post-loop` finalize)
-- **Progressive disclosure** — stages, references, and skills loaded by ID only when needed
+- **Parallel swarm execution** — work items fragmented into atomic blocks dispatched to sub-agents in parallel
+- **Judge-approved plans** — two sub-agents cross-analyze, main agent consolidates, judge validates before execution
+- **Fail fast** — each block validated in isolation; failures don't contaminate siblings
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
-- **Context optimization** — ProjectMap pre-computed at init eliminates 3-8 exploratory glob/read per stage; tool result cache prevents redundant reads within a micro-loop
-- **Full loop enforcement** — every active stage must execute; user requests are focus directives, not skip directives
-- **Essence before every stage** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
-- **Wall-clock visibility** — global timer persists across recovery attempts; all progress displays show real-time elapsed time
-- **Auto-sizing** — complexity classification determines which stages are active (small → complex)
-- **TDD per task** — test-first implementation with red-green-commit per atomic task
+- **Essence before execution** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
+- **Auto-sizing** — autonomy score determines execution mode (full auto / semi auto / manual)
 - **Independent verification** — author ≠ verifier; discrimination sensor confirms test quality
-- **Contract Gate Middleware** — validates handoff contracts between stages (blueprint→code, code→verify); retries or blocks on violation
-- **Parallel QA** — fan-out/fan-in for security, API contract, performance stages via `qa-dispatcher` + `qa-join`
-- **Causal Chain Rollback** — `rollback_to_stage` reducer resets impl.code through verify when verifier/QA fails
-- **Fix Mode** — `impl.code` executes with structured `fix_tasks` from verifier/QA, clears feedback on success
-- **Dry-Run Simulator** — 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) validate graph topology without LLM calls
 - **Multi-project isolation** — each project has its own config, state, and artifacts
 - **Shared lessons** — confirmed lessons propagate across all projects via the framework
 - **Continuous decisions** — every architectural decision recorded as `AD-NNN` immediately, not deferred
 - **Local model support** — works with any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama)
-- **Surgical CLI operations** — breakpoints (`--pause-at`), state editing via `$EDITOR`, time-travel rollback, single-step replay (v11.2)
-
-### Design vs. Execute vs. Validate
-
-Every stage follows a three-phase pattern:
-
-```
-┌─────────────────────────────────────────────┐
-│              STAGE PROCEDURE                 │
-│                                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  DESIGN   │→│ EXECUTE   │→│ VALIDATE  │  │
-│  │ Plan what │  │ Do the   │  │ Check if │  │
-│  │ to do     │  │ work     │  │ it's right│  │
-│  └──────────┘  └──────────┘  └──────────┘  │
-│                                              │
-│  Essence gate runs BEFORE the stage enters   │
-│  this procedure.                             │
-└─────────────────────────────────────────────┘
-```
 
 ---
 
@@ -151,45 +239,9 @@ Swarm dispatches parallel tasks per block. Independent tasks run together; depen
 
 ---
 
-## The Engine (eng_loop/)
+## The Engine (eng_loop/) — TRIMMED
 
-The orchestrator is a real Python package. Install (editable) and run commands from the `eng_loop/` directory:
-
-```bash
-pip install -e "eng_loop/[dev]"
-ruff check eng_loop/src eng_loop/tests
-ruff format eng_loop/src eng_loop/tests
-pytest eng_loop/tests
-```
-
-CLI entry point: `eng-loop` (defined in `pyproject.toml` → `[project.scripts]`). After editable install, available on PATH.
-
-### Source Layout
-
-```
-eng_loop/src/eng_loop/
-├── cli.py              # Entry point (eng-loop command, pre-build architect)
-├── graph_builder.py    # Dual-path builder (proposal or deterministic)
-├── node_registry.py    # 34 registered NodeSpec stages
-├── edge_rules.py       # Declarative edge rules + proposal compiler
-├── state.py            # PipelineState schema + reducers + node catalog
-├── schemas.py          # 52 Pydantic schemas (topology + stage output)
-├── config.py           # YAML loader, deep merge
-├── graph.py            # Delegates to GraphBuilder in dynamic mode
-├── routing.py          # Conditional edge functions (retry, block, advance)
-├── model.py            # Model factory (OpenAI-compatible endpoints)
-├── templates.py        # Markdown → prompt loader
-├── context_bus.py      # Cross-cutting context bus (new in v12)
-├── nodes/              # 13 modules, one per stage group
-│   ├── dynamic_architect.py  # Pre-build topology + runtime augmentation
-│   ├── meta_executor.py      # Sequential cursor-based executor
-│   └── (11 more: init, design, architecture, implementation, qa, etc.)
-└── tools/              # 58 tool modules
-    ├── policy_resolver.py    # 6-layer topology firewall + tool sandboxing
-    └── sandbox.py            # Path/command sandboxing for agent tools
-```
-
-Tests: 105 files. Run `pytest eng_loop/tests` for full suite.
+The loop motor (LangGraph, Python orchestrator, 34 stages) has been removed in v12.4.0. FF protocol replaces the stage-based loop entirely. Consumer projects that install this repo as a git submodule must migrate to FF protocol.
 
 ---
 
@@ -313,14 +365,9 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 
 ## Configuration Reference
 
-### Two-Layer Config
+### Config
 
-| File | Purpose | Git-tracked |
-|------|---------|-------------|
-| `config-template.yaml` | Framework defaults | Yes |
-| `config.yaml` | Project overrides | No (gitignored) |
-
-The orchestrator deep-merges: template → project. Project values win.
+`config-template.yaml` was removed in FF transition. Consumer projects generate `config.yaml` from `template-project/config.yaml`.
 
 ### Framework Paths
 
@@ -447,7 +494,7 @@ The orchestrator deep-merges: template → project. Project values win.
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `state-template.json` | `{framework-root}/` | Template (git-tracked, 34 stages) |
+| `state-template.json` | `{framework-root}/` | Template (git-tracked, retained for reference) |
 | `state.json` | `{loop-root}/` | Runtime state (gitignored) |
 | `STATE.md` | `{loop-root}/` | Human-readable state + decisions + handoff (gitignored) |
 | `.eng/history/*.json` | `{loop-root}/` | State snapshots per stage for time travel (v11.2, gitignored) |
@@ -481,108 +528,71 @@ The orchestrator deep-merges: template → project. Project values win.
 
 ```
 .engineering-loop/ (framework repo)
-├── ORCHESTRATOR.md              # Main orchestrator instructions
-├── CORE.md                      # Framework index: stages, references, skills
-├── config-template.yaml         # Framework configuration defaults
-├── state-template.json          # Initial state for all 34 stages
+├── state-template.json          # Initial state template (retained for reference)
 ├── skill-index.md               # Skill registry with improvement log
+├── skill-governance.md          # Skill governance guidelines
+├── global-skills-registry.json  # Global skills registry
 ├── README.md                    # This file
 ├── .gitignore                   # Project file exclusions
 ├── AGENTS.md                    # Agent-specific instructions
 │
-├── stages/                      # Stage procedures (read-only, 26 files)
-│   ├── init.md                  # Phase 0: validation, auto-size, skill discovery
-│   ├── init-ideate.md           # BMAD ideation: Party Mode, Brainstorming, SDD
-│   ├── init-bdd.md              # BDD journey mapping
-│   ├── init-refine.md           # Ad-hoc work item refinement
-│   ├── design-user-research.md  # User research methods
-│   ├── design-personas.md       # Persona creation
-│   ├── design-info-arch.md      # Information architecture
-│   ├── design-interaction.md    # Interaction design
-│   ├── design-design-system.md  # Design system tokens
-│   ├── design-visual-design.md  # Visual design specifications
-│   ├── architecture.md          # Requirements, solution, review
-│   ├── impl-design.md           # Implementation blueprint
-│   ├── impl-code.md             # TDD code implementation
-│   ├── doc-update.md            # Existing project file updates
-│   ├── verify.md                # Independent verification
-│   ├── e2e-execute.md           # Playwright E2E testing
-│   ├── qa-security.md           # OWASP WSTG security audit
-│   ├── qa-api-contract.md       # API contract validation
-│   ├── qa-performance.md        # Performance profiling
-│   ├── deploy-prepare.md        # Build, lint, test preparation
-│   ├── smoke-test.md            # Production smoke testing
-│   ├── doc-decisions.md         # MADR decision log consolidation
-│   ├── doc-project.md           # Project documentation generation
-│   └── post-loop.md             # Finalize, improve, share
+├── .ff/                         # FF workspace (gitignored)
+│   ├── state.json               # Current FF session state
+│   ├── lessons.json             # Accumulated lessons (append-only)
+│   └── README.md                # FF documentation
 │
-├── references/                  # Shared references (read-only, 13 files)
-│   ├── anti-patterns.md         # Common pitfalls and how to avoid them
-│   ├── bmad-ideation-patterns.md # BMAD ideation framework details
-│   ├── decision-log.md          # AD-NNN decision format
-│   ├── decision-template.md     # MADR ADR template
-│   ├── essence-sidecar.md       # Four Lenses validation details
-│   ├── exit-conditions.md       # All exit conditions and resets
-│   ├── graphify.md              # Knowledge graph integration
-│   ├── hardware-management.md   # Context slicing, token budgets
-│   ├── lessons.md               # Lessons lifecycle
-│   ├── logging.md               # Log format + state table
-│   ├── skill-discovery-guide.md # Self-construction process
-│   ├── skill-templates.md       # Skill creation templates
-│   └── ui-testing-patterns.md   # E2E testing patterns
+├── .eng/                        # Consumer project state (gitignored)
+│   ├── state.json               # Runtime state
+│   ├── artifacts/               # Runtime artifacts
+│   └── history/                 # State snapshots
+│
+├── references/                  # Shared references (read-only, 14 files)
+│   ├── anti-patterns.md
+│   ├── bmad-ideation-patterns.md
+│   ├── decision-log.md
+│   ├── decision-template.md
+│   ├── essence-sidecar.md
+│   ├── exit-conditions.md
+│   ├── graphify.md
+│   ├── hardware-management.md
+│   ├── lessons.md
+│   ├── lessons-shared.json
+│   ├── logging.md
+│   ├── skill-discovery-guide.md
+│   ├── skill-templates.md
+│   ├── sub-agent-contract.md
+│   └── ui-testing-patterns.md
 │
 ├── skills/                      # Specialized skills (read-only, 22 skills)
-│   ├── bmad-bdd-mapper/         # BDD journey mapping
-│   ├── bmad-ideation/           # Party Mode, Brainstorming, SDD
-│   ├── bmad-integration/        # BMAD → work item transformation
-│   ├── e2e-playwright/          # Playwright E2E testing
-│   ├── essence/                 # Four Lenses validation
-│   ├── graphify/                # Knowledge graph
-│   ├── implementation-architect/ # Implementation blueprints
-│   ├── requirements-refiner/    # Requirements quantification
-│   ├── solution-designer/       # Solution architecture
-│   └── verifier/                # Independent verification
+│   ├── bmad-bdd-mapper/
+│   ├── bmad-ideation/
+│   ├── bmad-integration/
+│   ├── e2e-playwright/
+│   ├── essence/
+│   ├── graphify/
+│   ├── implementation-architect/
+│   ├── requirements-refiner/
+│   ├── solution-designer/
+│   └── verifier/
 │
-├── eng_loop/                    # LangGraph orchestrator (Python)
-│   ├── pyproject.toml           # Package config (langgraph, langchain-openai, pydantic)
-│   ├── src/eng_loop/
-│   │   ├── state.py             # PipelineState, 34 stages, reducers
-│   │   ├── config.py            # YAML loader, deep merge, paths
-│   │   ├── graph.py             # Delegates to GraphBuilder in dynamic mode
-│   │   ├── graph_builder.py     # Dynamic graph construction per work item
-│   │   ├── node_registry.py     # NodeSpec + registry of 34 stages
-│   │   ├── edge_rules.py        # Declarative edge rules (~40 rules)
-│   │   ├── routing.py           # Conditional edge functions, iteration tracking
-│   │   ├── model.py             # Model factory (local OpenAI-compatible)
-│   │   ├── schemas.py           # 27 Pydantic schemas (stages) + 9 dynamic schemas (v11.5)
-│   │   ├── templates.py         # Markdown → prompt loader
-│   │   ├── cli.py               # Entry point
-│   │   ├── nodes/               # Stage node implementations
-│   │   │   ├── dynamic_architect.py  # LLM proposal → framework authorization (v11.5)
-│   │   │   └── meta_executor.py      # Sequential cursor-based executor (v11.5)
-│   │   └── tools/               # Helpers
-│   │       ├── dynamic_validation.py  # Typed validation engine (v11.5)
-│   │       ├── policy_resolver.py     # Blueprint authorization, tool sandbox (v11.5)
-│   │       ├── file_ops.py      # read/write/json helpers
-│   │       ├── json_parse.py    # Robust JSON extraction (3 strategies)
-│   │       ├── evidence_gate.py # Stage output quality validation
-│   │       ├── stage_runner.py  # Shared stage execution helper
-│   │       ├── context_slice.py # Context slicing per stage
-│   │       ├── decisions.py     # AD-NNN extraction/recording
-│   │       ├── lessons.py       # Lessons lifecycle
-│   │       ├── autosizing.py        # Complexity + work type classification
-│   │       ├── topology_compliance.py # Stage transition validation (v11.1)
-│   │       ├── agent_runner.py      # Agentic loop + tool scope + error summarization + tool cache (v11.3)
-│   │       ├── project_map.py       # Pre-computed structural overview (v11.3)
-│   │       ├── progress.py          # Terminal logging, node tracing, breakpoint menu
-│   │       ├── state_history.py     # Snapshot lifecycle, time travel, retention (v11.2)
-│   │       └── interactive.py       # State slicing, $EDITOR integration (v11.2)
-│   └── tests/                       # Unit tests
+├── global-skills/               # Global skills versioned for ~/.agents/skills/
+│   ├── caveman/
+│   ├── xlsx/
+│   └── deepagents-typescript-quickstart/
 │
-└── setup/                       # Installation scripts
-    ├── install.sh               # Linux / Mac / WSL setup (+ pip install)
-    ├── install.ps1              # Windows PowerShell setup (+ pip install)
-    └── README.md                # Setup documentation
+├── scripts/                     # Framework scripts
+│   └── sync-global-skills.py    # Global skills sync utility
+│
+├── artifacts/                   # Trace files (gitignored)
+│   ├── trace-*.jsonl            # Historical execution traces
+│   └── validation.md
+│
+└── template-project/            # Consumer project template
+    ├── AGENTS.md
+    ├── config.yaml
+    ├── state.json
+    ├── .ff/
+    └── migration-guide.md
 ```
 
 ---
@@ -699,7 +709,7 @@ The orchestrator deep-merges: template → project. Project values win.
 
 **Symptom:** Orchestrator warns about missing `config.yaml`
 
-**Resolution:** Run `bash .eng/setup/install.sh` or `powershell -File .eng\setup\install.ps1`
+**Resolution:** Consumer projects generate `config.yaml` from `template-project/config.yaml`.
 
 ### Submodule Not Updating
 
@@ -718,50 +728,12 @@ The orchestrator deep-merges: template → project. Project values win.
 
 ### Model Connectivity Failed
 
-**Symptom:** `eng-loop --check-model` fails with connection error
+**Symptom:** Model API calls fail with connection error
 
 **Resolution:**
 - Ensure your local model server is running at the configured `base_url`
 - Check the model name matches what your server expects
-- Use `--model-base-url` and `--model-name` to override
-
-### LangGraph Import Error
-
-**Symptom:** `ModuleNotFoundError: No module named 'eng_loop'`
-
-**Resolution:**
-- Run `pip install -e .eng/eng_loop/`
-- Or re-run the install script: `bash .eng/setup/install.sh`
-
-### Stage Node Crashes
-
-**Symptom:** Loop halts with a Python traceback
-
-**Resolution:**
-- v10.4: Pydantic schemas enforce output shape — most JSON errors are now caught automatically
-- Increase `max_tokens` in config if responses are truncated
-- Review `state.json` for the last successful stage
-- Check evidence gate logs for quality validation failures
-
-### Evidence Gate Retries
-
-**Symptom:** Stage retries multiple times before advancing
-
-**Resolution:**
-- The evidence gate validates output quality (e.g., blueprint must have tasks, verdict must be PASS/FAIL)
-- If the model consistently produces low-quality output, try a more capable model
-- Check the work item for clarity — ambiguous inputs produce ambiguous outputs
-- Review `state.json` errors for specific evidence gate messages
-
-### Structured Output Errors
-
-**Symptom:** Stage fails with Pydantic validation error
-
-**Resolution:**
-- This should not happen with `with_structured_output()` — the schema is enforced
-- If it occurs, the model may not support structured output; try a different model
-- Ensure your model endpoint supports function calling / structured output
-- Check that `max_tokens` is high enough for the full response
+- Verify `.opencode/opencode.json` has correct provider config
 
 ### Lessons Not Propagating
 
@@ -772,45 +744,7 @@ The orchestrator deep-merges: template → project. Project values win.
 - Check `lessons.confirm_threshold` — may need to lower from default (2)
 - Ensure `lessons-shared.json` is committed to the framework repo after post-loop
 
-### Dynamic Graph Not Building
 
-**Symptom:** `--build-topology` fails or produces empty topology
-
-**Resolution:**
-- Ensure `eng_loop` is installed: `pip install -e .eng/eng_loop/`
-- Check that the work item is not empty: `-w "your work item"`
-- Verify paths are correct: `-f .eng -l .eng -p .`
-- Review `artifacts/graph-topology.md` for the generated plan
-
-### Breakpoint Not Pausing
-
-**Symptom:** `--pause-at "impl.code"` does not pause at the specified stage
-
-**Resolution:**
-- Stage IDs use dot notation: `impl.code`, not `impl-code`
-- The stage must be active in the current graph (check complexity/work type filters)
-- Use `eng-loop history` to verify snapshots are being saved
-- Verify `state_history.enabled` is `true` in `config.yaml`
-
-### Rollback Fails — No Snapshot Found
-
-**Symptom:** `eng-loop rollback "impl.code"` says "No snapshot found"
-
-**Resolution:**
-- The loop must have executed at least one stage before the target stage
-- Use `eng-loop history` to list available snapshots
-- Check that `state_history.enabled` is `true` in `config.yaml`
-- Snapshots are stored in `.eng/history/` — verify the directory exists
-
-### State Editor Won't Open
-
-**Symptom:** Breakpoint [E]dit fails to open an editor
-
-**Resolution:**
-- Ensure `$EDITOR` is set, or one of: vim, nano, code (VS Code), notepad.exe is available
-- The fallback chain is: `$EDITOR` → vim → nano → `code --wait` → notepad.exe
-- On Windows, `code --wait` requires VS Code CLI installed (`code --install-extension`)
-- The editor opens a temporary JSON file with the state slice for the current stage
 
 ---
 
@@ -851,34 +785,16 @@ The orchestrator deep-merges: template → project. Project values win.
 
 | File | Role |
 |------|------|
-| `eng_loop/` | LangGraph orchestrator — run `eng-loop -w "..."` to start |
-| `eng_loop/src/eng_loop/node_registry.py` | 34 NodeSpec registrations |
-| `eng_loop/src/eng_loop/edge_rules.py` | Declarative edge rules |
-| `eng_loop/src/eng_loop/graph_builder.py` | Dynamic graph construction |
-| `eng_loop/src/eng_loop/schemas.py` | 52 Pydantic schemas for structured output |
-| `eng_loop/src/eng_loop/tools/json_parse.py` | Robust JSON extraction (3 strategies) |
-| `eng_loop/src/eng_loop/tools/evidence_gate.py` | Stage output quality validation |
-| `eng_loop/src/eng_loop/tools/stage_runner.py` | Shared stage execution helper |
-| `eng_loop/src/eng_loop/tools/topology_compliance.py` | Stage transition validation (v11.1) |
-| `eng_loop/src/eng_loop/tools/agent_runner.py` | Agentic loop + tool scope + error summarization + ToolResultCache (v11.3) |
-| `eng_loop/src/eng_loop/tools/contract_gate.py` | Handoff contract middleware + `@with_contract_gate` decorator (v11.4) |
-| `eng_loop/src/eng_loop/nodes/init_setup.py` | Deterministic setup: classify, graphify, deactivate stages (v11.4) |
-| `eng_loop/src/eng_loop/nodes/qa_parallel.py` | `qa-dispatcher` (fan-out) + `qa-join` (fan-in + rollback) (v11.4) |
-| `eng_loop/src/eng_loop/state.py` | Reducers: `_merge_dict`, `_overwrite`, `rollback_to_stage` (v11.4) |
-| `eng_loop/src/eng_loop/schemas.py` | 9 dynamic schemas: payloads, rules, steps, blueprint, runtime, audit (v11.5) |
-| `eng_loop/src/eng_loop/tools/dynamic_validation.py` | Typed validation engine: tests_pass, files_exist, contains_symbol (v11.5) |
-| `eng_loop/src/eng_loop/tools/policy_resolver.py` | Blueprint authorization, tool sandboxing, risk keywords (v11.5) |
-| `eng_loop/src/eng_loop/nodes/dynamic_architect.py` | LLM proposal → framework authorization → executable blueprint (v11.5) |
-| `eng_loop/src/eng_loop/nodes/meta_executor.py` | Sequential cursor-based executor, strict attempt counting (v11.5) |
-| `scripts/dry_run_simulator.py` | 4 scenario dry-run tests, zero LLM calls (v11.4) |
-| `eng_loop/src/eng_loop/tools/project_map.py` | Pre-computed structural project map (v11.3) |
-| `eng_loop/src/eng_loop/tools/state_history.py` | Snapshot lifecycle, time travel, retention (v11.2) |
-| `eng_loop/src/eng_loop/tools/interactive.py` | State slicing, $EDITOR integration (v11.2) |
-| `ORCHESTRATOR.md` | Legacy entry point — prompt-based mode (deprecated) |
-| `CORE.md` | Framework index — stage registry, references, skills |
-| `skill-index.md` | Skill registry — ID → skill mapping with improvement log |
-| `config-template.yaml` | Framework defaults — model config, constraints, paths |
-| `state-template.json` | State template — 34 stages with done/attempts/essence_checked |
 | `AGENTS.md` | Agent instructions — framework editing guidelines |
 | `README.md` | This file — comprehensive documentation |
-| `artifacts/graph-topology.md` | Generated execution plan (LLM mode) |
+| `skill-index.md` | Skill registry — ID → skill mapping with improvement log |
+| `skill-governance.md` | Skill governance guidelines |
+| `global-skills-registry.json` | Global skills registry |
+| `state-template.json` | State template (retained for reference) |
+| `scripts/sync-global-skills.py` | Global skills sync utility |
+| `references/` | 14 shared reference documents |
+| `skills/` | 22 built-in skills |
+| `global-skills/` | Global skills versioned for `~/.agents/skills/` |
+| `template-project/` | Consumer project template (AGENTS.md, config, .ff/) |
+| `.ff/` | FF workspace (state.json, lessons.json) |
+| `artifacts/` | Trace JSONL files |

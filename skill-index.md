@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v12.4.0
+**Framework:** Engineering Loop v12.5.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -17,12 +17,12 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `bridge` | `bmad-integration` | Bridge | init | BMad → universal work item transformation + auto-size |
 | `bdd-journey` | `bmad-bdd-mapper` | Design | init.bdd | Gherkin scenarios, Scenario Outlines, hooks, data-driven testing, tag strategy, traceability matrix (large+) |
 | `refine` | `essence` | Design | init.refine | Iterative refinement of ad-hoc work items |
-| `design-user-research` | `bmad-user-research` | Design | design.user-research | User research: interviews, contextual studies, usability testing |
-| `design-personas` | `bmad-personas` | Design | design.personas | Personas and journey maps from research |
-| `design-info-arch` | `bmad-info-arch` | Design | design.info-arch | Information architecture: sitemaps, wireframes, navigation |
-| `design-interaction` | `bmad-interaction` | Design | design.interaction | Interaction patterns, component behaviors, motion |
-| `design-design-system` | `bmad-design-system` | Design | design.design-system | Design system: tokens, components, guidelines |
-| `design-visual-design` | `bmad-visual-design` | Design | design.visual-design | Visual design: typography, colors, layout, micro-animations |
+| `design-user-research` | `bmad-user-research` | Design | design.* (FF-optional, motor-dependent) | User research: interviews, contextual studies, usability testing |
+| `design-personas` | `bmad-personas` | Design | design.* (FF-optional, motor-dependent) | Personas and journey maps from research |
+| `design-info-arch` | `bmad-info-arch` | Design | design.* (FF-optional, motor-dependent) | Information architecture: sitemaps, wireframes, navigation |
+| `design-interaction` | `bmad-interaction` | Design | design.* (FF-optional, motor-dependent) | Interaction patterns, component behaviors, motion |
+| `design-design-system` | `bmad-design-system` | Design | design.* (FF-optional, motor-dependent) | Design system: tokens, components, guidelines |
+| `design-visual-design` | `bmad-visual-design` | Design | design.* (FF-optional, motor-dependent) | Visual design: typography, colors, layout, micro-animations |
 | `req` | `requirements-refiner` | Design | arch.requirements | Quantifies requirements: volumetry, scalability, observability, INVEST/SMART scoring, risk matrix, conflict detection |
 | `sol` | `solution-designer` | Design | arch.solution | Application architecture: components, data, APIs, ADRs, STRIDE threat modeling, API design principles |
 | `arch-rev` | `architecture-reviewer` | Design | arch.review | Cross-artifact review, gap analysis, consolidated architecture |
@@ -43,7 +43,12 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `doc-project` | Project Documentation | Document | doc.project | README, setup, architecture overview, user manual (self-constructed) |
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
+| `story-flow` | `story-flow` | Validate | post-loop | Business-to-technical value narrative with mechanical anchors, evidence-only validation, structured output |
 | `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect (node in `nodes/dynamic_architect.py`) — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
+
+> **Note:** Design skills marked `FF-optional, motor-dependent` require the trimmed LangGraph motor
+> to be invoked. In FF-only mode, they are not activated automatically. To use them, explicitly load
+> the skill and run its procedure outside the FF protocol.
 
 ## Global Skills
 
@@ -146,3 +151,5 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-08-23 | all | **Remediation wave — FASE 2 (self-healing/self-learning)**: lessons loop closed (deterministic lesson IDs, upsert with `occurrences`, confirm-on-success, curated `## LESSONS` prompt section replacing the raw lessons.json dump); recovery rollback reliability (cumulative `total_attempts` survives rollbacks, contract gate blocks on cumulative exhaustion, `handoffs["recovery_fix_prompt"]`/`recovery_lessons` now injected via `## RECOVERY GUIDANCE`, `recovery_attempts` budget gate); recovery loop fixes (`recovery_history` reducer → overwrite — no duplicates under full-state re-injection; lessons generated from post-attempt state); proposal failure semantics (`stage_done`/`stage_failed` are per-stage predicates, unknown condition → fail-closed, loopback priority wins over happy-path) |
 | 2026-08-24 | all | **Remediation wave — FASE 3 (robustness/UX) + FASE 4 (hygiene)**: live event streaming (no `list()` buffering — HUD updates as events are produced); breakpoint edit now reaches the checkpoint (`graph.update_state` before resume); persistence completeness (`_make_saveable`/`restore_snapshot` keep `context_bus`, `qa_results`, `user_interactions`, `recovery_attempts/history`, `task_outcome`; `--resume` rehydrates `ContextBus`); essence gate (auto-adjusted complexity/stages reach the Command, agent errors block instead of silent PASS + `skipped_stages` recorded, counters persist); model factory unified (`max_retries`/`api_key`/`headers` from config, stage overrides in all factories); firewall L5 fatal set (UI-only stages in non-UI project → `TopologyValidationError`), L4 ignores loopback self-edges; dead code removed (StageState, ESSENCE_TOOLS, unused agent_runner helpers, `reset_stage_for_retry`, evidence_gate legacy parse/retry); small fixes (stall detector: varying-args same-tool repeat is soft + whole-token safe-inspection matching, no PydanticUndefined in JSON template, pagination ≠ repeat in command history, distill-once + last-AIMessage preserved on spawn, compact-skill anchors on `## PROCEDURE`, dynamic validation fails malformed payloads + project-detected default test command + config timeout, contract gate requires explicit `Verdict: PASS|FAIL`, context_bus synonyms config-driven) |
 | 2026-08-24 | all | **Breaking changes (remediation wave)**: `blocking_condition` reducer is `_overwrite` (clearing with `""` now actually clears, checkpointer mode included); agent tools are sandboxed by default (`agent.tools.sandbox.allow_out_of_root: false` — explicit opt-out); `ContextBus` synonym map is config-driven (`context_bus.synonyms`) and **empty by default** (cross-lingual dedupe requires configuring the map); `recovery_attempts` persists across runs via state.json (budget no longer resets on resume); `topology_proposal` is no longer written to state snapshots (still read from old ones) |
+| 2026-09-10 | story-flow | v1.0.0 — Story/Flow skill: bridges business value with technical validation. Mechanical anchors to test results, E2E evidence, data reconciliation. Evidence-or-zero discipline. Runs post-validation (after verifier, persona-simulator, E2E). |
+| 2026-09-10 | ff | **Anti-drift protocol**: `manifest.md` (phase checkpoint checklist, designed to stay in context), reinjection at every phase transition, role assertion, context budget rule (summary every 3 blocks), state file as anchor, drift symptoms table in SKILL.md, FF Orchestrator Drift section in anti-patterns.md, `summary` field added to state.json schema |

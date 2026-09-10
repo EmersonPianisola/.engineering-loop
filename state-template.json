@@ -6,7 +6,7 @@
   "work_type": "feature",
   "work_item": "",
   "ideation": null,
-  "ui_project": false,
+  "tags": [],
   "stages": {
     "init": {
       "done": false,
@@ -22,16 +22,20 @@
       "completed_at": 0.0
     }
   },
+  "ff": {
+    "session_id": "",
+    "current_block": "",
+    "blocks_completed": [],
+    "blocks_pending": [],
+    "autonomy_mode": "auto",
+    "work_type": "feature"
+  },
   "decisions": [],
   "stage_artifacts": {},
   "lessons": [],
   "errors": [],
   "handoffs": {},
   "context_tiers": {},
-  "tags": [],
-  "active_nodes": [],
-  "graph_topology": {},
-  "parallel_groups": {},
   "timing": {
     "loop_start": "",
     "loop_elapsed": "00:00:00",
@@ -50,21 +54,6 @@
     "stages": {}
   },
   "current_stage": "",
-  "fix_tasks": [],
-  "fix_iteration": 0,
-  "rollback_target": "",
-  "explorer_evidence": [],
-  "codebase_facts": {},
-  "topology_proposal": null,
-  "dynamic_plan": null,
-  "dynamic_runtime": {
-    "cursor": 0,
-    "attempts": {},
-    "completed": [],
-    "failed": [],
-    "status": "pending",
-    "step_audit": []
-  },
   "essence": {
     "checked": false,
     "blocked_stage": null,

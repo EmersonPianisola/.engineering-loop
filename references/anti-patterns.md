@@ -89,6 +89,35 @@ description: 'Global anti-patterns that apply across all stages. Updated for v9.
 - **Never make hooks polite instructions** — if tests must run before a handoff, make it a deterministic edge (hook), not a suggestion.
 - **Never let weak nodes enter a graph** — a graph of weak nodes is slop produced in parallel. Each node must be a loop that reliably ships on its own.
 
+## FF Orchestrator Drift (v12.4)
+
+As FF sessions grow long, the main agent may forget protocol rules and start
+executing tasks directly instead of orchestrating sub-agents. This is the most
+common cause of FF degradation.
+
+**Symptoms (detect immediately):**
+- The orchestrator is writing application code instead of dispatching sub-agents
+- Tasks are being executed sequentially instead of via Swarm
+- The judge step is being skipped because "the plan looks fine"
+- The plan is shown to the user before judge approval
+- `.ff/state.json` is not being updated between blocks
+- The orchestrator is building the plan itself instead of dispatching analysts
+- Lessons are not being loaded or captured
+
+**Prevention:**
+- **Read `manifest.md` before every phase transition** — the checklist forces protocol compliance
+- **Read `.ff/state.json` before every decision** — the state file is the anchor, not conversation memory
+- **Assert role at each transition** — "I am the orchestrator. I dispatch. I do not write code."
+- **Context budget rule** — summarize every 3 blocks to keep context manageable
+- **Drift table in ff SKILL.md** — review the symptom/fix table when in doubt
+
+**Recovery:**
+- If you notice any symptom, STOP immediately
+- Read the full ff SKILL.md from the beginning
+- Read `.ff/state.json` to re-establish position
+- Read `manifest.md` for the current phase gate
+- Resume from the correct checkpoint
+
 ## UI Testing
 
 - **Never skip E2E for UI projects** — unit tests cannot catch integration-level UI bugs

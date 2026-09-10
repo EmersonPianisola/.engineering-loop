@@ -24,6 +24,40 @@ instructions. Swarm handles fan-out. Each block validates before the next execut
 
 ---
 
+## Anti-Drift Protocol (MANDATORY — Read Every Phase)
+
+As context grows, the orchestrator may forget protocol rules. This section prevents that.
+
+### Before EVERY Phase Transition
+
+1. **Read `manifest.md`** (same directory as this skill) — the compressed checklist for the upcoming phase gate
+2. **Assert your role** — "I am the orchestrator. I dispatch sub-agents. I do not write application code."
+3. **Read `.ff/state.json`** — confirm current position from the state file, not from memory
+
+### Context Budget Rule
+
+After every 3 blocks completed in Phase 2:
+1. Summarize all completed blocks into one paragraph
+2. Write the summary to `.ff/state.json` under `summary` field
+3. Announce: "Context summary created. Continuing from block {N}."
+
+This keeps the conversation window manageable and ensures the protocol checklist
+remains accessible throughout long runs.
+
+### Drift Symptoms — If You Notice Any, STOP and Re-Read This Skill
+
+| Symptom | What Happened | Fix |
+|---------|---------------|-----|
+| Writing code yourself | Forgot orchestrator role | Re-dispatch to sub-agent |
+| Running tasks sequentially | Forgot Swarm dispatch | Use Swarm for ≥ 2 independent tasks |
+| Skipping judge | Thought "plan looks fine" | Judge is never optional |
+| Showing plan to user before judge | Impatience | Judge validates first, then user sees approved plan |
+| Building plan yourself | Took over sub-agent role | Dispatch Structural + Adversarial analysts |
+| Not updating state.json | Relying on memory | Write state after every block |
+| Forgetting lessons | Context overflow | Re-read `.ff/lessons.json` |
+
+---
+
 ## Protocol Overview
 
 ```
@@ -50,6 +84,8 @@ completes it, then moves to the next. Never loads all phases at once.
 
 ## Phase 0: CLARIFY
 
+**BEFORE STARTING:** Read `.ff/state.json` to confirm session context. Assert: "I am the orchestrator."
+
 Run Essence Check first (load skill "essence"). Resolve all Lens 4 tensions
 with the user before proceeding.
 
@@ -75,6 +111,11 @@ execute inline without FF overhead. FF activates when:
 ---
 
 ## Phase 1: PLAN BUILD (MANDATORY)
+
+**GATE CHECK:** Before entering Phase 1, read `manifest.md` — verify Phase 0 → Phase 1 gate.
+If any item fails, return to Phase 0.
+
+**ROLE ASSERTION:** You are the orchestrator. You dispatch sub-agents. You do NOT build the plan yourself.
 
 This is the critical phase. The plan is **not built by the main agent**.
 It is built by two sub-agents that cross-analyze the work item, then
@@ -259,10 +300,19 @@ Ask: "Proceed?" Before dispatching Block 0.
 
 ## Phase 2: EXECUTE
 
+**GATE CHECK:** Before entering Phase 2, read `manifest.md` — verify Phase 1 → Phase 2 gate.
+If any item fails, return to Phase 1. The judge must have approved the plan.
+
+**ROLE ASSERTION:** You are the orchestrator. You dispatch Swarm for parallel tasks. You do NOT execute tasks sequentially.
+
 ### Block Execution Loop
+
+Before each block, read `.ff/state.json` to confirm your position.
+If 3 or more blocks have completed since your last context summary, create one now.
 
 ```
 FOR each block B in plan (in dependency order):
+    CHECKPOINT: Read manifest.md "Phase 2 Block Gate" section
     IF B.autonomy == "manual":
         ask user: "Ready for block {B.id}? {B.task_count} tasks."
         IF user says no → HALT
@@ -328,6 +378,9 @@ const result = await run(table.id, {
 ---
 
 ## Phase 3: VALIDATE
+
+**GATE CHECK:** Before entering Phase 3, read `manifest.md` — verify Phase 2 → Phase 3 gate.
+All blocks must be completed. Read `.ff/state.json` to confirm.
 
 ### Step 3.1 — Final Gate
 
@@ -436,6 +489,10 @@ When a block fails the gate:
 
 ### File: `.ff/state.json`
 
+The state file is the **single source of truth** for session progress.
+Always read it before making decisions about current position.
+Never rely on conversation memory alone.
+
 ```json
 {
   "session_id": "ff-{date}-{hash}",
@@ -453,13 +510,15 @@ When a block fails the gate:
     "retried": 2
   },
   "autonomy_mode": "semi",
+  "summary": "Blocks 1-3 completed: auth middleware, login endpoint, session storage. Block 4 in progress: API routes.",
   "started_at": "ISO date",
   "updated_at": "ISO date"
 }
 ```
 
-The agent updates state.json after each block completion. Enables resume
-if the session is interrupted.
+The agent updates state.json after each block completion. The `summary` field
+is updated every 3 blocks as part of the context budget rule. This enables resume
+if the session is interrupted and keeps the orchestrator grounded in actual progress.
 
 ### File: `.ff/lessons.json`
 
