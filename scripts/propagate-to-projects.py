@@ -14,8 +14,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-ENGINEERING_LOOP = ROOT / ".eng" if (ROOT / ".eng").exists() else ROOT
+# Ensure UTF-8 output on Windows
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
+ROOT = Path(__file__).resolve().parent.parent  # .engineering-loop
+ENGINEERING_LOOP = ROOT
+
+# Projects are siblings of .engineering-loop in the same parent directory
+PROJECTS_BASE = ROOT.parent  # C:\Users\emers\Documents\Claude\Projects
 
 
 def get_current_commit():
@@ -62,7 +72,7 @@ def gitignore_has_pattern(project_path, pattern):
 
 def find_projects(base_path=None):
     """Find directories that have .eng/ as a submodule."""
-    base = Path(base_path or ".")
+    base = Path(base_path or PROJECTS_BASE)
     projects = []
     for entry in base.iterdir():
         if entry.is_dir() and not entry.name.startswith("."):
@@ -74,9 +84,9 @@ def find_projects(base_path=None):
 
 def list_projects():
     """List all consumer projects."""
-    projects = find_projects(ROOT.parent if ROOT.name == ".eng" else ROOT)
+    projects = find_projects()
     if not projects:
-        print("No consumer projects found with .eng/ submodule.")
+        print("No consumer projects found with .eng/ submodule in", PROJECTS_BASE)
         return
     for p in sorted(projects):
         print(f"  {p.name}")
@@ -85,7 +95,7 @@ def list_projects():
 def check_projects():
     """Check which projects need updates."""
     current = get_current_commit()
-    projects = find_projects(ROOT.parent if ROOT.name == ".eng" else ROOT)
+    projects = find_projects()
 
     if not projects:
         print("No consumer projects found.")
@@ -106,10 +116,11 @@ def check_projects():
         ) else "NEEDS UPDATE"
 
         print(f"\n{p.name} [{status}]")
-        print(f"  Submodule:  {'✓' if sub_commit == current else '✗ ' + (sub_commit[:8] if sub_commit else 'N/A')}")
-        print(f"  .ff/:      {'✓' if ff_dir else '✗'}")
-        print(f"  /ff cmd:   {'✓' if ff_cmd else '✗'}")
-        print(f"  .gitignore: .ff/ {'✓' if ignore_ff else '✗'} .opencode/ {'✓' if ignore_opencode else '✗'}")
+        sub_status = "+" if sub_commit == current else "- " + (sub_commit[:8] if sub_commit else "N/A")
+        print(f"  Submodule:  {sub_status}")
+        print(f"  .ff/:      {'+' if ff_dir else '-'}")
+        print(f"  /ff cmd:   {'+' if ff_cmd else '-'}")
+        print(f"  .gitignore: .ff/ {'+' if ignore_ff else '-'} .opencode/ {'+' if ignore_opencode else '-'}")
 
 
 def update_project(project_path, force=False):
@@ -199,7 +210,7 @@ def update_project(project_path, force=False):
 def update_all():
     """Update all consumer projects."""
     current = get_current_commit()
-    projects = find_projects(ROOT.parent if ROOT.name == ".eng" else ROOT)
+    projects = find_projects()
 
     if not projects:
         print("No consumer projects found.")
@@ -214,7 +225,7 @@ def update_all():
     print(f"\n{'=' * 40}")
     print(f"Updated: {sum(1 for _, ok in results if ok)}/{len(results)}")
     for name, ok in results:
-        print(f"  {'✓' if ok else '✗'} {name}")
+        print(f"  [{'+' if ok else '-'}] {name}")
 
 
 if __name__ == "__main__":
