@@ -54,7 +54,9 @@ remains accessible throughout long runs.
 | Showing plan to user before judge | Impatience | Judge validates first, then user sees approved plan |
 | Building plan yourself | Took over sub-agent role | Dispatch Structural + Adversarial analysts |
 | Not updating state.json | Relying on memory | Write state after every block |
+| Not persisting traces | Forgetting disk persistence | Write every sub-agent/block output to `.ff/traces/` |
 | Forgetting lessons | Context overflow | Re-read `.ff/lessons.json` |
+| Session not resumable | State not on disk | Check `.ff/state.json` and `.ff/traces/{session_id}/` |
 
 ---
 
@@ -86,8 +88,69 @@ completes it, then moves to the next. Never loads all phases at once.
 
 **BEFORE STARTING:** Read `.ff/state.json` to confirm session context. Assert: "I am the orchestrator."
 
+**INITIALIZE SESSION (MANDATORY):** Create session metadata before doing any work.
+
+1. Generate `session_id`: `ff-{YYYYMMDD}-{NNN}` (NNN = sequential, check `.ff/traces/` for next number)
+2. Create trace directory: `.ff/traces/{session_id}/`
+3. Write `.ff/traces/{session_id}/session.json`:
+
+```json
+{
+  "session_id": "ff-20260914-001",
+  "user_request": "<verbatim user request>",
+  "work_type": "feature",
+  "started_at": "ISO date",
+  "status": "running"
+}
+```
+
+4. Initialize `.ff/state.json`:
+
+```json
+{
+  "session_id": "ff-20260914-001",
+  "work_type": "feature",
+  "task_title": "...",
+  "status": "running",
+  "current_phase": "phase_0",
+  "current_block": "",
+  "trace_dir": ".ff/traces/ff-20260914-001",
+  "blocks_completed": [],
+  "blocks_pending": [],
+  "tasks": { "total": 0, "passed": 0, "failed": 0, "skipped": 0, "retried": 0 },
+  "autonomy_mode": "semi",
+  "summary": "",
+  "started_at": "ISO date",
+  "updated_at": "ISO date",
+  "completed_at": null,
+  "files_changed": [],
+  "files_created": [],
+  "decisions": []
+}
+```
+
+**UPDATE `state.json` at every phase transition:** Always set `current_phase`, `updated_at`, and relevant fields. Never rely on conversation memory.
+
 Run Essence Check first (load skill "essence"). Resolve all Lens 4 tensions
 with the user before proceeding.
+
+**PERSIST ESSENCE OUTPUT:** Write essence check results to `.ff/traces/{session_id}/essence.md`:
+
+```markdown
+# Essence Check — {session_id}
+
+## User Request
+{verbatim}
+
+## Clarifications
+{questions asked and answers received}
+
+## Work Type
+{classified work type}
+
+## Scope
+{agreed scope}
+```
 
 Then determine the work type:
 
@@ -164,6 +227,9 @@ Return a structured summary with: alternative_approaches, edge_cases, hidden_dep
 - Both sub-agents run in parallel
 - Wait for both to complete
 - **Do not proceed** until both have returned
+- **PERSIST OUTPUTS:** Write each sub-agent's response to disk:
+  - `.ff/traces/{session_id}/plan/structural.json`
+  - `.ff/traces/{session_id}/plan/adversarial.json`
 
 ### Step 1.2: Consolidate
 
@@ -218,6 +284,18 @@ If the plan fails any criteria:
 
 Do not execute any work. Do not suggest changes. Only approve or reject.
 ```
+
+**PERSIST JUDGE DECISION:** Write judge output to `.ff/traces/{session_id}/plan/judge.json`:
+
+```json
+{
+  "approved": true,
+  "message": "Plan approved",
+  "reviewed_at": "ISO date"
+}
+```
+
+Also write the consolidated plan to `.ff/traces/{session_id}/plan/consolidated.json`.
 
 **If approved:** Emit approved blocks → Phase 2
 **If rejected:** Return to Step 1.1 (two new sub-agents)
@@ -288,6 +366,8 @@ autonomy_score = (clarity * 0.4) + (complexity * 0.4) + ((1 - risk) * 0.2)
 
 ### Step 1.6: Present Plan
 
+**UPDATE STATE:** Set `current_phase: "phase_1"`, add block list to `blocks_pending`, set `autonomy_mode`.
+
 In SEMI AUTO or MANUAL mode, present:
 1. Work type and block count
 2. Each block with scope + instruction
@@ -335,7 +415,24 @@ FOR each block B in plan (in dependency order):
             Present: which tasks failed, why, suggest re-fragmentation
 
     IF block passed:
-        log to state: block completed, timestamp, task counts
+        PERSIST block trace: write `.ff/traces/{session_id}/blocks/{block_id}.json`:
+            {
+              "block_id": "block-001",
+              "scope": ["src/file.ts"],
+              "tasks": [...],
+              "completed": N,
+              "failed": N,
+              "retried": N,
+              "completed_at": "ISO date",
+              "files_changed": ["src/file.ts"],
+              "summary": "Brief summary of what was done"
+            }
+        UPDATE state.json:
+            - Add block to blocks_completed
+            - Remove block from blocks_pending
+            - Set current_block to next block
+            - Update task counts
+            - Add changed files to files_changed / files_created
         proceed to next block
 ```
 
@@ -434,6 +531,50 @@ For every failure that was escalated or retried:
   "correction": "How it was fixed",
   "prevention": "Rule to prevent recurrence"
 }
+```
+
+### Step 3.5 — Persist Report and Finalize
+
+**PERSIST REPORT:** Write `.ff/traces/{session_id}/report.md` with the full FF report.
+
+**UPDATE SESSION METADATA:** Update `.ff/traces/{session_id}/session.json`:
+
+```json
+{
+  "session_id": "ff-20260914-001",
+  "completed_at": "ISO date",
+  "status": "completed",
+  "blocks_total": 4,
+  "tasks_total": 12,
+  "files_changed": ["src/auth.ts", "src/middleware.ts"],
+  "files_created": ["src/jwt.ts"]
+}
+```
+
+**UPDATE STATE:** Set `.ff/state.json`:
+
+```json
+{
+  "status": "completed",
+  "current_phase": "phase_3",
+  "completed_at": "ISO date",
+  "updated_at": "ISO date"
+}
+```
+
+**UPDATE CHANGELOG:** Append to `.ff/changelog.md`:
+
+```markdown
+## {session_id} — {YYYY-MM-DD} — {work_type}
+
+**Title:** {task_title}
+**Status:** completed
+**Blocks:** {N} | **Tasks:** {total} ({passed} pass, {failed} fail, {skipped} skip)
+**Files Changed:** {list}
+**Duration:** {time}
+**Autonomy:** {mode}
+
+{brief summary of what was accomplished}
 ```
 
 ---

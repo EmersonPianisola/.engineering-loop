@@ -24,11 +24,14 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 ## Phase 0 → Phase 1 Gate
 
+- [ ] Session initialized: `session_id` generated, `.ff/traces/{session_id}/` created
+- [ ] `.ff/traces/{session_id}/session.json` written with metadata
+- [ ] `.ff/state.json` initialized with full schema
 - [ ] Essence check completed (skill "essence" loaded)
 - [ ] All Lens 4 tensions resolved with user
+- [ ] Essence output persisted to `.ff/traces/{session_id}/essence.md`
 - [ ] Work type classified
 - [ ] Auto-size rule evaluated (FF activated or inline execution justified)
-- [ ] `.ff/state.json` initialized with session data
 
 **FAIL any item → Return to Phase 0**
 
@@ -38,13 +41,16 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 - [ ] Two sub-agents dispatched in parallel (Structural + Adversarial)
 - [ ] Both sub-agents returned results
+- [ ] Sub-agent outputs persisted: `plan/structural.json`, `plan/adversarial.json`
 - [ ] Consolidation complete — A + B merged, conflicts resolved
+- [ ] Consolidated plan persisted: `plan/consolidated.json`
 - [ ] Judge sub-agent dispatched (NOT skipped, NOT replaced with self-assessment)
 - [ ] Judge returned `{"approved": true}`
+- [ ] Judge decision persisted: `plan/judge.json`
 - [ ] Plan fragmented into blocks (≤ 8 blocks, each ≤ 5000 tokens context)
 - [ ] Block dependencies defined (parallel blocks have no shared writes)
 - [ ] Autonomy score calculated
-- [ ] `.ff/state.json` updated with block list
+- [ ] `.ff/state.json` updated with block list, current_phase: "phase_1"
 - [ ] Relevant lessons loaded from `.ff/lessons.json`
 
 **FAIL any item → Return to Phase 1, do NOT proceed to execution**
@@ -59,11 +65,13 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 - [ ] Read `.ff/state.json` to confirm current block position
 - [ ] Previous block completed successfully (or failure handled per escalation protocol)
+- [ ] Previous block trace persisted in `blocks/{block_id}.json`
 - [ ] Block autonomy mode checked against score
 - [ ] If block has ≥ 2 independent tasks → MUST dispatch Swarm (sequential execution FORBIDDEN)
 - [ ] Gate check performed on results
 - [ ] Failed rows retried once (max 1 retry)
-- [ ] `.ff/state.json` updated with block result
+- [ ] Block trace persisted: `blocks/{block_id}.json` with tasks, results, files_changed
+- [ ] `.ff/state.json` updated: blocks_completed, blocks_pending, task counts, files lists
 
 **FAIL any item → Halt block, correct before proceeding to next block**
 
@@ -87,10 +95,12 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 - [ ] Full test suite run (or justified why not applicable)
 - [ ] Cross-check: plan vs. actual changes compared
-- [ ] FF Report produced with all required fields
+- [ ] FF Report persisted to `.ff/traces/{session_id}/report.md`
 - [ ] Lessons captured for every failure (retried or escalated)
 - [ ] Lessons appended to `.ff/lessons.json`
-- [ ] `.ff/state.json` status set to "completed"
+- [ ] Session metadata updated: `.ff/traces/{session_id}/session.json` (completed_at, status, files)
+- [ ] `.ff/state.json` status set to "completed", completed_at set
+- [ ] Changelog updated: `.ff/changelog.md` with session summary
 
 **FAIL any item → Complete missing steps before reporting done**
 

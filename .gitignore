@@ -15,6 +15,12 @@ graphify-out/cache/
 .agents/skills/
 .claude/skills/
 
+# FF workspace — session traces and state (artefatos de trabalho)
+.ff/
+
+# OpenCode local config
+.opencode/
+
 # Python / LangGraph build artifacts
 eng_loop/src/eng_loop/__pycache__/
 eng_loop/src/eng_loop/**/*.pyc

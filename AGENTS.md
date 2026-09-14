@@ -38,6 +38,26 @@ FF is a protocol for parallel swarm-based software development. The main agent o
 
 **Key:** The plan is built by two sub-agents (structural + adversarial), consolidated by the main agent, and approved by a judge sub-agent. Only after approval does swarm execution begin. No waves. No graphs. Just blocks.
 
+### Using FF
+
+**Start a session:**
+- Type `/ff <description>` — loads the ff skill and starts the protocol
+- Or say "use FF" — the skill auto-loads for substantial work requests
+
+**Manage sessions:**
+- `/ff status` — show current FF session status
+- `/ff resume` — resume an interrupted session from last checkpoint
+- `/ff history` — list recent FF sessions
+- `/ff lessons` — show accumulated lessons
+
+FF tracks all progress in `.ff/` (gitignored — these are working artifacts):
+- Current session state: `.ff/state.json`
+- Session traces: `.ff/traces/{session_id}/`
+- Lessons learned: `.ff/lessons.json`
+- Session changelog: `.ff/changelog.md`
+
+If the session is interrupted, resume by running `/ff resume` or loading `.ff/state.json`.
+
 ### Autonomy Score
 
 | Score | Mode | Behavior |

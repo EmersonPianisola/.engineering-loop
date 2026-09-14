@@ -169,9 +169,40 @@ The user can always override the calculated mode:
 
 If the session is interrupted mid-block:
 1. Read `.ff/state.json` from disk
-2. Identify last completed block
-3. Resume from the next block
+2. Identify last completed block and current phase
+3. Resume from the next block or current phase
 4. Re-check autonomy score (context may have changed)
+
+### Session Resume Protocol
+
+When user requests resume or `/ff resume` is used:
+
+1. Read `.ff/state.json`:
+   - If status is "running" or "paused" → resume this session
+   - If status is "completed" → ask user which session to inspect
+   - If no state.json → list sessions from `.ff/traces/` and ask user to choose
+
+2. Load session context from `.ff/traces/{session_id}/`:
+   - Read `session.json` for metadata
+   - Read `essence.md` for scope and clarifications
+   - Read `plan/consolidated.json` for the plan
+   - Read last block trace from `blocks/` or last phase output
+   - Read relevant lessons from `.ff/lessons.json`
+
+3. Announce to user:
+   ```
+   Resuming FF session {session_id}
+   Work: {task_title}
+   From: {current_phase} / {current_block}
+   Progress: {blocks_completed}/{blocks_total} blocks
+   ```
+
+4. Continue from the last checkpoint position. Do NOT re-run completed blocks.
+
+5. If the last block was mid-execution:
+   - Read its trace to see which tasks completed
+   - Re-run only failed/incomplete tasks
+   - Do NOT re-run tasks marked as "completed" in the trace
 
 ### Block Corruption
 
