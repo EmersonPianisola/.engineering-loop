@@ -24,15 +24,32 @@ instructions. Swarm handles fan-out. Each block validates before the next execut
 
 ---
 
+## ⚠️ BEFORE ANYTHING ELSE: Read `harness.md`
+
+**This is mandatory.** The harness contains pre/post hooks that enforce protocol compliance.
+
+Before you do ANY of the following:
+- Start a new FF session
+- Resume an existing session
+- Transition between phases
+- Declare FF complete
+
+**Read `harness.md` (same directory as this skill) and execute the applicable hook.**
+
+The harness is your mechanical guardrail. Skipping it causes drift.
+
+---
+
 ## Anti-Drift Protocol (MANDATORY — Read Every Phase)
 
 As context grows, the orchestrator may forget protocol rules. This section prevents that.
 
 ### Before EVERY Phase Transition
 
-1. **Read `manifest.md`** (same directory as this skill) — the compressed checklist for the upcoming phase gate
-2. **Assert your role** — "I am the orchestrator. I dispatch sub-agents. I do not write application code."
-3. **Read `.ff/state.json`** — confirm current position from the state file, not from memory
+1. **Read `harness.md`** (same directory as this skill) — execute the applicable pre/post hook
+2. **Read `manifest.md`** (same directory as this skill) — the compressed checklist for the upcoming phase gate
+3. **Assert your role** — "I am the orchestrator. I dispatch sub-agents. I do not write application code."
+4. **Read `.ff/state.json`** — confirm current position from the state file, not from memory
 
 ### Context Budget Rule
 

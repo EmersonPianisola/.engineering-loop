@@ -6,7 +6,9 @@ Read this file BEFORE every phase transition. It is a compressed checkpoint that
 forces the orchestrator to verify it is following protocol, regardless of
 context window size. If any item fails, STOP and correct before proceeding.
 
-**This file is designed to be small enough to stay in context at all times.**
+**Read order: harness.md → this file → phase instructions.**
+
+This file is designed to be small enough to stay in context at all times.
 
 ---
 
@@ -22,6 +24,17 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 ---
 
+## Pre-Flight Check (BEFORE Phase 0)
+
+- [ ] Read `harness.md` — executed pre-hook
+- [ ] `.ff/state.json` read (existing session? resume or new?)
+- [ ] `.ff/lessons.json` read (loaded relevant lessons)
+- [ ] Role asserted: "FF session initialized. I am the orchestrator."
+
+**FAIL any item → Do not proceed. Read harness.md and complete pre-hook.**
+
+---
+
 ## Phase 0 → Phase 1 Gate
 
 - [ ] Session initialized: `session_id` generated, `.ff/traces/{session_id}/` created
@@ -32,6 +45,7 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Essence output persisted to `.ff/traces/{session_id}/essence.md`
 - [ ] Work type classified
 - [ ] Auto-size rule evaluated (FF activated or inline execution justified)
+- [ ] Post-hook executed: `state.json` updated with `current_phase: "phase_0"`
 
 **FAIL any item → Return to Phase 0**
 
@@ -101,6 +115,9 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Session metadata updated: `.ff/traces/{session_id}/session.json` (completed_at, status, files)
 - [ ] `.ff/state.json` status set to "completed", completed_at set
 - [ ] Changelog updated: `.ff/changelog.md` with session summary
+- [ ] Post-hook verification from `harness.md` passed
+
+**BEFORE declaring FF complete, verify ALL items above. Missing any = not done.**
 
 **FAIL any item → Complete missing steps before reporting done**
 
@@ -123,10 +140,12 @@ checklist remains accessible.
 
 | DO | DON'T |
 |----|-------|
+| Read `harness.md` before starting | Skip the pre-hook |
 | Dispatch sub-agents (Task tool) | Write application code yourself |
 | Consolidate sub-agent outputs | Build the plan yourself |
 | Enforce gates mechanically | Skip gates because "it looks fine" |
 | Run Swarm for parallel tasks | Execute tasks sequentially |
 | Update `.ff/state.json` every step | Rely on conversation memory for state |
 | Load this manifest at each phase | Trust that you "remember" the protocol |
+| Run post-hook after each phase | Declare FF done without persistence |
 | Send plan to judge before user | Show plan to user first |
