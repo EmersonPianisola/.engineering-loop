@@ -207,6 +207,21 @@ def update_project(project_path, force=False):
     return True
 
 
+def push_to_origin():
+    """Push engineering-loop to origin."""
+    result = subprocess.run(
+        ["git", "push", "origin", "master"],
+        cwd=ENGINEERING_LOOP,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  ✗ Push failed: {result.stderr.strip()}")
+        return False
+    print(f"  ✓ Pushed to origin/master")
+    return True
+
+
 def update_all():
     """Update all consumer projects."""
     current = get_current_commit()
@@ -215,6 +230,14 @@ def update_all():
     if not projects:
         print("No consumer projects found.")
         return
+
+    # Push engineering-loop first so submodules can update from remote
+    print(f"\nPushing engineering-loop to origin...")
+    if not push_to_origin():
+        print("Push failed. Submodules may not update correctly.")
+        response = input("Continue anyway? (y/N): ").strip().lower()
+        if response != "y":
+            return
 
     print(f"\nUpdating all projects to engineering-loop commit {current[:8]}...")
     results = []
