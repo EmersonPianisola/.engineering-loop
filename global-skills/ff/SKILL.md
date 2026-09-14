@@ -197,16 +197,11 @@ If any item fails, return to Phase 0.
 
 **ROLE ASSERTION:** You are the orchestrator. You dispatch sub-agents. You do NOT build the plan yourself.
 
-This is the critical phase. The plan is **not built by the main agent**.
-It is built by two sub-agents that cross-analyze the work item, then
-consolidated and approved by a judge.
-
-**The main agent's role in Phase 1:**
-- Dispatch sub-agents (structural + adversarial)
-- Merge their outputs
-- Spawn the judge
-- Fragment the approved plan into blocks
-- **NOT** to build the plan, decide what's safe/risky, or execute work
+Phase 1 has three stages:
+1. **Analyze** — two sub-agents cross-check the work item
+2. **Build Plan Document** — one sub-agent writes the comprehensive plan
+3. **Judge** — judge validates the plan document
+4. **Fragment** — the approved plan is split into swarm-executable blocks
 
 ### Step 1.1: Analyze (Two Sub-Agents Cross-Check)
 
@@ -248,22 +243,63 @@ Return a structured summary with: alternative_approaches, edge_cases, hidden_dep
   - `.ff/traces/{session_id}/plan/structural.json`
   - `.ff/traces/{session_id}/plan/adversarial.json`
 
-### Step 1.2: Consolidate
+### Step 1.2: Reconcile and Build Plan Document
 
-The main agent merges A + B responses:
+**Reconcile:** The main agent checks A + B for conflicts:
+- If A says "safe" and B says "risky" on the same item → **unresolved** → return to Step 1.1
+- If B flagged something A missed → must be included
+- If no unresolved conflicts → proceed
 
-- If A says "safe" and B says "risky" → **unresolved conflict** → return to Step 1.1 with a new round (two new sub-agents, clarified scope)
-- If B flagged something A missed → include in the plan
-- If B flagged something A covered → reconcile and proceed
-- If no unresolved conflicts → proceed to judge
+**Build Plan:** Dispatch a **Plan Writer sub-agent** (use `subagentType: general`) to create the comprehensive plan document.
 
-**Before spawning judge, verify:**
-- [ ] A + B responses are fully merged
-- [ ] All conflicts are resolved or escalated back to Step 1.1
-- [ ] Blocks have structure: scope, input, output, validation
-- [ ] Dependencies between blocks are defined
+Pass it the essence check, structural analysis, and adversarial analysis as context.
 
-**CRITICAL:** IMMEDIATELY dispatch judge sub-agent. DO NOT present the plan to the user. DO NOT execute any work. DO NOT wait for user confirmation. The judge validates before anything is shown.
+```
+You are a plan writer. Your job is to create a comprehensive, detailed plan document.
+
+You will receive:
+1. Essence check output (scope, clarifications, work type)
+2. Structural analysis (files, dependencies, risks, conventions)
+3. Adversarial analysis (edge cases, hidden dependencies, worst cases)
+
+Produce a detailed plan document with these sections:
+
+## Plan: {title}
+
+### Scope
+What this plan covers and does not cover.
+
+### Approach
+The chosen approach, why it was chosen, alternatives considered.
+
+### Files Affected
+Complete list of files to create, modify, delete, with justification for each.
+
+### Dependencies
+What depends on what. Execution order. Which changes can be parallelized.
+
+### Detailed Tasks
+Numbered list of ALL tasks required. Each task should be:
+- Specific enough that a sub-agent can execute it independently
+- Self-contained: includes what to read, what to change, what to produce
+- Testable: has a clear pass/fail criterion
+
+### Risks and Mitigations
+Identified risks and how they are mitigated.
+
+### Validation
+How to verify the entire plan succeeded:
+- Tests to run
+- Manual checks needed
+- Acceptance criteria from essence check
+
+### Edge Cases Handled
+Edge cases identified by adversarial analysis and how each is handled.
+
+Write the plan in clear markdown. Be exhaustive — this is the master plan that will be fragmented into execution blocks.
+```
+
+**PERSIST PLAN:** Write the plan to `.ff/traces/{session_id}/plan/plan.md`.
 
 ### Step 1.3: Judge
 
@@ -273,33 +309,26 @@ Spawn a **dedicated judge sub-agent** (exists only to validate the plan, then ex
 You are a judge. Your job is to validate the plan before execution.
 
 You will receive:
-1. A consolidated plan from two analysts:
-   - Sub-Agent A (Structural Analyst): maps files, imports, dependencies, risk
-   - Sub-Agent B (Adversarial Analyst): alternative approaches, edge cases, hidden dependencies
-2. A consolidation summary that attempts to reconcile A and B
+1. The comprehensive plan document
+2. Structural analysis
+3. Adversarial analysis
 
 Your task:
-1. Read the consolidated plan and the reconciliation
-2. Check for unresolved conflicts between A and B
-   - If A says "safe" and B says "risky" → unresolved conflict → reject
-   - If B flagged something A missed → must be included → reject if not
-   - If B flagged something A covered → reconciled → OK
-3. Validate each block has:
-   - scope: list of files involved
-   - input: what to read
-   - output: what to produce
-   - validation: how to verify it passed
-4. Check that no block requires > 5000 tokens of context
-5. Verify that parallel blocks are truly independent (no shared state or conflicting writes)
-6. Verify that sequential blocks have clear dependencies
+1. Verify all unresolved conflicts between structural and adversarial are addressed
+2. Verify every file mentioned has a clear purpose
+3. Verify dependencies are correctly ordered
+4. Verify each task is specific enough for independent execution
+5. Verify edge cases from adversarial analysis are handled
+6. Verify validation criteria are concrete and testable
+7. Verify no task requires > 5000 tokens of context (if so, it's not fragmented enough)
 
 If the plan passes all criteria:
 - Return: {"approved": true, "message": "Plan approved"}
 
 If the plan fails any criteria:
-- Return: {"approved": false, "rejection_reason": "specific reason"}
+- Return: {"approved": false, "rejection_reason": "specific reason with section reference"}
 
-Do not execute any work. Do not suggest changes. Only approve or reject.
+Do not execute any work. Only approve or reject.
 ```
 
 **PERSIST JUDGE DECISION:** Write judge output to `.ff/traces/{session_id}/plan/judge.json`:
@@ -312,24 +341,20 @@ Do not execute any work. Do not suggest changes. Only approve or reject.
 }
 ```
 
-Also write the consolidated plan to `.ff/traces/{session_id}/plan/consolidated.json`.
-
-**If approved:** Emit approved blocks → Phase 2
-**If rejected:** Return to Step 1.1 (two new sub-agents)
+**If approved:** Proceed to Step 1.4
+**If rejected:** Return to Step 1.2 (rewrite plan addressing rejection reasons)
 
 ### Step 1.4: Fragment into Blocks
 
-The approved plan is broken into blocks (not waves). Each block:
-
-- Has **one scope**: one file, one function, one component, one test spec
-- Has **clear input/output**: what files to read, what to produce
-- Has **a validation criterion**: how to verify it passed
-- Has **an autonomy level**: auto / semi / manual (see Autonomy Harness)
+The approved plan document is now broken into execution blocks for swarm dispatch.
+The main agent performs this fragmentation.
 
 **Fragmentation rules:**
-- If a block requires > 5000 tokens of context → split further
+- Each block = one atomic unit of work
 - If two blocks modify the same file → make them dependent, not parallel
-- If a block has no testable output → reconsider if it's atomic enough
+- If a block requires > 5000 tokens → split further
+- Parallel blocks must be truly independent (no shared writes)
+- Group related tasks into blocks for swarm efficiency
 
 **Block structure:**
 ```yaml
@@ -352,6 +377,8 @@ blocks:
     depends_on: [block-001]
     tasks: [t003]
 ```
+
+**PERSIST BLOCKS:** Write block list to `.ff/traces/{session_id}/plan/blocks.yaml`.
 
 ### Step 1.5: Calculate Autonomy Score
 

@@ -56,12 +56,14 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Two sub-agents dispatched in parallel (Structural + Adversarial)
 - [ ] Both sub-agents returned results
 - [ ] Sub-agent outputs persisted: `plan/structural.json`, `plan/adversarial.json`
-- [ ] Consolidation complete — A + B merged, conflicts resolved
-- [ ] Consolidated plan persisted: `plan/consolidated.json`
+- [ ] Conflicts reconciled (no unresolved safe vs risky disagreements)
+- [ ] Plan Writer sub-agent dispatched — produced comprehensive plan document
+- [ ] Plan document persisted: `plan/plan.md`
 - [ ] Judge sub-agent dispatched (NOT skipped, NOT replaced with self-assessment)
 - [ ] Judge returned `{"approved": true}`
 - [ ] Judge decision persisted: `plan/judge.json`
 - [ ] Plan fragmented into blocks (≤ 8 blocks, each ≤ 5000 tokens context)
+- [ ] Block list persisted: `plan/blocks.yaml`
 - [ ] Block dependencies defined (parallel blocks have no shared writes)
 - [ ] Autonomy score calculated
 - [ ] `.ff/state.json` updated with block list, current_phase: "phase_1"

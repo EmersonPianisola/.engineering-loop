@@ -50,6 +50,13 @@ Write to `.ff/traces/{session_id}/essence.md`:
 
 ### Phase 1 → Phase 2 Post-Hook
 
+**Verify plan artifacts exist:**
+- `.ff/traces/{session_id}/plan/structural.json`
+- `.ff/traces/{session_id}/plan/adversarial.json`
+- `.ff/traces/{session_id}/plan/plan.md` (comprehensive plan document)
+- `.ff/traces/{session_id}/plan/judge.json` (approved: true)
+- `.ff/traces/{session_id}/plan/blocks.yaml` (fragmented blocks)
+
 Write to `.ff/state.json`:
 - `current_phase: "phase_1"`
 - `blocks_completed: []`
@@ -57,6 +64,8 @@ Write to `.ff/state.json`:
 - `autonomy_mode: "<mode>"`
 - `tasks.total: <N>`
 - `updated_at: "<ISO>"`
+
+**If any artifact is missing, DO NOT proceed to Phase 2.**
 
 ### Phase 2 → Phase 3 Post-Hook (After Each Block)
 
