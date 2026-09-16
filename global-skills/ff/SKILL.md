@@ -134,6 +134,7 @@ completes it, then moves to the next. Never loads all phases at once.
   "trace_dir": ".ff/traces/ff-20260914-001",
   "blocks_completed": [],
   "blocks_pending": [],
+  "skills": [],
   "tasks": { "total": 0, "passed": 0, "failed": 0, "skipped": 0, "retried": 0 },
   "autonomy_mode": "semi",
   "summary": "",
@@ -188,6 +189,60 @@ execute inline without FF overhead. FF activates when:
 - Unclear dependencies between parts, OR
 - User explicitly requests FF
 
+### Step 0.2: Skill Discovery (MANDATORY)
+
+After essence check, discover which skills apply to this work. These skills will be injected into all sub-agent dispatches so they can progressively load context during execution.
+
+**Discover skills by analyzing:**
+
+1. **Work type mapping:**
+   | Work Type | Default Skills |
+   |-----------|----------------|
+   | `bugfix` | `bug-analysis` |
+   | `feature` | (none — scope-driven) |
+   | `refactor` | `enterprise-architecture-standards` |
+   | `test` | `comprehensive-test-strategy` |
+   | `migration` | `release-deployment-safety` |
+
+2. **File patterns in scope:**
+   | Pattern | Skill |
+   |---------|-------|
+   | `*.py`, FastAPI imports, `pydantic`, `sqlalchemy` | `python-fastapi-coding-conventions` |
+   | `*.test.py`, `tests/`, `conftest.py` | `python-fastapi-test-conventions` |
+   | Auth, JWT, tokens, passwords, sessions | `owasp-secure-coding-bdd` |
+   | `*.ts`, `*.tsx`, React, Next.js | `react`, `nextjs` |
+   | `prisma/`, schema, migrations, queries | `prisma-client-api` |
+   | `langchain`, `langgraph`, agents | `ecosystem-primer` (+ specific skill by framework) |
+   | RAG, embeddings, vector store | `langchain-rag` |
+   | Human-in-the-loop, approval flows | `langgraph-human-in-the-loop` |
+   | MCP server, tools, external integrations | `mcp-builder` |
+   | API design, routes, endpoints | `api-designer` or `implementing-api-patterns` |
+   | Database schema, indexes, queries | `database-design` |
+   | Security, encryption, secrets | `security-review` |
+   | PII, GDPR, CCPA, data retention | `compliance-data-lifecycle` |
+   | Deploy, release, migration scripts | `release-deployment-safety` |
+
+3. **Project-level AGENTS.md:** If the project has skill mappings (e.g., "Working on X → load skill Y"), honor them.
+
+**PERSIST SKILLS:** Add discovered skills to `.ff/state.json`:
+
+```json
+{
+  "skills": ["python-fastapi-coding-conventions", "owasp-secure-coding-bdd"]
+}
+```
+
+**PERSIST to trace:** Write `.ff/traces/{session_id}/skills.md`:
+
+```markdown
+# Skills — {session_id}
+
+## Discovered Skills
+- skill-name: reason for inclusion
+```
+
+These skill references will be injected into every sub-agent dispatch in Phases 1 and 2.
+
 ---
 
 ## Phase 1: PLAN BUILD (MANDATORY)
@@ -207,9 +262,26 @@ Phase 1 has three stages:
 
 Dispatch two sub-agents in parallel. Both use `subagentType: explore` but with different prompts.
 
+**Include skill references in both prompts:**
+```
+## Applicable Skills
+
+Before executing, load these skills using the skill tool:
+{skills_list}
+
+Skills provide conventions, patterns, and rules. Load them progressively as needed.
+```
+
 **Sub-Agent A — Structural Analyst:**
 ```
 You are a structural analyst. Your job is to map the technical landscape.
+
+## Applicable Skills
+Before executing, load these skills using the skill tool:
+- {skill_name_1}: reason
+- {skill_name_2}: reason
+
+Skills provide conventions, patterns, and rules. Load them progressively as needed.
 
 Given the work item and scope:
 1. Identify all files that need changing (and why)
@@ -217,13 +289,21 @@ Given the work item and scope:
 3. Identify shared state, external APIs, database writes
 4. Assess risk level (low/medium/high) and explain why
 5. List any known patterns or conventions in the codebase that must be followed
+6. Note which skills you loaded and how they informed your analysis
 
-Return a structured summary with: file_map, dependency_map, risk_assessment, conventions.
+Return a structured summary with: file_map, dependency_map, risk_assessment, conventions, skills_used.
 ```
 
 **Sub-Agent B — Adversarial Analyst:**
 ```
 You are an adversarial analyst. Your job is to find what A might have missed.
+
+## Applicable Skills
+Before executing, load these skills using the skill tool:
+- {skill_name_1}: reason
+- {skill_name_2}: reason
+
+Skills provide conventions, patterns, and rules. Load them progressively as needed.
 
 Given the work item and scope:
 1. What are the alternative approaches? (If A only sees one way, find others)
@@ -231,8 +311,9 @@ Given the work item and scope:
 3. What hidden dependencies might exist? (config files, env vars, external services)
 4. What risks did A ignore or minimize?
 5. What is the worst-case scenario for each proposed change?
+6. Note which skills you loaded and how they informed your analysis
 
-Return a structured summary with: alternative_approaches, edge_cases, hidden_dependencies, ignored_risks, worst_case.
+Return a structured summary with: alternative_approaches, edge_cases, hidden_dependencies, ignored_risks, worst_case, skills_used.
 ```
 
 **Execution:**
@@ -252,10 +333,18 @@ Return a structured summary with: alternative_approaches, edge_cases, hidden_dep
 
 **Build Plan:** Dispatch a **Plan Writer sub-agent** (use `subagentType: general`) to create the comprehensive plan document.
 
-Pass it the essence check, structural analysis, and adversarial analysis as context.
+Pass it the essence check, structural analysis, adversarial analysis, and skill references as context.
 
 ```
 You are a plan writer. Your job is to create a comprehensive, detailed plan document.
+
+## Applicable Skills
+Load these skills using the skill tool before writing the plan:
+- {skill_name_1}: reason
+- {skill_name_2}: reason
+
+Skills provide conventions, patterns, and rules. Load them progressively as needed.
+Note which skills informed your planning decisions.
 
 You will receive:
 1. Essence check output (scope, clarifications, work type)
@@ -295,6 +384,9 @@ How to verify the entire plan succeeded:
 
 ### Edge Cases Handled
 Edge cases identified by adversarial analysis and how each is handled.
+
+### Skills Used
+Which skills were loaded and how they informed planning decisions.
 
 Write the plan in clear markdown. Be exhaustive — this is the master plan that will be fragmented into execution blocks.
 ```
@@ -366,6 +458,7 @@ blocks:
     validation: "npm test auth.test.js && lint pass"
     autonomy: "semi"
     depends_on: []
+    skills: ["owasp-secure-coding-bdd", "python-fastapi-coding-conventions"]
     tasks: [t001, t002]
 
   - id: block-002
@@ -375,8 +468,11 @@ blocks:
     validation: "npm test users.test.js"
     autonomy: "auto"
     depends_on: [block-001]
+    skills: ["python-fastapi-coding-conventions"]
     tasks: [t003]
 ```
+
+**Per-block skills:** Each block inherits global skills from Phase 0 discovery, plus block-specific skills based on its scope. The orchestrator assigns skills during fragmentation.
 
 **PERSIST BLOCKS:** Write block list to `.ff/traces/{session_id}/plan/blocks.yaml`.
 
@@ -484,6 +580,8 @@ FOR each block B in plan (in dependency order):
 
 Execute this pattern exactly — it is not pseudo-code. This is the required mechanism for parallel execution.
 
+**CRITICAL:** Skills are injected into `context` as references. Sub-agents load them progressively using the skill tool — they don't receive full skill content upfront.
+
 ```javascript
 const { create, run } = await import("@/skills/swarm");
 
@@ -494,19 +592,32 @@ const table = await create({
     instruction: t.instruction,
     autonomy: t.autonomy,
     file: t.file,       // if single-file task
+    skills: blockSkills, // skills for this block (from blocks.yaml)
   }))
 });
+
+const skillsContext = `
+## Applicable Skills
+
+Load these skills using the skill tool before executing your task:
+${blockSkills.map(s => `- ${s}`).join('\n')}
+
+Skills provide conventions, patterns, and rules specific to this codebase.
+Load them progressively as you encounter relevant decisions.
+Note which skills you loaded and how they informed your work.
+`;
 
 const result = await run(table.id, {
   subagentType: "explore",  // or "general" for write tasks
   instruction: t.instruction,
-  context: sharedContext,   // lessons, decisions, architecture notes
+  context: sharedContext + "\n" + skillsContext, // lessons + decisions + SKILLS
   responseSchema: {
     type: "object",
     properties: {
       status: { type: "string", enum: ["pass", "fail", "skip"] },
       output_path: { type: "string" },
       summary: { type: "string" },
+      skills_used: { type: "array", items: { type: "string" } },
       error: { type: "string" },
     },
     required: ["status"],
@@ -515,6 +626,12 @@ const result = await run(table.id, {
 
 // result → { completed, failed, skipped, failures }
 ```
+
+**Why skill references, not content:**
+- Keeps context small — sub-agents only load what they need
+- Progressive disclosure — skills are read on-demand during execution
+- Skills evolve independently — no need to update FF protocol
+- Sub-agents retain autonomy — they decide which parts of which skill apply
 
 ---
 
@@ -687,6 +804,7 @@ Never rely on conversation memory alone.
   "current_block": "block-001",
   "blocks_completed": [],
   "blocks_pending": [],
+  "skills": ["python-fastapi-coding-conventions", "owasp-secure-coding-bdd"],
   "tasks": {
     "total": 12,
     "passed": 8,
@@ -710,6 +828,11 @@ if the session is interrupted and keeps the orchestrator grounded in actual prog
 Array of lesson objects. Append-only. Loaded at Phase 1 (plan).
 See Phase 3.4 for lesson format.
 
+### File: `.ff/traces/{session_id}/skills.md`
+
+Discovered skills with reasons for inclusion. Created during Phase 0 Skill Discovery.
+These skill references are injected into all sub-agent dispatches.
+
 ---
 
 ## Integration with Existing Skills
@@ -720,6 +843,7 @@ FF uses these skills as components:
 |-------|-----------|---------|
 | `essence` | Phase 0 | Clarify intent, detect traps |
 | `swarm` | Phase 2 | Fan-out parallel micro-tasks |
+| Project skills | Phase 0+ | Discovered and injected as references into all dispatches |
 
 FF does NOT use:
 - LangChain, LangGraph, or any code-based framework

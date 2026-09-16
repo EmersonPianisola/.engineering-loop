@@ -22,8 +22,11 @@ They exist to prevent drift when context grows.
    - Use it as your phase gate checklist for the upcoming transition
 
 3. **Read lessons:** `Read .ff/lessons.json` (if exists and non-empty)
-   - Scan for lessons matching the current work_type
-   - Note any applicable prevention rules
+    - Scan for lessons matching the current work_type
+    - Note any applicable prevention rules
+
+4. **Read skills:** If `.ff/state.json` exists and has a `skills` field, note them
+    - These skills will be injected into all sub-agent dispatches
 
 4. **Assert role:** Say exactly: "FF session initialized. I am the orchestrator."
 
@@ -43,7 +46,11 @@ Write to `.ff/state.json`:
 - `current_phase: "phase_0"`
 - `work_type: "<classified>"`
 - `task_title: "<title>"`
+- `skills: ["skill-1", "skill-2", ...]` (from Skill Discovery)
 - `updated_at: "<ISO>"`
+
+Write to `.ff/traces/{session_id}/skills.md`:
+- Discovered skills with reasons
 
 Write to `.ff/traces/{session_id}/essence.md`:
 - Full essence check output (verbatim)

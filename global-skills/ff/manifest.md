@@ -43,6 +43,8 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Essence check completed (skill "essence" loaded)
 - [ ] All Lens 4 tensions resolved with user
 - [ ] Essence output persisted to `.ff/traces/{session_id}/essence.md`
+- [ ] Skill Discovery completed — skills identified and persisted to `state.json`
+- [ ] Skills persisted to `.ff/traces/{session_id}/skills.md`
 - [ ] Work type classified
 - [ ] Auto-size rule evaluated (FF activated or inline execution justified)
 - [ ] Post-hook executed: `state.json` updated with `current_phase: "phase_0"`
@@ -56,8 +58,10 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Two sub-agents dispatched in parallel (Structural + Adversarial)
 - [ ] Both sub-agents returned results
 - [ ] Sub-agent outputs persisted: `plan/structural.json`, `plan/adversarial.json`
+- [ ] Sub-agents received skill references and reported skills_used
 - [ ] Conflicts reconciled (no unresolved safe vs risky disagreements)
 - [ ] Plan Writer sub-agent dispatched — produced comprehensive plan document
+- [ ] Plan document includes "Skills Used" section
 - [ ] Plan document persisted: `plan/plan.md`
 - [ ] Judge sub-agent dispatched (NOT skipped, NOT replaced with self-assessment)
 - [ ] Judge returned `{"approved": true}`
@@ -83,7 +87,9 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Previous block completed successfully (or failure handled per escalation protocol)
 - [ ] Previous block trace persisted in `blocks/{block_id}.json`
 - [ ] Block autonomy mode checked against score
+- [ ] Block skills assigned (global skills + scope-specific skills)
 - [ ] If block has ≥ 2 independent tasks → MUST dispatch Swarm (sequential execution FORBIDDEN)
+- [ ] Swarm context includes skill references (NOT full skill content)
 - [ ] Gate check performed on results
 - [ ] Failed rows retried once (max 1 retry)
 - [ ] Block trace persisted: `blocks/{block_id}.json` with tasks, results, files_changed
