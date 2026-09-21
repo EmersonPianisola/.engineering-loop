@@ -58,7 +58,7 @@ Runtime resolution: `{framework-root}/skills/` → `config.global_skills.roots` 
 
 ### Managed Skills (versioned in `global-skills/`)
 
-95 skills, synced via `scripts/sync-global-skills.py`. **45 externally sourced skills** (v1+v2) with governance. See `skill-governance.md`.
+106 skills, synced via `scripts/sync-global-skills.py`. **45 externally sourced skills** (v1+v2) with governance. See `skill-governance.md`.
 
 | Category | Skills |
 |----------|--------|

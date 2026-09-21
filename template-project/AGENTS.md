@@ -74,7 +74,7 @@ stay in context throughout long runs.
 
 The Engineering Loop framework is installed as a git submodule at `.eng/`. It is read-only and gitignored.
 
-- `.eng/global-skills/` — 95 versioned global skills (single source of truth)
+- `.eng/global-skills/` — 106 versioned global skills (single source of truth)
 - `.eng/skills/` — 23 framework-specific skills
 - `.eng/references/` — 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
 - `.eng/scripts/sync-global-skills.py` — Sync global skills to `~/.agents/skills/`

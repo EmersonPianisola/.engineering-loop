@@ -379,6 +379,50 @@
     "verifiable-quality-gates": {
       "version": "unknown",
       "status": "synced"
+    },
+    "bmad-design-system": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "bmad-info-arch": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "bmad-interaction": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "bmad-personas": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "bmad-user-research": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "bmad-visual-design": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "integration-tester": {
+      "version": "1.0.0",
+      "status": "synced"
+    },
+    "linter-agent": {
+      "version": "2.0.0",
+      "status": "synced"
+    },
+    "persona-simulator": {
+      "version": "2.0.0",
+      "status": "synced"
+    },
+    "tester-unit": {
+      "version": "2.0.0",
+      "status": "synced"
+    },
+    "ux-auditor": {
+      "version": "2.0.0",
+      "status": "synced"
     }
   }
 }

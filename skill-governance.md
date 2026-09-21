@@ -5,7 +5,7 @@
 
 ## Overview
 
-95 skills total: 45 externally sourced + 50 internal. Curated based on:
+106 skills total: 45 externally sourced + 61 internal. Curated based on:
 - **Stars/reputation** of the source repository
 - **Quality** of SKILL.md content (completeness, examples, references)
 - **Security** scan results (Gen, Socket, Snyk scores)
