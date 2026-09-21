@@ -2,7 +2,36 @@
 
 All notable changes to the FF protocol.
 
+## v12.6.0 — Community-Ready Release (2026-09-19)
+
+### New
+
+- `.opencode/commands/ff.md` is now tracked — fresh clones ship the `/ff` command definition
+- Consumer template fixed for distribution: real framework URL in `.gitmodules`, real FF state schema in the migration guide, corrected skill/reference counts
+- Docs consistency pass: all version and count strings aligned across README, AGENTS.md, skill-index, skill-governance, template-project
+- Motor-era sections removed from README and AGENTS.md
+
+### Changed
+
+- Git hygiene: untracked stale loop-motor artifacts (root `state.json`, `.opencode/opencode.json`, `.eng/` history JSONs, `sub/ok.txt` deleted, `artifacts/post-loop-summary.md`)
+- `.gitignore` rewritten for the FF era (`.eng/` and `.ruff_cache/` ignored; `.opencode/commands/` tracked)
+- README Installation now copies the `/ff` command definition into new consumer projects
+- Milestone tag: `v12.6.0`
+
+### Files Changed
+
+- `README.md`, `AGENTS.md`, `skill-index.md`, `skill-governance.md` — version/count alignment, motor-era section removal, directory trees corrected
+- `template-project/` — `.gitmodules` URL, migration guide schema/counts, README structural fixes
+- `FF-CHANGELOG.md` — this entry; the 2026-09-14 entry below is annotated (it shipped in this release)
+- `.gitignore`, git index — hygiene untracks
+
+### Migration for Consumer Projects
+
+None. Backward compatible with existing FF sessions and installs.
+
 ## v12.4.0 — Fail Fast Enhancement (2026-09-14)
+
+> **Label note:** this entry is mislabeled. The work below was built after v12.5.0 (2026-09-10) and shipped in the **v12.6.0** release (2026-09-19).
 
 ### New
 
@@ -74,10 +103,16 @@ For projects using this repo as `.eng/` submodule:
    ```
    # FF workspace
    .ff/
-   # OpenCode local config
-   .opencode/
+   # OpenCode local config (the /ff command stays tracked)
+   .opencode/*
+   !.opencode/commands/
    ```
-4. Commit: `git add .eng .gitignore && git commit -m "chore(eng): update FF protocol"`
+4. Copy the `/ff` command definition from the framework:
+   ```bash
+   mkdir -p .opencode/commands
+   cp .eng/.opencode/commands/ff.md .opencode/commands/ff.md
+   ```
+5. Commit: `git add .eng .gitignore .opencode/commands && git commit -m "chore(eng): update FF protocol"`
 
 ### Breaking Changes
 

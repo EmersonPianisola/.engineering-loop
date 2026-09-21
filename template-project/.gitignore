@@ -7,8 +7,9 @@
 # Project artifacts
 artifacts/
 
-# Model config
-.opencode/
+# Model config (the /ff command stays tracked)
+.opencode/*
+!.opencode/commands/
 
 # Project config (if used)
 config.yaml

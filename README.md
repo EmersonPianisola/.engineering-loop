@@ -67,10 +67,18 @@ cat >> .gitignore << 'EOF'
 
 # Project artifacts
 artifacts/
+
+# OpenCode local config (the /ff command stays tracked)
+.opencode/*
+!.opencode/commands/
 EOF
 
-# 7. Commit
-git add .eng AGENTS.md .gitignore
+# 7. Copy the /ff command definition from the framework
+mkdir -p .opencode/commands
+cp .eng/.opencode/commands/ff.md .opencode/commands/ff.md
+
+# 8. Commit
+git add .eng AGENTS.md .gitignore .opencode/commands
 git commit -m "Add Engineering Loop framework with FF protocol"
 ```
 
@@ -135,12 +143,18 @@ your-project/
 │   ├── global-skills/       # Skills → deployed to ~/.agents/skills/
 │   ├── skills/              # Framework-specific skills (read-only)
 │   ├── references/          # Anti-patterns, lessons, protocol docs
-│   ├── scripts/             # sync-global-skills.py
+│   ├── scripts/             # Framework scripts (skills sync, propagation)
 │   ├── template-project/    # AGENTS.md template, migration guide
+│   ├── .opencode/commands/  # /ff command definition (copied into your project)
 │   ├── AGENTS.md            # Framework instructions
-│   └── skill-index.md       # Skill registry + improvement log
+│   ├── FF-CHANGELOG.md      # FF protocol changelog
+│   ├── skill-index.md       # Skill registry + improvement log
+│   ├── skill-governance.md  # Skill governance guidelines
+│   ├── global-skills-registry.json  # Global skills registry
+│   └── state-template.json  # State template (reference)
 │
 ├── AGENTS.md                # Your project's instructions (from template)
+├── .opencode/commands/      # /ff command definition (copied from the framework)
 ├── .ff/                     # FF workspace (gitignored)
 │   ├── state.json           # Session state — your anchor
 │   └── lessons.json         # Accumulated lessons (append-only)
@@ -426,6 +440,7 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 |------|------|
 | `AGENTS.md` | Agent instructions — framework editing guidelines |
 | `README.md` | This file — comprehensive documentation |
+| `FF-CHANGELOG.md` | FF protocol changelog |
 | `skill-index.md` | Skill registry — ID → skill mapping with improvement log |
 | `skill-governance.md` | Skill governance guidelines |
 | `global-skills-registry.json` | Global skills registry |
@@ -434,6 +449,6 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 | `references/` | 16 shared reference documents |
 | `skills/` | 23 built-in skills |
 | `global-skills/` | Global skills versioned for `~/.agents/skills/` |
-| `template-project/` | Consumer project template (AGENTS.md, config, .ff/) |
+| `template-project/` | Consumer project template (AGENTS.md, README, migration guide, .gitignore, .gitmodules) |
 | `.ff/` | FF workspace (state.json, lessons.json) |
 | `artifacts/` | Trace JSONL files |

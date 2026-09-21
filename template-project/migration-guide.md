@@ -14,9 +14,11 @@ This guide shows how to migrate an existing project to use the Engineering Loop 
 
 ```bash
 cd your-project
-git submodule add C:/Users/emers/Documents/Claude/Projects/.engineering-loop .eng
+git submodule add https://github.com/EmersonPianisola/.engineering-loop.git .eng
 git commit -m "Add Engineering Loop framework"
 ```
+
+> The framework repo is public. If `git submodule add` fails with an authentication or permission error, check that you can view https://github.com/EmersonPianisola/.engineering-loop.
 
 ---
 
@@ -43,16 +45,27 @@ artifacts/
 # Create the FF workspace
 mkdir .ff
 
-# Initialize state
+# Initialize state (schema: .eng/global-skills/ff/SKILL.md — "State Management")
 echo '{
-  "iteration": 0,
+  "session_id": "ff-{date}-{hash}",
+  "work_type": "feature",
+  "task_title": "",
   "status": "idle",
-  "work_type": "ff",
-  "work_item": "",
-  "decisions": [],
-  "lessons": [],
-  "blocks": [],
-  "trace": []
+  "current_block": "",
+  "blocks_completed": [],
+  "blocks_pending": [],
+  "skills": [],
+  "tasks": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "retried": 0
+  },
+  "autonomy_mode": "semi",
+  "summary": "",
+  "started_at": "",
+  "updated_at": ""
 }' > .ff/state.json
 
 # Initialize lessons
@@ -179,38 +192,7 @@ Before Phase 1, load `.ff/lessons.json` and apply relevant lessons to the plan.
 
 ## Step 6: Create Config File (Optional)
 
-If your project needs a config file:
-
-```bash
-cat > config.yaml << 'EOF'
-# Project configuration
-# This file is gitignored and project-specific.
-
-# Model configuration (if used by the project)
-model:
-  base_url: "http://localhost:8000"
-  model: "qwable-v2"
-  temperature: 0.0
-  max_tokens: 128000
-
-# FF Protocol settings
-ff:
-  autonomy_mode: "semi"  # auto | semi | manual
-  max_blocks: 8
-  max_tasks_per_block: 12
-
-# Lessons
-lessons:
-  enabled: true
-  local_file: ".ff/lessons.json"
-
-# Graphify (optional)
-graphify:
-  enabled: false
-  build_on_init: true
-  update_after_impl: true
-EOF
-```
+FF does not read `config.yaml` — the protocol runs from `.eng/global-skills/ff/` and your `.ff/` workspace. There is no framework config template to copy. If your application needs its own config file, create it separately.
 
 ---
 

@@ -107,13 +107,11 @@ Swarm dispatches parallel tasks per block. Independent tasks run together; depen
 │   └── trace-*.jsonl      # Historical traces
 │
 ├── .opencode/             # Model config (gitignored)
-│   └── opencode.json      # Providers (8 models)
+│   └── opencode.json      # Local model provider config
 │
 ├── src/                   # Application source code
 ├── e2e/                   # Playwright E2E tests
-├── AGENTS.md              # Project instructions (gitignored)
-├── config.yaml            # Project configuration (gitignored)
-├── state.json             # Project state (gitignored)
+├── AGENTS.md              # Project instructions (tracked)
 ├── README.md              # Project documentation
 └── .gitignore             # Git ignore rules
 ```
@@ -186,5 +184,3 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 | File | Version |
 |------|---------|
 | Framework | v12.6.0 |
-| FF Protocol | v2.0 |
-| Judge | v1.0 |
