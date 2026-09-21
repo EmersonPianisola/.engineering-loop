@@ -1,7 +1,7 @@
 ---
 name: skill-index
 type: registry
-description: 'Skill registry. IDs map to skills used by Engineering Loop stages.'
+description: 'Skill registry. IDs map to framework skills invoked by the FF protocol; the Stage column documents the legacy loop mapping.'
 ---
 
 # Skill Index
@@ -44,11 +44,11 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 | `essence` | `essence` | Gate | all | Four Lenses validation — runs BEFORE every stage, captures Lens 4 to context.md |
 | `graphify` | `graphify` | Knowledge | init + all | Knowledge graph (opt-in) — AST-based code mapping, data flow tracing, dead code detection, incremental updates, query-first for architecture |
 | `story-flow` | `story-flow` | Validate | post-loop | Business-to-technical value narrative with mechanical anchors, evidence-only validation, structured output |
-| `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime | Graph Topology Architect (node in `nodes/dynamic_architect.py`) — proposes GraphTopologyProposal (pre-build), DynamicBlueprint (runtime). 5-layer policy firewall authorizes. Dual-path compilation (proposal or deterministic). |
+| `topology-architect` | `dynamic.architect` | Meta | pre-build + runtime (motor-era) | Historical row — the dynamic graph motor was removed in the FF transition; this skill is no longer invocable. |
 
-> **Note:** Design skills marked `FF-optional, motor-dependent` require the trimmed LangGraph motor
-> to be invoked. In FF-only mode, they are not activated automatically. To use them, explicitly load
-> the skill and run its procedure outside the FF protocol.
+> **Note:** The `Stage` column documents the legacy loop-motor mapping — the motor was removed in the
+> FF transition and FF invokes skills directly by name. Design skills marked `FF-optional,
+> motor-dependent` can still be loaded explicitly and used outside the FF protocol.
 
 ## Global Skills
 

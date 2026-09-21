@@ -26,17 +26,12 @@ description: 'Comprehensive framework documentation.'
 - [Installation](#installation)
 - [Overview](#overview)
 - [FF Protocol](#ff-protocol)
-- [BMAD Ideation](#bmad-ideation)
 - [Essence Sidecar](#essence-sidecar)
-- [Lessons System](#lessons-system)
-- [Knowledge Graph](#knowledge-graph)
-- [Configuration Reference](#configuration-reference)
-- [State Management](#state-management)
 - [Directory Structure](#directory-structure)
-- [Exit Conditions](#exit-conditions)
 - [Anti-Patterns](#anti-patterns)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
+- [Files at a Glance](#files-at-a-glance)
 
 ---
 
@@ -239,46 +234,6 @@ Swarm dispatches parallel tasks per block. Independent tasks run together; depen
 
 ---
 
-## The Engine (eng_loop/) — TRIMMED
-
-The loop motor (LangGraph, Python orchestrator, 34 stages) has been removed in v12.4.0. FF protocol replaces the stage-based loop entirely. Consumer projects that install this repo as a git submodule must migrate to FF protocol.
-
----
-
-## BMAD Ideation
-
-For raw or ad-hoc work items that lack structure, the `init.ideate` stage applies BMAD's ideation framework before any engineering begins.
-
-### Three-Stage Ideation
-
-```
-Raw Request
-    │
-    ├── Party Mode (9 AI roles debate the problem)
-    │       ↓
-    ├── Brainstorming (62 creative techniques)
-    │       ↓
-    ├── SDD Extraction (Software Design Description)
-    │       ↓
-    └── Impact-Gated Decomposition
-            ↓
-    Structured Work Item → enters normal loop
-```
-
-### Party Mode Roles
-
-Nine specialized AI personas debate the problem from different perspectives: product manager, architect, developer, designer, QA engineer, security expert, DevOps engineer, UX researcher, and business analyst.
-
-### Brainstorming
-
-62 structured creative techniques applied to generate solution alternatives, each evaluated against impact and feasibility criteria.
-
-### SDD Extraction
-
-Key design decisions, constraints, and requirements extracted from the brainstorming output into a structured Software Design Description.
-
----
-
 ## Essence Sidecar
 
 Runs **BEFORE** every stage. Validates that stage inputs are sound before any work begins — a pre-stage gate, not a post-stage check.
@@ -305,225 +260,6 @@ Runs **BEFORE** every stage. Validates that stage inputs are sound before any wo
 
 ---
 
-## Lessons System
-
-The framework maintains a self-improving lessons system that propagates knowledge across projects.
-
-### Lifecycle
-
-```
-Stage failure or finding
-        │
-        ▼
-  Distill lesson → artifacts/lessons.json (local)
-        │
-        ▼
-  Occurs N times (confirm_threshold = 2) → confirmed
-        │
-        ▼
-  Post-loop: copy to artifacts/lessons-pending.json
-        │
-        ▼
-  User commits to framework → artifacts/lessons-shared.json
-        │
-        ▼
-  Available to all projects on next loop
-```
-
-### Lesson Files
-
-| File | Location | Purpose |
-|------|----------|---------|
-| `lessons.json` | `{artifact-root}/` | Project-local lessons |
-| `lessons-shared.json` | `{artifact-root}/` | Shared lessons (committed to framework) |
-| `lessons-pending.json` | `{artifact-root}/` | Lessons ready to share |
-| `LESSONS.md` | `{artifact-root}/` | Human-readable lessons report |
-
-Only **confirmed** lessons (occurred ≥ `confirm_threshold` times) enter sub-agent context.
-
----
-
-## Knowledge Graph
-
-When `config.graphify.enabled == true`, the optional Graphify integration builds and maintains a knowledge graph of the codebase.
-
-### Features
-
-- **AST-based code mapping** — parses source files to extract entities and relationships
-- **Query interface** — `graphify explain <entity>`, `graphify path A B`, `graphify query <question>`
-- **Edge confidence levels:**
-  - `EXTRACTED` — trust (derived directly from code)
-  - `INFERRED` — verify if critical (inferred from patterns)
-  - `AMBIGUOUS` — must Read source (uncertain, requires verification)
-- **Auto-update** — runs `graphify update .` after `impl.code` when `update_after_impl` is enabled
-
-### Principle
-
-> Graph is the map, Read is the terrain — never substitute Read with query when contract/type is critical.
-
----
-
-## Configuration Reference
-
-### Config
-
-`config-template.yaml` was removed in FF transition. Consumer projects generate `config.yaml` from `template-project/config.yaml`.
-
-### Framework Paths
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `framework_skill_root` | `skills` | Skills directory (relative to `{framework-root}`) |
-| `framework_reference_root` | `references` | References directory |
-| `framework_stage_root` | `stages` | Stage procedures directory |
-| `framework_template_path` | `references/skill-templates.md` | Self-construction templates |
-
-### Global Skills (Fallback)
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `global_skills.enabled` | `true` | Enable the global skill fallback |
-| `global_skills.roots` | `["~/.agents/skills"]` | Shared skill dirs, checked after `{skill-root}` (name collisions: framework wins) |
-
-### Project Paths
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `artifact_root` | `artifacts` | Runtime output (relative to `{loop-root}`) |
-| `log_root` | `../_bmad-output/process-logs` | Process logs (relative to `{project-root}`) |
-| `state_file` | `state.json` | State file (relative to `{loop-root}`) |
-| `context_file` | `context.md` | Context file (relative to `{loop-root}`) |
-
-### Constraints
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `max_init_bdd_attempts` | 2 | BDD journey mapping max iterations |
-| `max_init_ideate_attempts` | 3 | Ideation max iterations |
-| `max_init_refine_attempts` | 5 | Idea refinement max iterations |
-| `max_design_*_attempts` | 2 | Each design stage max iterations |
-| `max_arch_requirements_attempts` | 2 | Requirements refinement max iterations |
-| `max_arch_solution_attempts` | 2 | Solution design max iterations |
-| `max_arch_review_attempts` | 2 | Architecture review max iterations |
-| `max_impl_design_attempts` | 2 | Implementation blueprint max iterations |
-| `max_impl_code_attempts` | 3 | Code implementation max iterations |
-| `max_verify_attempts` | 3 | Verification max iterations |
-| `max_e2e_execute_attempts` | 3 | E2E testing max iterations |
-| `max_smoke_test_attempts` | 3 | Smoke test max iterations |
-| `max_qa_security_attempts` | 2 | Security review max iterations |
-| `max_qa_api_contract_attempts` | 2 | API contract validation max iterations |
-| `max_qa_performance_attempts` | 2 | Performance check max iterations |
-| `max_deploy_prepare_attempts` | 2 | Deploy preparation max iterations |
-| `max_doc_update_attempts` | 2 | Doc update max iterations |
-| `max_doc_decisions_attempts` | 2 | Decision log max iterations |
-| `max_doc_project_attempts` | 2 | Project docs max iterations |
-
-### Compliance (v11.1)
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `compliance.enabled` | `true` | Enable compliance gate between stages |
-| `compliance.mode` | `gate` | `gate` = blocking, `advisory` = warning only |
-| `compliance.check_before_stage` | `true` | Run `--check-compliance` before each stage |
-| `compliance.enforce_tool_scope` | `true` | Block tool calls not permitted for current stage |
-
-### Hardware Management
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `context_window` | 200000 | Total available context tokens |
-| `context_safety_margin` | 0.15 | Reserve 15% (30K buffer) |
-| `max_parallel_agents` | 3 | Max concurrent sub-agents |
-| `agent_context_limit` | 66666 | Max tokens per sub-agent |
-| `stage_timeout_seconds` | 300 | Max seconds per stage execution |
-| `max_artifact_size_lines` | 300 | Cap artifact file size |
-| `max_findings_buffer` | 50 | Cap accumulated findings |
-| `compact_log_after_iteration` | 3 | Compact log after N iterations |
-
-### Essence
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `essence.enabled` | true | Enable Essence Sidecar |
-| `essence.skill` | `essence` | Skill name for Essence sub-agent |
-| `essence.run_before_stage` | true | Always runs before stage invocation |
-| `essence.capture_decisions` | true | Capture Lens 4 decisions to context.md |
-
-### Lessons
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `lessons.enabled` | true | Enable lessons system |
-| `lessons.local_file` | `artifacts/lessons.json` | Project-local lessons |
-| `lessons.shared_file` | `artifacts/lessons-shared.json` | Shared lessons (committed to framework) |
-| `lessons.pending_file` | `artifacts/lessons-pending.json` | Lessons ready to share |
-| `lessons.rendered_file` | `artifacts/LESSONS.md` | Human-readable lessons |
-| `lessons.confirm_threshold` | 2 | Occurrences needed for confirmation |
-
-### Graphify
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `graphify.enabled` | false | Enable knowledge graph integration |
-| `graphify.build_on_init` | true | Build graph during INIT |
-| `graphify.build_on_commit` | false | Build graph on each commit |
-| `graphify.update_after_impl` | true | Update graph after impl.code |
-| `graphify.skip_if_small` | true | Skip graph for small complexity |
-
-### Dynamic Graph
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `dynamic_graph.enabled` | false | Enable dynamic graph construction |
-| `dynamic_graph.parallel_qa` | false | Run QA stages in parallel (fan-out/fan-in) |
-| `dynamic_graph.log_topology` | true | Save graph topology to state.json |
-
-### State History (v11.2)
-
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `state_history.enabled` | true | Save snapshot after each stage |
-| `state_history.retention_per_stage` | 5 | Max snapshots to keep per stage |
-| `state_history.history_dir` | `.eng/history` | Directory for state snapshots |
-
----
-
-## State Management
-
-### State Files
-
-| File | Location | Purpose |
-|------|----------|---------|
-| `state-template.json` | `{framework-root}/` | Template (git-tracked, retained for reference) |
-| `state.json` | `{loop-root}/` | Runtime state (gitignored) |
-| `STATE.md` | `{loop-root}/` | Human-readable state + decisions + handoff (gitignored) |
-| `.eng/history/*.json` | `{loop-root}/` | State snapshots per stage for time travel (v11.2, gitignored) |
-
-### Per-Stage Variables
-
-| Variable | Type | Purpose |
-|----------|------|---------|
-| `stages.{id}.done` | boolean | Whether stage is complete |
-| `stages.{id}.attempts` | integer | Number of attempts (checked against constraints) |
-| `stages.{id}.essence_checked` | boolean | Whether Essence Sidecar validated inputs |
-
-### Global Variables
-
-| Variable | Type | Purpose |
-|----------|------|---------|
-| `iteration` | integer | Current loop iteration count |
-| `status` | enum | `running` / `done` / `blocked` / `halted` |
-| `complexity` | enum | `unset` / `small` / `medium` / `large` / `complex` |
-| `work_type` | enum | `feature` / `bugfix` / `operational` (v11.1) |
-| `work_item` | object | Validated work item data |
-| `decisions` | array | AD-NNN decision records |
-| `graph_topology` | object | Compiled graph topology (v11 dynamic graph) |
-| `active_nodes` | array | List of active node IDs for current work item |
-| `parallel_groups` | object | Fan-out/fan-in group definitions |
-| `tags` | array | Work item tags used for graph filtering |
-
----
-
 ## Directory Structure
 
 ```
@@ -535,16 +271,14 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 ├── README.md                    # This file
 ├── .gitignore                   # Project file exclusions
 ├── AGENTS.md                    # Agent-specific instructions
+├── FF-CHANGELOG.md              # FF protocol changelog
 │
 ├── .ff/                         # FF workspace (gitignored)
 │   ├── state.json               # Current FF session state
 │   ├── lessons.json             # Accumulated lessons (append-only)
 │   └── README.md                # FF documentation
 │
-├── .eng/                        # Consumer project state (gitignored)
-│   ├── state.json               # Runtime state
-│   ├── artifacts/               # Runtime artifacts
-│   └── history/                 # State snapshots
+├── .eng/                        # Local leftover dir in this repo (gitignored)
 │
 ├── references/                  # Shared references (read-only, 16 files)
 │   ├── anti-patterns.md
@@ -595,170 +329,58 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 │   └── deepagents-typescript-quickstart/
 │
 ├── scripts/                     # Framework scripts
-│   └── sync-global-skills.py    # Global skills sync utility
+│   ├── sync-global-skills.py    # Global skills sync utility
+│   └── propagate-to-projects.py # Update framework + skills in consumer projects
 │
 ├── artifacts/                   # Trace files (gitignored)
 │   ├── trace-*.jsonl            # Historical execution traces
 │   └── validation.md
 │
 └── template-project/            # Consumer project template
-    ├── AGENTS.md
-    ├── config.yaml
-    ├── state.json
-    ├── .ff/
-    └── migration-guide.md
+    ├── AGENTS.md                # AGENTS.md template for new projects
+    ├── README.md                # Consumer README template
+    ├── example-work-item.md     # Sample work item
+    ├── migration-guide.md       # Migration walkthrough
+    ├── .gitignore               # Consumer .gitignore template
+    └── .gitmodules              # Submodule config (framework repo URL)
 ```
-
----
-
-## Exit Conditions
-
-| Condition | Where | Status | `blocking_condition` |
-|-----------|-------|--------|---------------------|
-| All active stages done | WHILE false | `done` | — |
-| Input invalid | Phase 0 | `blocked` | `input not ready for engineering` |
-| Skill creation fails | Phase 1 | `blocked` | `no suitable skill available` |
-| `init.bdd.attempts >= max` | init BDD | `blocked` | `BDD journey mapping non-convergence` |
-| `impl.code.attempts >= max` | impl code | `blocked` | `implementation non-convergence` |
-| `verify.attempts >= max` | verify | `blocked` | `verification non-convergence` |
-| `qa.security.attempts >= max` | qa security | `blocked` | `security review non-convergence` |
-| `qa.api-contract.attempts >= max` | qa api-contract | `blocked` | `API contract validation non-convergence` |
-| `qa.performance.attempts >= max` | qa performance | `blocked` | `performance check non-convergence` |
-| `deploy.prepare.attempts >= max` | deploy prepare | `blocked` | `deploy preparation non-convergence` |
-| `max_loop_iterations` exceeded | Any | `halted` | `loop iterations exceeded` |
-| `stage_timeout_seconds` exceeded | Any stage | `halted` | `stage timeout exceeded` |
-| `max_essence_retries_per_stage` exceeded | Essence gate | `blocked` | `essence non-convergence` |
-| User interrupt | Any | `halted` | `user interrupted` |
 
 ---
 
 ## Anti-Patterns
 
-### Loop Mechanics
+The full anti-pattern catalog lives in [`references/anti-patterns.md`](references/anti-patterns.md) — orchestrator drift, FF protocol rules, and sub-agent contract violations.
 
-- **Never treat stages as sequential** — the loop re-evaluates ALL stages every iteration
-- **Never break the loop prematurely** — only exit via all stages done or constraint breach
-- **Never reset attempt counters mid-loop** — counters persist across all iterations
-- **Never skip stages on user request** — user requests are focus directives, not skip directives
-- **Never skip the compliance gate** — `--check-compliance` must run before every stage transition (LLM mode)
-
-### LLM Orchestrator Drift (v11.1)
-
-- **Never skip stages because complexity is "small"** — auto-sizing determines active stages, you execute all of them
-- **Never abandon the stage procedure to debug directly** — if debugging is needed, do it within the stage's sub-agent scope
-- **Never modify project files outside your stage's allowed scope** — each stage has defined ALLOWED/FORBIDDEN actions
-- **Never assume a stage is "not needed" based on your judgment** — the topology is authoritative
-- **Never proceed past a compliance violation** — the gate exists to catch exactly these situations
-
-### Essence Gate
-
-- **Always run Essence BEFORE every stage** — validates inputs before any work begins
-- **Never run Essence after a stage** — it is a pre-stage gate, not a post-stage check
-- **Never skip Essence** — every stage must pass the Four Lenses before invocation
-
-### Multi-Project
-
-- **Never hardcode paths** — always resolve from config and root variables
-- **Never write project artifacts to framework dir** — use `{loop-root}` for project files
-- **Never modify config-template.yaml** — projects should only modify their own `config.yaml`
-- **Never commit project files in framework repo** — `.gitignore` prevents this
-
-### Context Management
-
-- **Never pass full context to a sub-agent** — always use context slicing
-- **Never exceed agent_context_limit** — each sub-agent has its own token budget
-- **Never skip log compaction** — context overflow will crash the loop
-
-### Decision Recording
-
-- **Never defer decisions to doc phase** — record AD-NNN continuously after each stage
-- **Never lose decision context** — every architectural choice must be documented immediately
+The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) section above.
 
 ---
 
 ## Troubleshooting
 
-### Stage Won't Converge (Attempts Exhausted)
-
-**Symptom:** `status: blocked`, `blocking_condition: {stage} non-convergence`
-
-**Resolution:**
-- Increase `max_{stage}_attempts` in `config.yaml`
-- Improve work item clarity (more specific ACs, clearer scope)
-- Review upstream stage artifacts for completeness
-- Check Essence findings for input quality issues
-
-### Essence Keeps Failing
-
-**Symptom:** Stage never invokes, Essence loops indefinitely
-
-**Resolution:**
-- For Lenses 1-3: Adjust inputs inline, clarify ambiguous terms
-- For Lens 4: Respond to scope clarification prompt (narrow/accept/redefine)
-- If `max_clarification_attempts` exceeded: manually resolve the input ambiguity
-- Lens 4 scope tensions now ask before blocking — answer the clarification to proceed
-
-### No Visibility During Long Runs
-
-**Symptom:** Process appears frozen; no idea how long it has been running or what it is doing
-
-**Resolution:**
-- The **wall-clock timer** (displayed as `wall:HH:MM:SS`) tracks total elapsed time since CLI startup and persists across all recovery attempts
-- Progress bar, spinner, and recovery panel all show wall-clock time
-- Stage spinner shows: `(N tools, Xs, wall:HH:MM:SS)` with real-time updates
-- If no spinner is visible, the agent runner emits a heartbeat every 5s with wall-clock time
-- Recovery attempts display `[wall: HH:MM:SS]` so you can see cumulative time across retries
-- The final Stage Timing table shows both per-stage totals and the wall-clock duration
-
-### Context Overflow
-
-**Symptom:** Sub-agent responses are truncated or loop crashes
-
-**Resolution:**
-- Increase `context_window` in `config.yaml`
-- Reduce `agent_context_limit` and enforce stricter slicing
-- Run log compaction manually if `compact_log_after_iteration` hasn't triggered
-
-### Config Not Found
-
-**Symptom:** Orchestrator warns about missing `config.yaml`
-
-**Resolution:** Consumer projects generate `config.yaml` from `template-project/config.yaml`.
-
 ### Submodule Not Updating
 
-**Symptom:** Stages or skills are outdated
+**Symptom:** Framework skills or references are outdated
 
-**Resolution:** `git submodule update --remote`
+**Resolution:**
+- `git submodule update --remote`
+- Re-sync global skills: `python .eng/scripts/sync-global-skills.py pull`
 
 ### E2E Tests Failing on Locators
 
 **Symptom:** Playwright tests fail with "element not found"
 
 **Resolution:**
-- Ensure `e2e_locator_strategy` is set to `role-based`
 - Use `getByRole`, `getByLabel`, `getByText` — never fragile CSS/XPath selectors
 - Check that ARIA labels and roles are present in the DOM
 
 ### Model Connectivity Failed
 
-**Symptom:** Model API calls fail with connection error
+**Symptom:** Model API calls fail with a connection error
 
 **Resolution:**
 - Ensure your local model server is running at the configured `base_url`
 - Check the model name matches what your server expects
 - Verify `.opencode/opencode.json` has correct provider config
-
-### Lessons Not Propagating
-
-**Symptom:** Same failure occurs across projects
-
-**Resolution:**
-- Verify `lessons.enabled` is `true` in `config.yaml`
-- Check `lessons.confirm_threshold` — may need to lower from default (2)
-- Ensure `lessons-shared.json` is committed to the framework repo after post-loop
-
-
 
 ---
 
