@@ -18,16 +18,15 @@ graphify-out/cache/
 # FF workspace — session traces and state (artefatos de trabalho)
 .ff/
 
-# OpenCode local config
-.opencode/
+# OpenCode local config (the /ff command definition stays tracked)
+.opencode/*
+!.opencode/commands/
 
-# Python / LangGraph build artifacts
-eng_loop/src/eng_loop/__pycache__/
-eng_loop/src/eng_loop/**/*.pyc
-eng_loop/.pytest_cache/
-eng_loop/*.egg-info/
-eng_loop/.ruff_cache/
+# Python build artifacts
 __pycache__/
 *.pyc
 .pytest_cache/
-eng_loop/.cosmic-ray/
+.ruff_cache/
+
+# Local framework leftover (in consumer projects this path holds the submodule)
+.eng/
