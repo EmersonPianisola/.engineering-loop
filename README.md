@@ -4,7 +4,7 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.5.0
+# Engineering Loop v12.6.0
 
 **New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
@@ -12,10 +12,10 @@ description: 'Comprehensive framework documentation.'
 
 | | |
 |---|---|
-| **Version** | 12.5.0 |
+| **Version** | 12.6.0 |
 | **Development Mode** | FF (Fail Fast) — parallel swarm, judge-approved plans |
-| **Skills** | 22 built-in ideação/verificação skills + global skills |
-| **References** | 15 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
+| **Skills** | 23 built-in ideação/verificação skills + global skills |
+| **References** | 16 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
 | **Architecture** | Multi-project via git submodule |
 | **Anti-Drift** | manifest.md, role assertion, context budget, state file anchor |
 
@@ -546,13 +546,14 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 │   ├── artifacts/               # Runtime artifacts
 │   └── history/                 # State snapshots
 │
-├── references/                  # Shared references (read-only, 14 files)
+├── references/                  # Shared references (read-only, 16 files)
 │   ├── anti-patterns.md
 │   ├── bmad-ideation-patterns.md
 │   ├── decision-log.md
 │   ├── decision-template.md
 │   ├── essence-sidecar.md
 │   ├── exit-conditions.md
+│   ├── ff-protocol.md
 │   ├── graphify.md
 │   ├── hardware-management.md
 │   ├── lessons.md
@@ -563,16 +564,29 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 │   ├── sub-agent-contract.md
 │   └── ui-testing-patterns.md
 │
-├── skills/                      # Specialized skills (read-only, 22 skills)
+├── skills/                      # Specialized skills (read-only, 23 skills)
+│   ├── architecture-reviewer/
 │   ├── bmad-bdd-mapper/
+│   ├── bmad-design-system/
 │   ├── bmad-ideation/
+│   ├── bmad-info-arch/
 │   ├── bmad-integration/
+│   ├── bmad-interaction/
+│   ├── bmad-personas/
+│   ├── bmad-user-research/
+│   ├── bmad-visual-design/
 │   ├── e2e-playwright/
 │   ├── essence/
 │   ├── graphify/
 │   ├── implementation-architect/
+│   ├── integration-tester/
+│   ├── linter-agent/
+│   ├── persona-simulator/
 │   ├── requirements-refiner/
 │   ├── solution-designer/
+│   ├── story-flow/
+│   ├── tester-unit/
+│   ├── ux-auditor/
 │   └── verifier/
 │
 ├── global-skills/               # Global skills versioned for ~/.agents/skills/
@@ -773,11 +787,14 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 | v11.3.0 | 2026-08-13 | **Context optimization**: `ProjectMap` pre-computed at init eliminates 3-8 exploratory glob/read per stage (ASCII tree, configs, entry points, modules, languages, routes, components). `ToolResultCache` in micro-loop eliminates redundant read/glob/grep calls with targeted invalidation on edit/write (full invalidation on bash). Graphify prompt softened from imperative to passive. `project_map.py` (370 lines), `ToolResultCache` in `agent_runner.py`, 29 new tests |
 | v11.4.0 | 2026-08-14 | **Contract gate middleware + causal rollback**: `contract_gate.py` validates handoff contracts between stages (blueprint→code, code→verify); retries source or blocks pipeline. `qa_parallel.py` fan-out/fan-in with `qa-dispatcher` + `qa-join` for parallel QA. `rollback_to_stage` reducer resets causal chain (impl.code → verify) on verifier/QA failure. `impl.code` FIX MODE with structured `fix_tasks`. Deterministic `init-setup` node separates classification from LLM. State reducers: `_merge_dict`, `_overwrite` (clear fields), `rollback_to_stage`. Edge rules: conditional blueprint validation, blocked-aware routing. Dry-run simulator: 4 scenarios (HAPPY_PATH, CONTRACT_VIOLATION, VERIFY_ROLLBACK, QA_FANOUT_FAIL) — all assertions green |
 | v11.5.0 | 2026-08-15 | **Dynamic Node Orchestration (V1.3)**: Meta-orchestration layer for runtime sub-task generation beyond the 26-stage pipeline. `dynamic-architect` node (LLM proposes `DynamicBlueprintProposal` → framework authorizes via `authorize_blueprint()` → immutable `DynamicBlueprint`). `meta-executor` node (sequential cursor-based execution, strict attempt counting, typed validation). 9 new Pydantic schemas (frozen payloads, discriminated union rules, audit entries). Policy resolver: risk keyword analysis, tool sandboxing (safe pool). Validation engine: `tests_pass` (subprocess), `files_exist` (path check), `contains_symbol` (regex). Governance: `MAX_DYNAMIC_STEPS=5`, `max_attempts` per step (1-5), `authorized_complexity` override. Topology: `__start__ → init-setup → dynamic-architect → [meta-executor loop] → init`. 54 tests, 29 total nodes |
-| v11.6.0 | 2026-08-16 | **Graph integrity + evidence-based status**: Honest task outcome (`compute_task_outcome()`) — DONE/FAILED/PARTIAL/WARNINGS. Post stage propagates failure instead of forcing DONE. Artifact evidence tracking (existência verificada vs declarada). Topology fidelity (proposed vs compiled). Result rendering evidencia-based (stages ativos, artefatos, falhas). Tool aliases (snake_case + camelCase). LangGraph warning suppression. 117 integration tests (1603 total) |
+| v11.6.0 | 2026-08-15 | **Dynamic Graph Topology Proposal**: LLM architect proposes optimal graph per task, authorized by 5-layer policy firewall, compiled by deterministic builder. Invariant: LLM proposes → Policy authorizes → Builder compiles → Runtime executes. 5 new schemas: GraphTopologyProposal, EdgeDefinition, PhaseGroup, ExecutionPolicy, AuthorizedGraphTopology. Dual-path compilation (proposal or deterministic fallback). 34 new tests, 1484 total tests pass |
 | v11.6.1 | 2026-08-16 | **Graph integrity + evidence-based status**: Honest task outcome (`compute_task_outcome()`) — DONE/FAILED/PARTIAL/WARNINGS. Post stage propagates failure instead of forcing DONE. Artifact evidence tracking (existência verificada vs declarada). Topology fidelity (proposed vs compiled). Result rendering evidencia-based (stages ativos, artefatos, falhas). Tool aliases (snake_case + camelCase). LangGraph warning suppression. 117 integration tests (1603 total) |
 | v12.1.0 | 2026-08-17 | **Skills v2.0 — Comprehensive improvement across 13 skills**: persona-simulator (structured profiles, SEQ/SUS scoring from Avenir-UX), verifier (equivalent mutant filtering, mutation feedback loop from agentpatterns.ai/MUTGEN), ux-auditor (WCAG 2.2, Nielsen heuristics, SEQ/SUS), bmad-bdd-mapper (Scenario Outline, hooks, tag strategy), tester-unit (two-step prompting, boundary value analysis, mutation score), linter-agent (security analysis, maintainability index, false positive handling), requirements-refiner (INVEST/SMART scoring, risk matrix, conflict detection), solution-designer (ADR format, STRIDE threat modeling, API design principles), implementation-architect (testing strategy, CI/CD pipeline, rollback plan), bmad-ideation (Hourglass Framework, idea evaluation matrix, convergence techniques), e2e-playwright (visual regression, trace viewer, Playwright MCP), graphify (data flow tracing, dead code detection, incremental updates) |
 | v12.2.1 | 2026-08-20 | **Essence Lens 4 clarification + wall-clock visibility**: Lens 4 scope/complexity tensions now ask user for clarification (narrow/accept/redefine) instead of terminal block; only blocks if `max_clarification_attempts` exhausted. Global wall-clock timer (`start_global_wall_clock()`) set once at CLI entry, persists across all recovery attempts. All progress displays (spinner, progress bar, recovery panel, heartbeat, dashboard) show real-time wall-clock elapsed time. 138 tests passing |
+| v12.3.0 | 2026-08-21 | **Graph engineering anti-patterns**: 8 new rules (over-spawning, shared state, knowledge vs agent graph). Lessons L-003 to L-006. Sub-agent contract node types. Hardware-management token budget. Policy-firewall cost-budget layer. Essence reflection types. Provenance viral-claim check |
 | v12.4.0 | 2026-08-30 | **FF Protocol — Fail Fast**: Parallel swarm-based development. Two sub-agents cross-analyze, judge approves, swarm executes. No waves. No graphs. Just blocks. FF is the default development mode. Removed motor from consumer projects (`.eng/` is trimmed). |
+| v12.5.0 | 2026-09-10 | **FF anti-drift protocol + installation guide**: manifest.md phase checkpoint checklist, reinjection at phase transitions, role assertion, context budget rule, state-file anchor, drift symptoms table; Installation/Quick Install + Verify Installation docs |
+| v12.6.0 | 2026-09-19 | **Community-ready**: /ff command shipped tracked, full session tracing, propagation script; docs consistency pass — motor-era sections removed, versions + counts aligned across all docs, consumer template fixed; stale motor artifacts untracked; milestone tag |
 
 ---
 
@@ -792,8 +809,8 @@ When `config.graphify.enabled == true`, the optional Graphify integration builds
 | `global-skills-registry.json` | Global skills registry |
 | `state-template.json` | State template (retained for reference) |
 | `scripts/sync-global-skills.py` | Global skills sync utility |
-| `references/` | 14 shared reference documents |
-| `skills/` | 22 built-in skills |
+| `references/` | 16 shared reference documents |
+| `skills/` | 23 built-in skills |
 | `global-skills/` | Global skills versioned for `~/.agents/skills/` |
 | `template-project/` | Consumer project template (AGENTS.md, config, .ff/) |
 | `.ff/` | FF workspace (state.json, lessons.json) |

@@ -91,8 +91,8 @@ Swarm dispatches parallel tasks per block. Independent tasks run together; depen
 ```
 <project-name>/
 ├── .eng/                  # Engineering Loop framework (git submodule, ignored)
-│   ├── references/        # 14 reference docs (anti-patterns, decisions, lessons, etc.)
-│   ├── skills/            # 22 ideação/verificação skills
+│   ├── references/        # 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
+│   ├── skills/            # 23 ideação/verificação skills
 │   ├── AGENTS.md          # Framework instructions
 │   ├── skill-index.md     # Skill registry
 │   ├── state-template.json # State template
@@ -185,6 +185,6 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 | File | Version |
 |------|---------|
-| Framework | v12.4.0 |
+| Framework | v12.6.0 |
 | FF Protocol | v2.0 |
 | Judge | v1.0 |

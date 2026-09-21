@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v12.4.0
+# AGENTS.md — Engineering Loop v12.6.0
 
 ## What This Repo Is
 
@@ -76,8 +76,8 @@ If the session is interrupted, resume by running `/ff resume` or loading `.ff/st
 ### .eng/ is Trimmed
 
 The `.eng/` directory has been trimmed: the loop motor (LangGraph, Python orchestrator, 34 stages) has been removed. What remains:
-- `references/` — 14 reference docs (decision log, anti-patterns, lessons, etc.)
-- `skills/` — 22 ideação/verificação skills
+- `references/` — 16 reference docs (decision log, anti-patterns, lessons, ff-protocol, etc.)
+- `skills/` — 23 ideação/verificação skills
 - `artifacts/` — trace JSONL files
 - `AGENTS.md`, `skill-index.md` — framework documentation
 
@@ -123,7 +123,7 @@ Stage prompt templates were removed in the FF transition. FF protocol replaces t
 
 ## Skills (`skills/`)
 
-22 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
+23 built-in skills, each in `skills/{name}/SKILL.md`. The authoritative registry is `skill-index.md` — update it whenever you add, rename, or remove a skill.
 
 ## Skill Usage — MANDATORY (Global Skills)
 
@@ -141,7 +141,7 @@ Other global skills useful for development work: `eval-engineering` (evals/bench
 
 ## References (`references/`)
 
-14 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, etc.) + `lessons-shared.json`.
+15 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, ff-protocol, etc.) + `lessons-shared.json`.
 
 ## Config
 

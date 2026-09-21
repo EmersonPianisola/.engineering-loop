@@ -1,4 +1,4 @@
-# Migration Guide — Engineering Loop v12.4.0
+# Migration Guide — Engineering Loop v12.6.0
 
 This guide shows how to migrate an existing project to use the Engineering Loop with the FF (Fail Fast) protocol.
 
@@ -157,8 +157,8 @@ You should:
 
 The Engineering Loop framework is installed as a git submodule at `.eng/`. It is read-only and gitignored.
 
-- `.eng/references/` — 14 reference docs (anti-patterns, decisions, lessons, etc.)
-- `.eng/skills/` — 22 ideação/verificação skills
+- `.eng/references/` — 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
+- `.eng/skills/` — 23 ideação/verificação skills
 - `.eng/AGENTS.md` — Framework instructions
 - `.eng/skill-index.md` — Skill registry
 - `.eng/state-template.json` — State template

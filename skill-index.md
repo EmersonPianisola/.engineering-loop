@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to skills used by Engineering Loop stages.
 
 # Skill Index
 
-**Framework:** Engineering Loop v12.5.0
+**Framework:** Engineering Loop v12.6.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
