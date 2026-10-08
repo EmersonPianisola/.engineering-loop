@@ -1,6 +1,6 @@
 # Skill Governance
 
-**Framework:** Engineering Loop v12.6.0  
+**Framework:** Engineering Loop v12.7.0  
 **Scope:** Externally sourced skills versioned in `global-skills/`
 
 ## Overview

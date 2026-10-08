@@ -2,6 +2,45 @@
 
 All notable changes to the FF protocol.
 
+## v12.7.0 — Acceptance Layer + Context Handoff (2026-10-07)
+
+### New
+
+- **Acceptance Build step (Phase 1, Step 1.4)** — a mandatory Acceptance Architect sub-agent runs BETWEEN fragmentation and the judge. It writes, for every block:
+  - `plan/acceptance-plan.md` — the acceptance tests that must be executed per delivery, with concrete execution instructions (runner, command, scenarios covered)
+  - `plan/acceptance/{block_id}.feature` — strict Gherkin acceptance criteria per delivery (Given/When/Then)
+  - Scope: specification ONLY — the step never runs tests, commands, or suites. Execution stays in Phase 2/3.
+  - Acceptance level is end-user perspective (what the user does, what the user observes). Unit tests alone never satisfy the acceptance gate.
+  - Mandatory coverage per block: happy path, every adversarial edge case, negative/error paths — all with deterministic, concrete expected outcomes.
+
+- **Acceptance gate in the judge** — the judge now validates the plan, the blocks, AND the acceptance criteria. Rejection reasons include: missing feature file, unit-level acceptance, unit-only acceptance, edge case without scenario, vague expectations, non-executable test instructions.
+
+- **Acceptance in the block gate (Phase 2)** — acceptance tests are run mechanically per `acceptance-plan.md`; a failing acceptance scenario counts as a failed row. Block traces record `acceptance: { feature, scenarios_total, scenarios_passed }`.
+
+- **Acceptance in the final gate (Phase 3)** — the full acceptance suite (all blocks) runs before the project test suite; the FF report gains an `Acceptance:` line.
+
+- **Context Handoff (mandatory in every dispatch)** — the orchestrator assembles a Context Package before EVERY sub-agent dispatch (analysts, Plan Writer, Acceptance Architect, judge, executors): Session Context, Plan Slice, File Context (orchestrator-read excerpts of in-scope files), Contracts (consumes/produces), Acceptance (the block's Gherkin feature), Skill Digest (rules extracted from loaded skills — never bare skill names), and Lessons & Decisions. The previously-undefined `sharedContext` in the Swarm dispatch is now this package.
+
+- **Richer block structure** — blocks carry a self-contained multi-line `instruction` (read what, change what, satisfy which acceptance), `contracts` (consumes/produces), and `acceptance` (feature path). One-line instructions are a protocol violation.
+
+### Changed
+
+- Phase 1 renumbered: 1.1 Analyze → 1.2 Build Plan Document → 1.3 Fragment into Draft Blocks (moved before the judge) → 1.4 Acceptance Build → 1.5 Judge → 1.6 Autonomy Score → 1.7 Present Plan
+- Judge rejection now returns to the specific failing step (1.2 plan / 1.3 fragmentation / 1.4 acceptance)
+- Drift tables and anti-patterns extended: skipping acceptance build, unit-level acceptance, thin context handoffs
+
+### Files Changed
+
+- `global-skills/ff/SKILL.md` — Acceptance Build step, extended judge, Context Handoff section, block structure, Swarm dispatch, Phase 2/3 gates
+- `global-skills/ff/manifest.md` — Phase 1→2 and block gates extended
+- `global-skills/ff/harness.md` — acceptance artifacts mandatory in the Phase 1→2 post-hook
+- `references/ff-protocol.md`, `references/anti-patterns.md` — mirrored
+- `AGENTS.md`, `README.md`, `template-project/` (AGENTS, README, migration-guide), `.opencode/commands/ff.md` — protocol summaries updated
+
+### Migration for Consumer Projects
+
+None required. Backward compatible: sessions that already passed Phase 1 resume unchanged. New sessions enforce the acceptance gate.
+
 ## v12.6.0 — Community-Ready Release (2026-09-19)
 
 ### New

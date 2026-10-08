@@ -61,8 +61,10 @@ Write to `.ff/traces/{session_id}/essence.md`:
 - `.ff/traces/{session_id}/plan/structural.json`
 - `.ff/traces/{session_id}/plan/adversarial.json`
 - `.ff/traces/{session_id}/plan/plan.md` (comprehensive plan document)
-- `.ff/traces/{session_id}/plan/judge.json` (approved: true)
-- `.ff/traces/{session_id}/plan/blocks.yaml` (fragmented blocks)
+- `.ff/traces/{session_id}/plan/blocks.yaml` (fragmented blocks — self-contained instructions, contracts, acceptance refs)
+- `.ff/traces/{session_id}/plan/acceptance-plan.md` (acceptance test instructions per block — spec-only, never executed in Phase 1)
+- `.ff/traces/{session_id}/plan/acceptance/{block_id}.feature` (one Gherkin acceptance feature per block)
+- `.ff/traces/{session_id}/plan/judge.json` (approved: true — plan AND acceptance validated)
 
 Write to `.ff/state.json`:
 - `current_phase: "phase_1"`
@@ -78,7 +80,7 @@ Write to `.ff/state.json`:
 
 For EACH block completed, write:
 - `.ff/traces/{session_id}/blocks/{block_id}.json` with:
-  - `block_id`, `scope`, `tasks`, `completed`, `failed`, `retried`, `completed_at`, `files_changed`, `summary`
+  - `block_id`, `scope`, `tasks`, `completed`, `failed`, `retried`, `acceptance` (feature, scenarios_total, scenarios_passed), `completed_at`, `files_changed`, `summary`
 
 Update `.ff/state.json`:
 - Add block to `blocks_completed`, remove from `blocks_pending`

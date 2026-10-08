@@ -1,4 +1,4 @@
-# Migration Guide — Engineering Loop v12.6.0
+# Migration Guide — Engineering Loop v12.7.0
 
 This guide shows how to migrate an existing project to use the Engineering Loop with the FF (Fail Fast) protocol.
 
@@ -146,7 +146,7 @@ You should:
 ### FF Protocol Summary
 
 1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
+2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
 3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
 4. **Phase 3: Validate** — Cross-check plan vs. reality
 5. **Phase 4: Lessons** — Capture lessons, report results
@@ -271,7 +271,7 @@ git commit -m "Update .eng submodule"
 
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
-- Verify that the judge sub-agent is available
+- Verify that the Acceptance Architect and judge sub-agents are available
 
 ### Lessons Not Captured
 
@@ -280,6 +280,7 @@ git commit -m "Update .eng submodule"
 
 ### Plan Build Failing
 
-- Ensure the two sub-agents (A and B) have sufficient context
+- Ensure the sub-agents receive the full Context Package (file excerpts, contracts, skill digests, lessons) — thin handoffs cause discovery loops
+- Check that the Acceptance Architect wrote the Gherkin acceptance features before the judge ran
 - Check that the judge sub-agent is responding
 - Verify that the plan is being properly consolidated

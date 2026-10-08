@@ -26,10 +26,12 @@ $ARGUMENTS
 3. Begin Phase 0 (CLARIFY) with essence check
 4. Follow the FF protocol strictly through all phases
 5. Persist outputs after every significant event:
-   - Essence check → `.ff/traces/{session_id}/essence.md`
-   - Each sub-agent output → `.ff/traces/{session_id}/plan/`
-   - Each block completion → `.ff/traces/{session_id}/blocks/{block_id}.json`
-   - Final report → `.ff/traces/{session_id}/report.md`
+    - Essence check → `.ff/traces/{session_id}/essence.md`
+    - Each sub-agent output → `.ff/traces/{session_id}/plan/`
+    - Acceptance plan → `.ff/traces/{session_id}/plan/acceptance-plan.md`
+    - Acceptance features → `.ff/traces/{session_id}/plan/acceptance/{block_id}.feature`
+    - Each block completion → `.ff/traces/{session_id}/blocks/{block_id}.json`
+    - Final report → `.ff/traces/{session_id}/report.md`
 6. Update `.ff/state.json` after every block completion
 
 ### If checking status (`$ARGUMENTS` contains "status"):
@@ -60,6 +62,7 @@ $ARGUMENTS
 ## Rules
 
 - Always follow the FF protocol — this is the project's development standard
-- Never skip the judge phase
+- Never skip the acceptance build or the judge phase — Gherkin acceptance criteria are written BEFORE the judge, and the Acceptance Architect never runs tests
+- Build the full Context Package (file excerpts, contracts, skill digests, lessons) for every sub-agent dispatch — thin handoffs cause discovery loops
 - Always persist state and traces to disk — never rely on conversation memory alone
 - The `.ff/` directory is the single source of truth for FF progress

@@ -50,7 +50,7 @@ FF is the default development mode. It replaces the sequential loop with paralle
 USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → judge approve
+PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → acceptance (Gherkin) → judge approve
 PHASE 2: EXECUTE    → Swarm fan-out per block, gate check, retry
 PHASE 3: VALIDATE   → Final gate, cross-check plan vs. reality
 PHASE 4: LESSONS    → Capture lessons, report results
@@ -63,7 +63,7 @@ The plan is **not built by the main agent**. It is built by two sub-agents:
 1. **Sub-Agent A (Structural Analyst)** — maps files, imports, dependencies, risk
 2. **Sub-Agent B (Adversarial Analyst)** — alternative approaches, edge cases, hidden dependencies
 
-The main agent consolidates A + B, then spawns a **judge sub-agent** to validate the plan. Only after approval does swarm execution begin.
+The main agent consolidates A + B, fragments the plan into draft blocks, then an **Acceptance Architect sub-agent** writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) for every block — specification only, it never runs tests. Finally a **judge sub-agent** validates the plan and the acceptance together. Only after approval does swarm execution begin.
 
 ### Execute
 
@@ -164,7 +164,7 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
-- Verify that the judge sub-agent is available
+- Verify that the Acceptance Architect and judge sub-agents are available
 
 ### Lessons Not Captured
 
@@ -173,7 +173,8 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 ### Plan Build Failing
 
-- Ensure the two sub-agents (A and B) have sufficient context
+- Ensure the sub-agents receive the full Context Package (file excerpts, contracts, skill digests, lessons) — thin handoffs cause discovery loops
+- Check that the Acceptance Architect wrote the Gherkin acceptance features before the judge ran
 - Check that the judge sub-agent is responding
 - Verify that the plan is being properly consolidated
 
@@ -183,4 +184,4 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 | File | Version |
 |------|---------|
-| Framework | v12.6.0 |
+| Framework | v12.7.0 |

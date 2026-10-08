@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v12.6.0
+# AGENTS.md — Engineering Loop v12.7.0
 
 ## What This Repo Is
 
@@ -31,12 +31,12 @@ FF is a protocol for parallel swarm-based software development. The main agent o
 
 **Protocol:**
 1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
+2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
 3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
 4. **Phase 3: Validate** — Cross-check plan vs. reality
 5. **Phase 4: Lessons** — Capture lessons, report results
 
-**Key:** The plan is built by two sub-agents (structural + adversarial), consolidated by the main agent, and approved by a judge sub-agent. Only after approval does swarm execution begin. No waves. No graphs. Just blocks.
+**Key:** The plan is built by two sub-agents (structural + adversarial), consolidated by the main agent, then an Acceptance Architect writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) for every block — spec-only, the step never runs tests — and the judge approves the plan and the acceptance together. Every sub-agent dispatch carries a Context Package (file excerpts, contracts, skill digests, lessons). Only after approval does swarm execution begin. No waves. No graphs. Just blocks.
 
 ### Using FF
 

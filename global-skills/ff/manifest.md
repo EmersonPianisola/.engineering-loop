@@ -55,20 +55,28 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 ## Phase 1 → Phase 2 Gate
 
+- [ ] Context Package assembled for EVERY dispatch (file excerpts read, skill digests loaded — not bare names)
 - [ ] Two sub-agents dispatched in parallel (Structural + Adversarial)
 - [ ] Both sub-agents returned results
 - [ ] Sub-agent outputs persisted: `plan/structural.json`, `plan/adversarial.json`
-- [ ] Sub-agents received skill references and reported skills_used
+- [ ] Sub-agents received the Context Package and reported skills_used
 - [ ] Conflicts reconciled (no unresolved safe vs risky disagreements)
 - [ ] Plan Writer sub-agent dispatched — produced comprehensive plan document
 - [ ] Plan document includes "Skills Used" section
 - [ ] Plan document persisted: `plan/plan.md`
+- [ ] Plan fragmented into draft blocks (≤ 8 blocks, each ≤ 5000 tokens context)
+- [ ] Block list persisted: `plan/blocks.yaml`
+- [ ] Every block has a self-contained multi-line `instruction` (read what, change what, satisfy which acceptance) — one-line instructions are a violation
+- [ ] Block `contracts` (consumes/produces) defined; dependencies defined (parallel blocks have no shared writes)
+- [ ] Acceptance Architect sub-agent dispatched (NOT skipped — acceptance is BEFORE the judge)
+- [ ] Acceptance Architect wrote spec ONLY — no tests, commands, or suites were executed in that step
+- [ ] Acceptance plan persisted: `plan/acceptance-plan.md` (per-block executable test instructions: runner, command, scenarios)
+- [ ] One Gherkin feature per block persisted: `plan/acceptance/{block_id}.feature`
+- [ ] Acceptance is end-user perspective — no unit-level acceptance, no block missing scenarios
 - [ ] Judge sub-agent dispatched (NOT skipped, NOT replaced with self-assessment)
+- [ ] Judge validated plan AND acceptance criteria (acceptance gate: per-block feature, user-level, deterministic, edge cases covered, executable instructions)
 - [ ] Judge returned `{"approved": true}`
 - [ ] Judge decision persisted: `plan/judge.json`
-- [ ] Plan fragmented into blocks (≤ 8 blocks, each ≤ 5000 tokens context)
-- [ ] Block list persisted: `plan/blocks.yaml`
-- [ ] Block dependencies defined (parallel blocks have no shared writes)
 - [ ] Autonomy score calculated
 - [ ] `.ff/state.json` updated with block list, current_phase: "phase_1"
 - [ ] Relevant lessons loaded from `.ff/lessons.json`
@@ -78,6 +86,9 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 **COMMON DRIFT:** Showing plan to user before judge approval. DO NOT DO THIS.
 **COMMON DRIFT:** Skipping judge because "the plan looks fine." THE JUDGE IS NOT OPTIONAL.
 **COMMON DRIFT:** Building the plan yourself instead of dispatching sub-agents. YOU ARE THE ORCHESTRATOR.
+**COMMON DRIFT:** Skipping acceptance build because "tests can come later." ACCEPTANCE IS BEFORE THE JUDGE.
+**COMMON DRIFT:** Accepting unit-level acceptance. THE GATE IS END-USER PERSPECTIVE.
+**COMMON DRIFT:** Dispatching sub-agents with one-line instructions and skill names only. BUILD THE CONTEXT PACKAGE.
 
 ---
 
@@ -88,11 +99,14 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 - [ ] Previous block trace persisted in `blocks/{block_id}.json`
 - [ ] Block autonomy mode checked against score
 - [ ] Block skills assigned (global skills + scope-specific skills)
+- [ ] Block's Context Package assembled: orchestrator READ the `block.scope` files, injected excerpts, contracts, and skill DIGESTS (loaded + filtered — not bare names)
+- [ ] Block's full acceptance Gherkin feature injected into the dispatch context
 - [ ] If block has ≥ 2 independent tasks → MUST dispatch Swarm (sequential execution FORBIDDEN)
-- [ ] Swarm context includes skill references (NOT full skill content)
 - [ ] Gate check performed on results
+- [ ] Acceptance tests executed mechanically per `acceptance-plan.md` instructions (runner + command — never "looks right")
+- [ ] Failed acceptance scenarios counted as failed (retry/escalation rules apply)
 - [ ] Failed rows retried once (max 1 retry)
-- [ ] Block trace persisted: `blocks/{block_id}.json` with tasks, results, files_changed
+- [ ] Block trace persisted: `blocks/{block_id}.json` with tasks, results, acceptance results (feature, scenarios_total, scenarios_passed), files_changed
 - [ ] `.ff/state.json` updated: blocks_completed, blocks_pending, task counts, files lists
 
 **FAIL any item → Halt block, correct before proceeding to next block**
@@ -115,6 +129,7 @@ If you find yourself writing code, you have drifted. STOP. Re-dispatch.
 
 ## Phase 3 Completion Gate
 
+- [ ] Full acceptance suite run — every block's acceptance tests, per `acceptance-plan.md`
 - [ ] Full test suite run (or justified why not applicable)
 - [ ] Cross-check: plan vs. actual changes compared
 - [ ] FF Report persisted to `.ff/traces/{session_id}/report.md`

@@ -99,6 +99,9 @@ common cause of FF degradation.
 - The orchestrator is writing application code instead of dispatching sub-agents
 - Tasks are being executed sequentially instead of via Swarm
 - The judge step is being skipped because "the plan looks fine"
+- The acceptance build step is being skipped because "the tests can come later" — acceptance is written BEFORE the judge, spec-only (the step never runs tests)
+- Acceptance is unit-level instead of end-user behavior — the gate is what the user does and observes
+- Sub-agents are dispatched with one-line instructions and bare skill names — no Context Package (file excerpts, contracts, skill digests, lessons)
 - The plan is shown to the user before judge approval
 - `.ff/state.json` is not being updated between blocks
 - The orchestrator is building the plan itself instead of dispatching analysts

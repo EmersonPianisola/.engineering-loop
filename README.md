@@ -4,7 +4,7 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.6.0
+# Engineering Loop v12.7.0
 
 **New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
@@ -12,8 +12,8 @@ description: 'Comprehensive framework documentation.'
 
 | | |
 |---|---|
-| **Version** | 12.6.0 |
-| **Development Mode** | FF (Fail Fast) — parallel swarm, judge-approved plans |
+| **Version** | 12.7.0 |
+| **Development Mode** | FF (Fail Fast) — parallel swarm, acceptance-gated judge-approved plans |
 | **Skills** | 23 built-in ideação/verificação skills + global skills |
 | **References** | 16 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
 | **Architecture** | Multi-project via git submodule |
@@ -181,7 +181,7 @@ Development is orchestrated through the **FF (Fail Fast) protocol** — a parall
 ### Core Principles
 
 - **Parallel swarm execution** — work items fragmented into atomic blocks dispatched to sub-agents in parallel
-- **Judge-approved plans** — two sub-agents cross-analyze, main agent consolidates, judge validates before execution
+- **Acceptance-gated plans** — two sub-agents cross-analyze, Gherkin acceptance criteria are written per delivery, judge validates plan and acceptance before execution
 - **Fail fast** — each block validated in isolation; failures don't contaminate siblings
 - **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
 - **Essence before execution** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
@@ -204,7 +204,7 @@ FF is the **default development mode** for this project. It replaces the sequent
 USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → judge approve
+PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → acceptance (Gherkin) → judge approve
 PHASE 2: EXECUTE    → Swarm fan-out per block, gate check, retry
 PHASE 3: VALIDATE   → Final gate, cross-check plan vs. reality
 PHASE 4: LESSONS    → Capture lessons, report results
@@ -217,7 +217,7 @@ The plan is **not built by the main agent**. It is built by two sub-agents:
 1. **Sub-Agent A (Structural Analyst)** — maps files, imports, dependencies, risk
 2. **Sub-Agent B (Adversarial Analyst)** — alternative approaches, edge cases, hidden dependencies
 
-The main agent consolidates A + B, then spawns a **judge sub-agent** to validate the plan. Only after approval does swarm execution begin.
+The main agent consolidates A + B, fragments the plan into draft blocks, then an **Acceptance Architect sub-agent** writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) plus test instructions for every block — it writes specification only and never runs tests. Finally a **judge sub-agent** validates the plan and the acceptance together. Only after approval does swarm execution begin.
 
 ### Execute
 
@@ -431,6 +431,7 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 | v12.4.0 | 2026-08-30 | **FF Protocol — Fail Fast**: Parallel swarm-based development. Two sub-agents cross-analyze, judge approves, swarm executes. No waves. No graphs. Just blocks. FF is the default development mode. Removed motor from consumer projects (`.eng/` is trimmed). |
 | v12.5.0 | 2026-09-10 | **FF anti-drift protocol + installation guide**: manifest.md phase checkpoint checklist, reinjection at phase transitions, role assertion, context budget rule, state-file anchor, drift symptoms table; Installation/Quick Install + Verify Installation docs |
 | v12.6.0 | 2026-09-19 | **Community-ready**: /ff command shipped tracked, full session tracing, propagation script; docs consistency pass — motor-era sections removed, versions + counts aligned across all docs, consumer template fixed; stale motor artifacts untracked; milestone tag |
+| v12.7.0 | 2026-10-07 | **Acceptance layer + Context Handoff**: Acceptance Architect sub-agent writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) + test instructions per block BEFORE the judge — spec-only, never executes. Judge validates plan AND acceptance (unit-level acceptance is a rejection). Acceptance tests gate every block and the final validation. Context Package mandatory in every sub-agent dispatch (file excerpts, contracts, skill digests, lessons) — no more thin handoffs |
 
 ---
 

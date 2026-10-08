@@ -40,7 +40,7 @@ You should:
 ### FF Protocol Summary
 
 1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → judge approve
+2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
 3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
 4. **Phase 3: Validate** — Cross-check plan vs. reality
 5. **Phase 4: Lessons** — Capture lessons, report results
