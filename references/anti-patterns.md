@@ -89,37 +89,31 @@ description: 'Global anti-patterns that apply across all stages. Updated for v9.
 - **Never make hooks polite instructions** — if tests must run before a handoff, make it a deterministic edge (hook), not a suggestion.
 - **Never let weak nodes enter a graph** — a graph of weak nodes is slop produced in parallel. Each node must be a loop that reliably ships on its own.
 
-## FF Orchestrator Drift (v12.4)
+## FF Role Drift (v13.0)
 
-As FF sessions grow long, the main agent may forget protocol rules and start
-executing tasks directly instead of orchestrating sub-agents. This is the most
-common cause of FF degradation.
+FF v13 splits the work between a planner (Claude) and an executor (local model).
+Drift happens when a role does the other role's job, or trusts the other role's word.
 
 **Symptoms (detect immediately):**
-- The orchestrator is writing application code instead of dispatching sub-agents
-- Tasks are being executed sequentially instead of via Swarm
-- The judge step is being skipped because "the plan looks fine"
-- The acceptance build step is being skipped because "the tests can come later" — acceptance is written BEFORE the judge, spec-only (the step never runs tests)
-- Acceptance is unit-level instead of end-user behavior — the gate is what the user does and observes
-- Sub-agents are dispatched with one-line instructions and bare skill names — no Context Package (file excerpts, contracts, skill digests, lessons)
-- The plan is shown to the user before judge approval
-- `.ff/state.json` is not being updated between blocks
-- The orchestrator is building the plan itself instead of dispatching analysts
-- Lessons are not being loaded or captured
+- The planner edits repo files during Phase 2 instead of handing off a work order
+- The executor plans, re-scopes, or edits files outside the block scope
+- The executor edits `plan/` artifacts or checks to make a block pass
+- The planner approves a block from the executor's validation proposal without re-running the checks
+- A work order requires judgement or creative writing — the planner should have written the content or split the block
+- The judge is skipped, replaced by self-assessment, or given conversation history instead of artifacts
+- Any sub-agent other than the judge is dispatched
+- `.ff/state.json` `owner`/`status` is not updated at a handoff
+- Lessons are not loaded or captured (executor failures included, with `actor: executor`)
 
 **Prevention:**
-- **Read `manifest.md` before every phase transition** — the checklist forces protocol compliance
-- **Read `.ff/state.json` before every decision** — the state file is the anchor, not conversation memory
-- **Assert role at each transition** — "I am the orchestrator. I dispatch. I do not write code."
-- **Context budget rule** — summarize every 3 blocks to keep context manageable
-- **Drift table in ff SKILL.md** — review the symptom/fix table when in doubt
+- **Read `manifest.md` before every phase transition and every handoff**
+- **Read `.ff/state.json` before every decision** — `owner` says whose turn it is
+- **Assert role** — planner: "I plan and review. I do not execute." Executor: "I execute work orders. I do not plan."
+- **Verify `plan/handoff.json` hashes before review** — the checks must be the judged ones
 
 **Recovery:**
-- If you notice any symptom, STOP immediately
-- Read the full ff SKILL.md from the beginning
-- Read `.ff/state.json` to re-establish position
-- Read `manifest.md` for the current phase gate
-- Resume from the correct checkpoint
+- STOP, read `.ff/state.json`, re-read the role's skill (`ff` or `ff-exec`) and `manifest.md`
+- Resume from the last persisted checkpoint; never redo blocks recorded as approved
 
 ## UI Testing
 
