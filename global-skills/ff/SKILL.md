@@ -1,1072 +1,453 @@
 ---
 name: ff
+version: 13.0.0
 description: >-
-  Fail Fast — orchestrator pattern for parallel swarm-based software development.
-  Two sub-agents cross-analyze the work item, consolidate, an Acceptance Architect
-  writes Gherkin acceptance criteria per block, and a judge validates plan and
-  acceptance before swarm execution. Every sub-agent dispatch carries a Context
-  Package (file excerpts, contracts, skill digests, lessons). Fragment any work
-  item into atomic blocks, dispatch parallel tasks via Swarm, validate at each
-  gate, recover isolated failures. Use when the user says "FF", "fail fast",
-  "fragment this", or when working on tasks that benefit from parallel
-  decomposition: bugfix suites, feature implementation, test rewriting, code
-  refactoring, documentation generation, and any multi-file change.
+  Fail Fast (FF), hybrid — the PLANNER side. Claude is the planner: it clarifies
+  the request, plans in-session (two separate analysis passes), writes
+  executor-grade work orders, Gherkin acceptance and executable checks, gets
+  approval from the judge (the only sub-agent, clean view), and hands the session
+  off through .ff/ to a local executor model that runs `/ff exec` with the
+  ff-exec skill. When the executor returns, the planner runs a critical second
+  validation and captures lessons. Use when the user says "FF", "fail fast",
+  "fragment this", or for multi-file work: bugfix suites, features, refactors,
+  test rewrites, migrations, documentation.
 ---
 
-# FF — Fail Fast Protocol
+# FF — Fail Fast Protocol (Planner)
 
 ## Core Principle
 
-One orchestrator (the main agent), many specialized workers (sub-agents via Swarm).
-Every unit of work is atomic, validated in isolation, and fails fast without
-contaminating siblings.
+**One planner. One executor. One judge. Files in between.**
 
-**Not a framework. Not a graph. Not waves. A protocol.** The agent follows this skill's
-instructions. Swarm handles fan-out. Each block validates before the next executes.
+| Role | Who | Owns | Never does |
+|------|-----|------|------------|
+| Planner | Claude (cloud session linked to the repo) | Phase 0 Clarify, Phase 1 Plan, Phase 3 Review & Validate, Phase 4 Lessons | Edit repo files during Phase 2; trust the executor's self-report |
+| Executor | Local model via opencode (`/ff exec`, skill `ff-exec`) | Phase 2 Execute | Plan, re-scope, edit `plan/` artifacts, push, delete |
+| Judge | Sub-agent dispatched by the planner | Approval of plan, work orders, acceptance and checks | Execute anything; see conversation history |
 
----
-
-## ⚠️ BEFORE ANYTHING ELSE: Read `harness.md`
-
-**This is mandatory.** The harness contains pre/post hooks that enforce protocol compliance.
-
-Before you do ANY of the following:
-- Start a new FF session
-- Resume an existing session
-- Transition between phases
-- Declare FF complete
-
-**Read `harness.md` (same directory as this skill) and execute the applicable hook.**
-
-The harness is your mechanical guardrail. Skipping it causes drift.
+The judge is the ONLY sub-agent. The planner and the executor communicate only
+through files in `.ff/`. Every unit of work is atomic, validated in isolation,
+and fails fast without contaminating siblings.
 
 ---
 
-## Anti-Drift Protocol (MANDATORY — Read Every Phase)
+## BEFORE ANYTHING ELSE: Read `harness.md`
 
-As context grows, the orchestrator may forget protocol rules. This section prevents that.
-
-### Before EVERY Phase Transition
-
-1. **Read `harness.md`** (same directory as this skill) — execute the applicable pre/post hook
-2. **Read `manifest.md`** (same directory as this skill) — the compressed checklist for the upcoming phase gate
-3. **Assert your role** — "I am the orchestrator. I dispatch sub-agents. I do not write application code."
-4. **Read `.ff/state.json`** — confirm current position from the state file, not from memory
-
-### Context Budget Rule
-
-After every 3 blocks completed in Phase 2:
-1. Summarize all completed blocks into one paragraph
-2. Write the summary to `.ff/state.json` under `summary` field
-3. Announce: "Context summary created. Continuing from block {N}."
-
-This keeps the conversation window manageable and ensures the protocol checklist
-remains accessible throughout long runs.
-
-### Drift Symptoms — If You Notice Any, STOP and Re-Read This Skill
-
-| Symptom | What Happened | Fix |
-|---------|---------------|-----|
-| Writing code yourself | Forgot orchestrator role | Re-dispatch to sub-agent |
-| Running tasks sequentially | Forgot Swarm dispatch | Use Swarm for ≥ 2 independent tasks |
-| Skipping judge | Thought "plan looks fine" | Judge is never optional |
-| Showing plan to user before judge | Impatience | Judge validates first, then user sees approved plan |
-| Building plan yourself | Took over sub-agent role | Dispatch Structural + Adversarial analysts |
-| Not updating state.json | Relying on memory | Write state after every block |
-| Not persisting traces | Forgetting disk persistence | Write every sub-agent/block output to `.ff/traces/` |
-| Forgetting lessons | Context overflow | Re-read `.ff/lessons.json` |
-| Session not resumable | State not on disk | Check `.ff/state.json` and `.ff/traces/{session_id}/` |
-| Skipping Acceptance Build | Thought "the tests can come later" | Acceptance is written BEFORE the judge — never optional |
-| Dispatching with thin context | Forgot Context Handoff | Build the full Context Package before EVERY dispatch |
-| One-line block instruction | Context handoff too superficial | Self-contained instruction: read what, change what, satisfy which acceptance |
+Before you start or resume a session, transition between phases, hand off, review,
+or declare FF complete: read `harness.md` (same directory) and execute the
+applicable hook. Then read `.ff/state.json` and check `owner` first. If `owner`
+is `executor`, the executor is working: do not touch repo files — report the
+status to the user and wait.
 
 ---
 
-## Context Handoff (MANDATORY)
+## Anti-Drift Protocol (MANDATORY)
 
-Sub-agents fail when they have to discover what the orchestrator already knows.
-Before EVERY sub-agent dispatch — analysts, Plan Writer, Acceptance Architect,
-Judge, executors — assemble and inject the **Context Package** for that dispatch.
+Before EVERY phase transition and EVERY handoff:
+1. Read `harness.md` and execute the hook.
+2. Read `manifest.md` — the checklist for the upcoming gate.
+3. Assert your role: "I am the planner. I plan and review. I do not execute work orders."
+4. Read `.ff/state.json` — confirm position from the file, never from memory.
 
-The slicing rule still applies: only what THIS dispatch needs, never the whole
-artifact set. But "what it needs" is rich, not minimal.
+### Persist Before Handoff
 
-### The Context Package
+Every artifact is on disk before `owner` changes. `state.json` and the traces are
+the authoritative record; a session must be resumable from them alone.
 
-```
-## Session Context
-work_type, task title, essence scope and clarifications (from essence.md)
+### Drift Symptoms — STOP and re-read this skill
 
-## Plan Slice
-The sections of the current plan relevant to this dispatch: scope, approach,
-dependencies, the detailed tasks this dispatch covers.
+| Symptom | Fix |
+|---------|-----|
+| Planner editing repo files during Phase 2 | Hand off a work order instead |
+| Approving a block from the validation proposal without re-running the check | Re-run the check yourself |
+| A work order that needs judgement or creative writing | Write the content into the work order or split the block |
+| Any sub-agent other than the judge | Do the work in-session |
+| Judge skipped, self-assessed, or given conversation history | Dispatch a fresh judge with artifacts only |
+| Plan shown to the user before the judge approved it | Judge first |
+| `state.json` `owner`/`status` not updated at a handoff | Update it now |
+| Handoff without `handoff.json` hashes | Write the hashes before handing off |
+| Thin judge handoff | Send the full artifact set |
+| Lessons not captured (planner or executor) | Append them with `actor` |
 
-## File Context
-For every file in scope: the relevant excerpts — imports, exports, signatures,
-interfaces. The orchestrator READS these files and injects the excerpts (full
-file when small, excerpts + precise pointers when large). The sub-agent starts
-knowing the shape of the code instead of re-discovering it.
+---
 
-## Contracts
-What this unit consumes from earlier work and what it produces for later work.
+## Handoff Contract (MANDATORY)
 
-## Acceptance
-The Gherkin feature for this dispatch (from Step 1.4) — the acceptance
-criteria the work must satisfy.
+### `.ff/state.json`
 
-## Skill Digest
-For every applicable skill: the rules and conventions relevant to this task,
-extracted by the orchestrator from the loaded skill. A list of skill names is
-NOT a handoff — the sub-agent must receive the conventions it is expected to
-follow. Full skills remain available for progressive loading on deeper questions.
+- `owner`: `planner` | `executor` | `user` — whose turn it is.
+- `status`: `planning` | `awaiting_execution` | `executing` | `awaiting_review` | `rework` | `blocked` | `completed` | `cancelled`.
+- Block lists: `blocks_pending`, `blocks_executed` (executed, awaiting review), `blocks_rework`, `blocks_blocked`, `blocks_completed` (approved by the planner).
+- Also: `session_id`, `work_type`, `task_title`, `current_phase`, `trace_dir`, `skills`, `tasks`, `autonomy_mode`, `summary`, `decisions`, timestamps.
 
-## Lessons & Decisions
-Lessons filtered by work_type and scope, plus decisions made in this session.
+Legacy rule: a `state.json` without `owner` is a pre-v13 session. The planner
+decides how to continue and never hands off a legacy plan without re-judging it.
+
+### `.ff/traces/{session_id}/`
+
+| Artifact | Writer | Purpose |
+|----------|--------|---------|
+| `plan/structural.json`, `plan/adversarial.json`, `plan/plan.md` | planner | analysis passes and the plan |
+| `plan/blocks.yaml` | planner | block metadata: scope, depends_on, autonomy, contracts |
+| `plan/work-orders/{block_id}.md` | planner | executor-grade steps for one block |
+| `plan/content/<repo path>` | planner | verbatim file contents used by `copy` steps |
+| `plan/acceptance/{block_id}.feature` | planner | Gherkin, end-user perspective |
+| `plan/checks/{block_id}.py` | planner | executable form of the feature |
+| `plan/judge.json` | judge | approval (earlier rounds: `judge-round-N.json`) |
+| `plan/handoff.json` | planner | sha256 of every work order, check, content file and `blocks.yaml` |
+| `execution/{block_id}.json` | executor | execution trace + validation proposal |
+| `review/{block_id}.json` | planner | verdict of the critical review |
+| `report.md` | planner | final report |
+
+`handoff.json`:
+```json
+{"session_id": "ff-20261010-001", "repo": "<absolute repo path>", "branch": "master",
+ "handed_off_at": "ISO date", "sha256": {"plan/blocks.yaml": "...", "plan/work-orders/block-001.md": "...", "plan/checks/block-001.py": "..."}}
 ```
 
-### Rules
+`execution/{block_id}.json` (written by the executor):
+```json
+{"block_id": "block-001", "attempt": 1, "status": "executed", "commit": "<sha>",
+ "files_changed": ["..."],
+ "checks": {"command": "...", "exit_code": 0, "passed": 5, "failed": 0, "output_tail": "..."},
+ "validation_proposal": {"verdict": "pass", "scenarios": [{"id": "S1", "result": "pass", "evidence": "..."}],
+                         "concerns": [], "deviations": []},
+ "blocked_reason": null, "executed_at": "ISO date"}
+```
 
-- The orchestrator reads in-scope files BEFORE dispatch — reading is an orchestrator duty, not a sub-agent tax
-- Skills are passed as digests (loaded + filtered), never as bare name lists
-- Block instructions are self-contained: what to read, what to change, which acceptance to satisfy
-- A one-line instruction ("read imports and exports") is a drift symptom, not a handoff
+`review/{block_id}.json` (written by the planner):
+```json
+{"block_id": "block-001", "verdict": "approved", "round": 1,
+ "checks_rerun": {"exit_code": 0, "passed": 5, "failed": 0}, "scope_ok": true,
+ "proposal_agreement": "agree", "findings": [], "rework_instruction": null, "reviewed_at": "ISO date"}
+```
+`verdict` is `approved` | `rework` | `escalate`.
+
+---
+
+## Judge Handoff (MANDATORY)
+
+The judge is the ONLY sub-agent. It gets a **clean view**: artifacts only —
+essence, plan, blocks, work orders, content files, acceptance plan, features,
+checks, both analyses, filtered lessons and session decisions. It never receives
+conversation history; the clean view keeps the decision independent of the work
+that built the plan. Every rejection round dispatches a fresh judge. If the
+environment cannot spawn the judge: HALT and notify the user — self-assessment is
+never a substitute.
+
+Tell the judge that any git command it runs on the user's machine must be
+read-only and use `git --no-optional-locks`.
 
 ---
 
 ## Protocol Overview
 
 ```
-USER INTENT
-    ↓
-PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → acceptance (Gherkin) → judge approve
-PHASE 2: EXECUTE    → Swarm fan-out per block, gate check, retry
-PHASE 3: VALIDATE   → Final gate, cross-check plan vs. reality
-PHASE 4: LESSONS    → Capture lessons, report results
+PHASE 0: CLARIFY           (planner)  → essence check, scope, work type, skills
+PHASE 1: PLAN              (planner)  → structural pass → adversarial pass → plan → blocks
+                                        → work orders → acceptance + checks → judge → handoff
+PHASE 2: EXECUTE           (executor) → /ff exec: work order → checks → commit → execution trace
+PHASE 3: REVIEW & VALIDATE (planner)  → critical review per block → final gate → report
+PHASE 4: LESSONS           (planner)  → lessons (actor: planner | executor), changelog
 ```
 
-Each phase is a distinct step. The agent loads instructions for one phase,
-completes it, then moves to the next. Never loads all phases at once.
-
-**Phase transitions are strict:**
-- Phase 0 → Phase 1: Only after essence check resolves all tensions
-- Phase 1 → Phase 2: Only after judge returns `{"approved": true}` — the judge validates the plan AND the acceptance criteria
-- Phase 2 → Phase 3: Only after all blocks complete (or fail the gate)
-- DO NOT skip a step within a phase
-- DO NOT stop between steps within a phase without a valid reason
+Transitions are strict:
+- 0 → 1 only after the essence check resolved all tensions.
+- 1 → 2 only after the judge returned `{"approved": true}` AND the user said "go".
+- 2 → 3 when the executor hands back (`owner: planner`).
+- 3 → 4 only after every block is approved or escalated.
 
 ---
 
 ## Phase 0: CLARIFY
 
-**BEFORE STARTING:** Read `.ff/state.json` to confirm session context. Assert: "I am the orchestrator."
+Assert: "I am the planner." Then initialize the session:
 
-**INITIALIZE SESSION (MANDATORY):** Create session metadata before doing any work.
+1. `session_id` = `ff-{YYYYMMDD}-{NNN}` (next free number in `.ff/traces/`).
+2. Create `.ff/traces/{session_id}/` and write `session.json` (verbatim request, work type, started_at, status).
+3. Initialize `.ff/state.json` with the full schema, `owner: planner`, `status: planning`, `current_phase: "phase_0"`.
 
-1. Generate `session_id`: `ff-{YYYYMMDD}-{NNN}` (NNN = sequential, check `.ff/traces/` for next number)
-2. Create trace directory: `.ff/traces/{session_id}/`
-3. Write `.ff/traces/{session_id}/session.json`:
+Run the essence check (skill `essence`); resolve every Lens 4 tension with the
+user. Persist it to `essence.md` (request, clarifications, work type, scope).
 
-```json
-{
-  "session_id": "ff-20260914-001",
-  "user_request": "<verbatim user request>",
-  "work_type": "feature",
-  "started_at": "ISO date",
-  "status": "running"
-}
-```
+| Work Type | Characteristics | Blocks |
+|-----------|-----------------|--------|
+| `bugfix` | Fix broken behavior | 2-4 |
+| `feature` | New functionality | 4-6 |
+| `refactor` | Restructure without behavior change | 3-5 |
+| `test` | Write or fix tests | 2-3 |
+| `docs` | Documentation | 1-3 |
+| `migration` | Move code, update deps | 3-5 |
+| `research` | Investigation, report | 1-2 |
 
-4. Initialize `.ff/state.json`:
+**Auto-size rule:** ≤ 2 files with clear instructions → do it inline without FF.
+FF activates at ≥ 3 files, ≥ 5 discrete changes, unclear dependencies, or when the
+user asks for FF.
 
-```json
-{
-  "session_id": "ff-20260914-001",
-  "work_type": "feature",
-  "task_title": "...",
-  "status": "running",
-  "current_phase": "phase_0",
-  "current_block": "",
-  "trace_dir": ".ff/traces/ff-20260914-001",
-  "blocks_completed": [],
-  "blocks_pending": [],
-  "skills": [],
-  "tasks": { "total": 0, "passed": 0, "failed": 0, "skipped": 0, "retried": 0 },
-  "autonomy_mode": "semi",
-  "summary": "",
-  "started_at": "ISO date",
-  "updated_at": "ISO date",
-  "completed_at": null,
-  "files_changed": [],
-  "files_created": [],
-  "decisions": []
-}
-```
+### Step 0.2: Skill Discovery
 
-**UPDATE `state.json` at every phase transition:** Always set `current_phase`, `updated_at`, and relevant fields. Never rely on conversation memory.
+Pick the skills that apply and record them in `state.json` `skills` and in
+`skills.md` (name + reason). The planner loads them and digests their rules into
+the work orders — the executor receives conventions as concrete steps, not skill
+names.
 
-Run Essence Check first (load skill "essence"). Resolve all Lens 4 tensions
-with the user before proceeding.
+| Signal | Skill |
+|--------|-------|
+| bugfix | `bug-analysis` |
+| test work | `comprehensive-test-strategy` |
+| migration, deploy | `release-deployment-safety` |
+| `*.py`, FastAPI, pydantic | `python-fastapi-coding-conventions` |
+| tests, conftest | `python-fastapi-test-conventions` |
+| auth, tokens, secrets | `owasp-secure-coding-bdd` |
+| `*.ts`, React, Next.js | `nextjs` |
+| prisma | `prisma-client-api` |
+| LangChain / LangGraph | `ecosystem-primer` (+ specific skill) |
+| MCP servers | `mcp-builder` |
+| API design | `api-designer` |
+| database schema | `database-design` |
 
-**PERSIST ESSENCE OUTPUT:** Write essence check results to `.ff/traces/{session_id}/essence.md`:
-
-```markdown
-# Essence Check — {session_id}
-
-## User Request
-{verbatim}
-
-## Clarifications
-{questions asked and answers received}
-
-## Work Type
-{classified work type}
-
-## Scope
-{agreed scope}
-```
-
-Then determine the work type:
-
-| Work Type | Characteristics | Block Count |
-|-----------|----------------|-------------|
-| `bugfix` | Fix existing broken behavior | 2-4 blocks |
-| `feature` | New functionality | 4-6 blocks |
-| `refactor` | Restructure without behavior change | 3-5 blocks |
-| `test` | Write or fix tests | 2-3 blocks |
-| `docs` | Documentation, specs, guides | 1-3 blocks |
-| `migration` | Move code, update deps, rename | 3-5 blocks |
-| `research` | Investigation, analysis, report | 1-2 blocks |
-
-**Auto-size rule:** If the task touches ≤ 2 files and has clear instructions,
-execute inline without FF overhead. FF activates when:
-- ≥ 3 files, OR
-- ≥ 5 discrete changes, OR
-- Unclear dependencies between parts, OR
-- User explicitly requests FF
-
-### Step 0.2: Skill Discovery (MANDATORY)
-
-After essence check, discover which skills apply to this work. These skills will be injected into all sub-agent dispatches so they can progressively load context during execution.
-
-**Discover skills by analyzing:**
-
-1. **Work type mapping:**
-   | Work Type | Default Skills |
-   |-----------|----------------|
-   | `bugfix` | `bug-analysis` |
-   | `feature` | (none — scope-driven) |
-   | `refactor` | `enterprise-architecture-standards` |
-   | `test` | `comprehensive-test-strategy` |
-   | `migration` | `release-deployment-safety` |
-
-2. **File patterns in scope:**
-   | Pattern | Skill |
-   |---------|-------|
-   | `*.py`, FastAPI imports, `pydantic`, `sqlalchemy` | `python-fastapi-coding-conventions` |
-   | `*.test.py`, `tests/`, `conftest.py` | `python-fastapi-test-conventions` |
-   | Auth, JWT, tokens, passwords, sessions | `owasp-secure-coding-bdd` |
-   | `*.ts`, `*.tsx`, React, Next.js | `react`, `nextjs` |
-   | `prisma/`, schema, migrations, queries | `prisma-client-api` |
-   | `langchain`, `langgraph`, agents | `ecosystem-primer` (+ specific skill by framework) |
-   | RAG, embeddings, vector store | `langchain-rag` |
-   | Human-in-the-loop, approval flows | `langgraph-human-in-the-loop` |
-   | MCP server, tools, external integrations | `mcp-builder` |
-   | API design, routes, endpoints | `api-designer` or `implementing-api-patterns` |
-   | Database schema, indexes, queries | `database-design` |
-   | Security, encryption, secrets | `security-review` |
-   | PII, GDPR, CCPA, data retention | `compliance-data-lifecycle` |
-   | Deploy, release, migration scripts | `release-deployment-safety` |
-
-3. **Project-level AGENTS.md:** If the project has skill mappings (e.g., "Working on X → load skill Y"), honor them.
-
-**PERSIST SKILLS:** Add discovered skills to `.ff/state.json`:
-
-```json
-{
-  "skills": ["python-fastapi-coding-conventions", "owasp-secure-coding-bdd"]
-}
-```
-
-**PERSIST to trace:** Write `.ff/traces/{session_id}/skills.md`:
-
-```markdown
-# Skills — {session_id}
-
-## Discovered Skills
-- skill-name: reason for inclusion
-```
-
-These skill references will be injected into every sub-agent dispatch in Phases 1 and 2.
+Honor skill mappings in the project's `AGENTS.md`.
 
 ---
 
-## Phase 1: PLAN BUILD (MANDATORY)
+## Phase 1: PLAN (in-session, planner)
 
-**GATE CHECK:** Before entering Phase 1, read `manifest.md` — verify Phase 0 → Phase 1 gate.
-If any item fails, return to Phase 0.
+Gate: read `manifest.md` (Phase 0 → 1). Everything in this phase happens in the
+planner session; only Step 1.6 dispatches a sub-agent.
 
-**ROLE ASSERTION:** You are the orchestrator. You dispatch sub-agents. You do NOT build the plan yourself.
+### Step 1.1: Analysis Passes
 
-Phase 1 has five stages:
-1. **Analyze** — two sub-agents cross-check the work item
-2. **Build Plan Document** — one sub-agent writes the comprehensive plan
-3. **Fragment** — the plan is split into draft swarm-executable blocks
-4. **Acceptance Build** — Acceptance Architect writes Gherkin acceptance criteria + test instructions per block (spec-only, never executes)
-5. **Judge** — judge validates plan + blocks + acceptance
+Two SEPARATE passes, in order:
+- **Structural pass** — files to change and why, imports/exports, dependencies, shared state, external writes, risk, conventions.
+- **Adversarial pass** — re-examines the structural findings: alternative approaches, edge cases, hidden dependencies, ignored risks, worst case.
 
-### Step 1.1: Analyze (Two Sub-Agents Cross-Check)
+Persist `plan/structural.json` and `plan/adversarial.json`.
 
-Dispatch two sub-agents in parallel. Both use `subagentType: explore` but with different prompts. Both receive the full **Context Package** (see Context Handoff) — Session Context, File Context (the orchestrator reads the in-scope files and injects the relevant excerpts), Skill Digest (loaded + filtered, not just names), and Lessons & Decisions.
+### Step 1.2: Plan
 
-**Sub-Agent A — Structural Analyst:**
-```
-You are a structural analyst. Your job is to map the technical landscape.
+Reconcile the passes (an item one pass calls safe and the other risky is
+unresolved → redo the failing pass). Write `plan/plan.md`: Scope, Approach (with
+alternatives), Files Affected, Dependencies, Detailed Tasks, Risks and Mitigations,
+Validation, Edge Cases Handled, Skills Used.
 
-You will receive the Context Package: session scope, file excerpts for the
-in-scope files, skill digests, and lessons. Use it as your working context —
-do not re-discover what it already contains. Load additional skills
-progressively only for questions the digests do not answer.
+### Step 1.3: Fragment
 
-Given the work item and scope:
-1. Identify all files that need changing (and why)
-2. Map imports/exports — who depends on whom?
-3. Identify shared state, external APIs, database writes
-4. Assess risk level (low/medium/high) and explain why
-5. List any known patterns or conventions in the codebase that must be followed
-6. Note which skill digests informed your analysis and which full skills you loaded
+Write `plan/blocks.yaml`. At most 8 blocks. An executor block hand-edits at most
+3 files (files rewritten by a script the work order runs do not count). Two blocks
+that write the same file must be dependency-ordered.
 
-Return a structured summary with: file_map, dependency_map, risk_assessment, conventions, skills_used.
-```
-
-**Sub-Agent B — Adversarial Analyst:**
-```
-You are an adversarial analyst. Your job is to find what A might have missed.
-
-You will receive the Context Package: session scope, file excerpts for the
-in-scope files, skill digests, and lessons. Use it as your working context —
-do not re-discover what it already contains. Load additional skills
-progressively only for questions the digests do not answer.
-
-Given the work item and scope:
-1. What are the alternative approaches? (If A only sees one way, find others)
-2. What edge cases could break this?
-3. What hidden dependencies might exist? (config files, env vars, external services)
-4. What risks did A ignore or minimize?
-5. What is the worst-case scenario for each proposed change?
-6. Note which skill digests informed your analysis and which full skills you loaded
-
-Return a structured summary with: alternative_approaches, edge_cases, hidden_dependencies, ignored_risks, worst_case, skills_used.
-```
-
-**Execution:**
-- Both sub-agents run in parallel
-- Wait for both to complete
-- **Do not proceed** until both have returned
-- **PERSIST OUTPUTS:** Write each sub-agent's response to disk:
-  - `.ff/traces/{session_id}/plan/structural.json`
-  - `.ff/traces/{session_id}/plan/adversarial.json`
-
-### Step 1.2: Reconcile and Build Plan Document
-
-**Reconcile:** The main agent checks A + B for conflicts:
-- If A says "safe" and B says "risky" on the same item → **unresolved** → return to Step 1.1
-- If B flagged something A missed → must be included
-- If no unresolved conflicts → proceed
-
-**Build Plan:** Dispatch a **Plan Writer sub-agent** (use `subagentType: general`) to create the comprehensive plan document.
-
-Pass it the Context Package plus the essence check, structural analysis, and adversarial analysis.
-
-```
-You are a plan writer. Your job is to create a comprehensive, detailed plan document.
-
-You will receive the Context Package (session scope, file excerpts, skill
-digests, lessons) plus:
-1. Essence check output (scope, clarifications, work type)
-2. Structural analysis (files, dependencies, risks, conventions)
-3. Adversarial analysis (edge cases, hidden dependencies, worst cases)
-
-Use the Context Package as your working context — do not re-discover what it
-already contains. Load additional skills progressively only for questions the
-digests do not answer. Note which skills informed your planning decisions.
-
-Produce a detailed plan document with these sections:
-
-## Plan: {title}
-
-### Scope
-What this plan covers and does not cover.
-
-### Approach
-The chosen approach, why it was chosen, alternatives considered.
-
-### Files Affected
-Complete list of files to create, modify, delete, with justification for each.
-
-### Dependencies
-What depends on what. Execution order. Which changes can be parallelized.
-
-### Detailed Tasks
-Numbered list of ALL tasks required. Each task should be:
-- Specific enough that a sub-agent can execute it independently
-- Self-contained: includes what to read, what to change, what to produce
-- Testable: has a clear pass/fail criterion
-
-### Risks and Mitigations
-Identified risks and how they are mitigated.
-
-### Validation
-How to verify the entire plan succeeded:
-- Tests to run
-- Manual checks needed
-- Acceptance criteria from essence check
-
-### Edge Cases Handled
-Edge cases identified by adversarial analysis and how each is handled.
-
-### Skills Used
-Which skills were loaded and how they informed planning decisions.
-
-Write the plan in clear markdown. Be exhaustive — this is the master plan that will be fragmented into execution blocks.
-```
-
-**PERSIST PLAN:** Write the plan to `.ff/traces/{session_id}/plan/plan.md`.
-
-### Step 1.3: Fragment into Draft Blocks
-
-The plan document is now broken into execution blocks for swarm dispatch.
-The main agent performs this fragmentation. Blocks are **drafts** — the judge
-validates them together with the plan and acceptance criteria in Step 1.5.
-
-**Fragmentation rules:**
-- Each block = one atomic unit of work
-- If two blocks modify the same file → make them dependent, not parallel
-- If a block requires > 5000 tokens → split further
-- Parallel blocks must be truly independent (no shared writes)
-- Group related tasks into blocks for swarm efficiency
-
-**Block structure:**
 ```yaml
 blocks:
   - id: block-001
-    scope: ["src/login.js", "src/auth.js"]
-    instruction: |
-      Implement the login flow.
-      Read: src/auth.js (sign/verify JWT — signatures provided in File Context),
-            src/login.js (current form handler).
-      Change: wire the form to auth.verify, persist session, redirect to /dashboard.
-      Acceptance: every scenario in acceptance/block-001.feature must pass.
-    output: "src/login.js and src/auth.js modified with the login flow"
-    contracts:
-      consumes: []
-      produces: ["JWT sign/verify functions in src/auth.js", "session storage"]
+    title: "..."
+    scope: ["src/a.py"]
+    instruction: "multi-line summary of what the work order does"
+    contracts: {consumes: [], produces: ["..."]}
     acceptance: acceptance/block-001.feature
-    validation: "run block-001 acceptance tests (instructions in acceptance-plan.md) — all scenarios pass"
-    autonomy: "semi"
+    checks: checks/block-001.py
+    autonomy: "semi"        # auto | semi | manual
     depends_on: []
-    skills: ["owasp-secure-coding-bdd", "python-fastapi-coding-conventions"]
-    tasks: [t001, t002]
-
-  - id: block-002
-    scope: ["src/api/users.js"]
-    instruction: |
-      Extend the users API with the new profile endpoint.
-      Read: src/api/users.js (existing routes — in File Context), block-001 session storage.
-      Change: add GET /users/profile reading the session from block-001.
-      Acceptance: every scenario in acceptance/block-002.feature must pass.
-    output: "src/api/users.js modified with the profile endpoint"
-    contracts:
-      consumes: ["session storage (block-001)"]
-      produces: ["GET /users/profile"]
-    acceptance: acceptance/block-002.feature
-    validation: "run block-002 acceptance tests (instructions in acceptance-plan.md) — all scenarios pass"
-    autonomy: "auto"
-    depends_on: [block-001]
-    skills: ["python-fastapi-coding-conventions"]
-    tasks: [t003]
+    tasks: [t101]
 ```
 
-**Instruction quality:** every `instruction` is multi-line and self-contained — what to read, what to change, which acceptance to satisfy. A one-line instruction is a protocol violation (see Context Handoff).
+### Step 1.4: Work Orders
 
-**Per-block skills:** Each block inherits global skills from Phase 0 discovery, plus block-specific skills based on its scope. The orchestrator assigns skills during fragmentation.
+Write `plan/work-orders/{block_id}.md` for every block. Work orders are
+**executor-grade**: written so a small local model can apply them without
+judgement. Each one has:
+- a header with the check command and the files in scope;
+- the rules: edit only the scope, never edit `plan/`, never push, never delete, never touch `.env`, and the idempotency rule;
+- the edits, in the standard format:
+  - `### E<n> — file: \`path\`` + `oldString:` and `newString:` fences (`~~~~`);
+  - `### O<n> — overwrite: \`path\`` + one content fence;
+  - `### C<n> — copy: \`plan/content/<path>\` → \`<path>\`` — copy a planner-written content file byte for byte (used for large files);
+- the check command and the exact `git add` / `git commit -m "ff({session_id}): {block_id}"` commands;
+- for `manual` blocks, the question to ask the user BEFORE any edit.
 
-**PERSIST BLOCKS:** Write block list to `.ff/traces/{session_id}/plan/blocks.yaml`.
+Anything that needs judgement or creative writing is written by the planner into
+the work order (or into `plan/content/`), or the block is split.
 
-### Step 1.4: Acceptance Build — Acceptance Architect (MANDATORY)
+### Step 1.5: Acceptance + Checks
 
-Before the judge, every block gets deterministic acceptance criteria. Dispatch an
-**Acceptance Architect sub-agent** (`subagentType: general`) with the full Context
-Package plus the plan, the blocks, and both analyses.
+Specification only — the planner does not execute the work here.
+- `plan/acceptance/{block_id}.feature`: Gherkin from the end-user perspective (what the user, planner or executor does and observes). Mandatory coverage: happy path, every relevant adversarial edge case, negative paths. Deterministic outcomes.
+- `plan/checks/{block_id}.py`: the executable form. Python standard library only, OS-agnostic, run from the repo root, one `PASS`/`FAIL <scenario-id>` line per scenario, exit 0 only if all pass. Checks are monotonic (still true after later blocks land), side-effect free, discriminating. Append-type edits get checks that assert exactly one occurrence.
+- `plan/acceptance-plan.md`: runner, command, scenario counts, edge-case coverage.
 
-**Scope of this step:** the Acceptance Architect writes acceptance criteria and
-test instructions ONLY. It does **not** run tests, commands, or suites — it is a
-specification role. Its output is the deterministic contract each delivery must
-satisfy.
+**Planner dry-run (before the judge):** apply the executor-grade edits to a
+throwaway copy of the repo. Every oldString matches exactly once, every newString
+occurs 0 times before its edit, a second application pass changes nothing
+(idempotency), and every check goes from FAIL to PASS. Record the result in
+`plan/dry-run.txt`.
 
-**Acceptance level is end-user perspective:** acceptance criteria describe what
-the user does and what the user observes — the behavior the end user expects.
-Unit tests do NOT satisfy the acceptance gate: they may exist as supporting tests,
-but they never count as acceptance.
+### Step 1.6: Judge
 
-```
-You are an acceptance architect. Your job is to write acceptance criteria and
-test instructions for every block in the plan.
+Dispatch the judge (the only sub-agent) with the Judge Handoff. It verifies:
+conflicts resolved; every file has a purpose and an owner; dependencies ordered;
+work orders executor-grade; edge cases handled; ≤ 8 blocks; the acceptance gate
+(feature per block, end-user level, deterministic, edge cases covered, executable
+instructions); the checks gate (1:1 with scenarios, stdlib, discriminating,
+monotonic, side-effect free); protocol integrity. Persist `plan/judge.json`
+(earlier rounds as `judge-round-N.json`). Rejected → return to the failing step,
+then dispatch a fresh judge.
 
-You will receive the Context Package (session scope, file excerpts, skill
-digests, lessons) plus:
-1. The comprehensive plan document
-2. The fragmented blocks (blocks.yaml)
-3. Structural analysis
-4. Adversarial analysis (edge cases, worst cases)
-
-STRICT RULE: Do not run any tests, commands, or tooling. You only write
-acceptance criteria and test instructions. You never execute anything.
-
-Produce two artifacts:
-
-## Artifact 1 — Acceptance Plan (acceptance-plan.md)
-
-For every block:
-- The acceptance tests that must be executed to accept that delivery
-- Concrete execution instructions: runner, command, scenarios covered
-- The acceptance level: end-user behavior — what the user does, what the user observes
-
-Rules:
-- Acceptance is ALWAYS end-user perspective (Given/When/Then from the user's viewpoint)
-- Unit tests alone are NEVER sufficient acceptance
-- Every edge case from the adversarial analysis gets at least one acceptance scenario
-- Every scenario has a deterministic expected outcome (concrete values, messages, states) — never vague
-
-## Artifact 2 — Gherkin features (acceptance/{block_id}.feature)
-
-One .feature file per block, strict Gherkin:
-
-    Feature: {block delivery name}
-
-      Scenario: {happy path — the user's main goal}
-        Given {concrete precondition}
-        When {user action}
-        Then {concrete observable outcome}
-
-      Scenario: {edge case from adversarial analysis}
-        Given ...
-        When ...
-        Then ...
-
-Coverage per block (mandatory):
-- Happy path (the user's main goal)
-- Every adversarial edge case relevant to the block
-- Negative/error paths the user can reach
-```
-
-**PERSIST ACCEPTANCE:** Write the acceptance plan to
-`.ff/traces/{session_id}/plan/acceptance-plan.md` and one feature file per block
-to `.ff/traces/{session_id}/plan/acceptance/{block_id}.feature`.
-
-### Step 1.5: Judge
-
-Spawn a **dedicated judge sub-agent** (exists only to validate the plan and the
-acceptance criteria, then exits). This step is **mandatory** — nothing is shown
-to the user and nothing executes without judge approval.
+### Step 1.7: Autonomy Score
 
 ```
-You are a judge. Your job is to validate the plan, the blocks, and the
-acceptance criteria before execution.
-
-You will receive:
-1. The comprehensive plan document
-2. The fragmented blocks (blocks.yaml)
-3. The acceptance plan (acceptance-plan.md)
-4. The Gherkin acceptance features (acceptance/{block_id}.feature)
-5. Structural analysis
-6. Adversarial analysis
-
-Your task:
-1. Verify all unresolved conflicts between structural and adversarial are addressed
-2. Verify every file mentioned has a clear purpose
-3. Verify dependencies are correctly ordered
-4. Verify each block's instruction is specific enough for independent execution
-5. Verify edge cases from adversarial analysis are handled
-6. Verify validation criteria are concrete and testable
-7. Verify no block requires > 5000 tokens of context (if so, it's not fragmented enough)
-8. ACCEPTANCE GATE — for EVERY block verify:
-   a. A Gherkin acceptance feature exists (acceptance/{block_id}.feature)
-   b. Acceptance is end-user perspective: what the user does, what the user observes
-   c. Acceptance is NOT unit-level — unit tests alone never satisfy the gate
-   d. Every adversarial edge case has at least one acceptance scenario
-   e. Every scenario has a deterministic, concrete expected outcome (no vague assertions)
-   f. The acceptance plan gives executable test instructions (runner, command, scenarios)
-
-If everything passes all criteria:
-- Return: {"approved": true, "message": "Plan and acceptance approved"}
-
-If anything fails any criteria:
-- Return: {"approved": false, "rejection_reason": "specific reason with section/block reference"}
-
-Do not execute any work. Only approve or reject.
-```
-
-**PERSIST JUDGE DECISION:** Write judge output to `.ff/traces/{session_id}/plan/judge.json`:
-
-```json
-{
-  "approved": true,
-  "message": "Plan and acceptance approved",
-  "reviewed_at": "ISO date"
-}
-```
-
-**If approved:** Proceed to Step 1.6
-**If rejected:** Return to the failing step per the rejection reason —
-Step 1.2 (rewrite plan), Step 1.3 (re-fragment), or Step 1.4 (rebuild acceptance).
-
-### Step 1.6: Calculate Autonomy Score
-
-For the overall plan, calculate:
-
-```
-clarity   = available_info / needed_info       (0-1)
-complexity = 1 - (dependency_count / block_count)  (0-1)
-risk      = weighted average of block risk levels (0-1)
-
-risk_levels:
-  0.0  = read-only operations
-  0.3  = create new files
-  0.5  = edit existing files
-  0.7  = run commands with side effects
-  1.0  = destructive operations (hard rule — always blocked)
-
+clarity    = available_info / needed_info              (0-1)
+complexity = 1 - (dependent_blocks / block_count)      (0-1)
+risk       = weighted average of block risk levels     (0-1)
+  0.0 read-only · 0.3 create files · 0.5 edit files · 0.7 commands with side effects · 1.0 destructive (always blocked)
 autonomy_score = (clarity * 0.4) + (complexity * 0.4) + ((1 - risk) * 0.2)
 ```
+≥ 0.8 full auto · 0.5-0.8 semi auto (show the plan, wait for "go") · < 0.5 manual.
 
-| Score | Mode | Behavior |
-|-------|------|----------|
-| ≥ 0.8 | FULL AUTO | Execute without asking |
-| 0.5-0.7 | SEMI AUTO | Show plan, wait for confirmation, then execute |
-| < 0.5 | MANUAL | Ask before each block |
+### Step 1.8: Present
 
-**Override:** The user can force any mode. "go", "execute", "run it" → full auto.
-"wait", "show me first", "step by step" → manual.
+After the judge approved: present work type, blocks (scope + summary), scenario
+counts, autonomy mode, preconditions and lessons. Wait for the user's "go".
 
-### Step 1.7: Present Plan
+### Step 1.9: Handoff
 
-**UPDATE STATE:** Set `current_phase: "phase_1"`, add block list to `blocks_pending`, set `autonomy_mode`.
-
-In SEMI AUTO or MANUAL mode, present:
-1. Work type and block count
-2. Each block with scope + instruction
-3. Acceptance summary — scenario count per block (from the Gherkin features)
-4. Autonomy mode
-5. Relevant lessons loaded
-
-Ask: "Proceed?" Before dispatching Block 0.
+1. Verify that the tree is clean.
+2. Write `plan/handoff.json` (sha256 of every work order, every check, every content file and `blocks.yaml`; repo; branch; timestamp).
+3. Set `state.json`: `owner: executor`, `status: awaiting_execution`, `current_phase: "phase_2"`, `blocks_pending` in order.
+4. Tell the user exactly: run `/ff exec` in opencode in `<repo path>` (name the repo).
 
 ---
 
-## Phase 2: EXECUTE
+## Phase 2: EXECUTE (executor)
 
-**GATE CHECK:** Before entering Phase 2, read `manifest.md` — verify Phase 1 → Phase 2 gate.
-If any item fails, return to Phase 1. The judge must have approved the plan AND the acceptance criteria.
-
-**ROLE ASSERTION:** You are the orchestrator. You dispatch Swarm for parallel tasks. You do NOT execute tasks sequentially.
-
-### Block Execution Loop
-
-Before each block, read `.ff/state.json` to confirm your position.
-If 3 or more blocks have completed since your last context summary, create one now.
-
-```
-FOR each block B in plan (in dependency order):
-    CHECKPOINT: Read manifest.md "Phase 2 Block Gate" section
-    IF B.autonomy == "manual":
-        ask user: "Ready for block {B.id}? {B.task_count} tasks."
-        IF user says no → HALT
-
-    IF block has ≥2 independent tasks:
-        YOU MUST dispatch Swarm — sequential execution is FORBIDDEN.
-            create table from B.tasks
-            run table with instruction + context per row
-            responseSchema = B.guardrail structure
-
-    Gate check:
-        completed = result.completed
-        failed = result.failed
-
-        acceptance = run the block's acceptance tests, exactly as
-                     acceptance-plan.md instructs (runner + command)
-        IF any acceptance scenario fails → count it in `failed`
-
-        IF failed > 0 AND failed <= completed * 0.3:
-            retry failed rows (filter: exists: false)
-            IF still failed → escalate to user with specifics
-        IF failed > completed * 0.3:
-            HALT — block failed, something is fundamentally wrong
-            Present: which tasks failed, why, suggest re-fragmentation
-
-    IF block passed:
-        PERSIST block trace: write `.ff/traces/{session_id}/blocks/{block_id}.json`:
-            {
-               "block_id": "block-001",
-               "scope": ["src/file.ts"],
-               "tasks": [...],
-               "completed": N,
-               "failed": N,
-               "retried": N,
-               "acceptance": {
-                 "feature": "acceptance/block-001.feature",
-                 "scenarios_total": N,
-                 "scenarios_passed": N
-               },
-               "completed_at": "ISO date",
-               "files_changed": ["src/file.ts"],
-               "summary": "Brief summary of what was done"
-             }
-        UPDATE state.json:
-            - Add block to blocks_completed
-            - Remove block from blocks_pending
-            - Set current_block to next block
-            - Update task counts
-            - Add changed files to files_changed / files_created
-        proceed to next block
-```
-
-### Swarm Dispatch Pattern
-
-Execute this pattern exactly — it is not pseudo-code. This is the required mechanism for parallel execution.
-
-**CRITICAL:** The dispatch context is the block's **Context Package** (see Context Handoff): Session Context, Plan Slice, File Context (the orchestrator reads the files in `block.scope` and injects the relevant excerpts), Contracts (consumes/produces), the block's full Acceptance Gherkin feature, Skill Digests (loaded + filtered — never just names), and Lessons & Decisions.
-
-```javascript
-const { create, run } = await import("@/skills/swarm");
-
-const table = await create({
-  tasks: blockTasks.map(t => ({
-    id: t.id,
-    scope: t.scope,
-    instruction: t.instruction, // self-contained: read what, change what, satisfy which acceptance
-    autonomy: t.autonomy,
-    file: t.file,               // if single-file task
-    acceptance: block.acceptance, // Gherkin feature for this block
-  }))
-});
-
-const contextPackage = `
-## Session Context
-work_type: ${workType}
-scope: ${essenceScope}
-
-## Plan Slice
-${planSliceForBlock}
-
-## File Context
-${fileExcerpts(block.scope)} // orchestrator read these files before dispatch
-
-## Contracts
-consumes: ${block.contracts.consumes}
-produces: ${block.contracts.produces}
-
-## Acceptance
-${read(block.acceptance)} // full Gherkin feature — the acceptance tests must pass
-
-## Skill Digest
-${blockSkills.map(s => digest(s)).join('\n')} // rules + conventions extracted from each loaded skill
-
-## Lessons & Decisions
-${filteredLessons}
-${sessionDecisions}
-`;
-
-const result = await run(table.id, {
-  subagentType: "explore",  // or "general" for write tasks
-  instruction: t.instruction,
-  context: contextPackage,
-  responseSchema: {
-    type: "object",
-    properties: {
-      status: { type: "string", enum: ["pass", "fail", "skip"] },
-      output_path: { type: "string" },
-      summary: { type: "string" },
-      skills_used: { type: "array", items: { type: "string" } },
-      error: { type: "string" },
-    },
-    required: ["status"],
-  },
-});
-
-// result → { completed, failed, skipped, failures }
-```
-
-**Why skill digests, not just names:**
-- Relevant rules arrive pre-extracted — the sub-agent starts implementing instead of re-discovering conventions
-- Full skills stay available for progressive loading when a deeper question comes up
-- Context stays small — filtered digests, not whole skill files
-- Skills evolve independently — no need to update the FF protocol
+Owned by the executor through the `ff-exec` skill (`global-skills/ff-exec/SKILL.md`;
+in consumers `.eng/global-skills/ff-exec/SKILL.md`). The planner does not edit
+repo files during Phase 2. If the user reports that the executor died, use the
+Interrupt Recovery Hook in `harness.md`.
 
 ---
 
-## Phase 3: VALIDATE
+## Phase 3: REVIEW & VALIDATE (planner, critical)
 
-**GATE CHECK:** Before entering Phase 3, read `manifest.md` — verify Phase 2 → Phase 3 gate.
-All blocks must be completed. Read `.ff/state.json` to confirm.
+Gate: read `manifest.md` (Review Gate). The executor's validation proposal is a
+claim, not evidence.
 
-### Step 3.1 — Final Gate
+### Step 3.1: Review every executed block
 
-After all blocks complete:
-1. Run the full acceptance suite — every block's acceptance tests, exactly as acceptance-plan.md instructs
-2. Run the full test suite (`npm test`)
-3. Verify no regressions in untouched areas
-4. Confirm all Gherkin acceptance scenarios are met
+1. Verify the `handoff.json` hashes — the checks and work orders must be the judged ones.
+2. Re-run the check yourself.
+3. Scope check: `git show --name-only <commit>` (run as `git --no-optional-locks show --name-only <commit>`) ⊆ block scope.
+4. Read the full diff against the work order and the feature.
+5. Compare with the `validation_proposal`; record `proposal_agreement` (`agree` / `disagree`) and why.
+6. Write `review/{block_id}.json` with the verdict.
 
-### Step 3.2 — Cross-Check
+**Rework:** set `owner: executor`, `status: rework`, block → `blocks_rework`, with
+a `rework_instruction` that is executor-grade: the same E/O/C format, with
+oldStrings written against the block's COMMITTED state, dry-run by the planner on
+a throwaway copy before handing off. The executor applies ONLY the
+rework_instruction and never re-applies the original work order. Max 2 rework rounds per block,
+then escalate to the user. A rework that needs a plan or scope
+change → **re-plan** the affected blocks and dispatch a **fresh judge** before
+handing off again.
 
-Compare the judge-approved plan against the actual changes:
-- Did every approved block execute?
-- Did any block produce unexpected side effects?
-- Are there changes that were not in the plan?
+**Blocked recovery** — a blocked block has no commit and may have left edits in the tree:
+- (a) Review `execution/{block_id}.json` (`blocked_reason`, check output), plus `git status --porcelain` and `git diff` of the working tree (run as `git --no-optional-locks -c core.autocrlf=true status --porcelain` and `git --no-optional-locks diff`; not `git show` — there is no commit).
+- (b) The USER restores the tree in the Windows shell with the exact commands the planner gives:
+  - tracked files that git status shows as modified → `git restore --staged --worktree -- <those files>`;
+  - **untracked** files the block created (`??` in git status) → the user deletes them after confirming, with the exact `del <path>` commands the planner gives. Deleting is a user-only action; the planner's VM cannot delete.
 
-### Step 3.3 — Report
+  The planner then verifies read-only that `git --no-optional-locks -c core.autocrlf=true status --porcelain` is empty.
+- Declined manual block (`blocked_reason` "user declined…") with a clean tree: no restore is needed. Once the user agrees, the unchanged work order goes back to `blocks_pending` (no new judge), or the planner escalates.
+- (c) State: the block leaves `blocks_blocked` → `blocks_rework` with a `rework_instruction` (counts toward the 2 rounds), or → `blocks_pending` after a re-plan. Then `owner: executor` and `status: rework` or `awaiting_execution`.
+- (d) If a work order or check changes, re-plan the affected blocks, rewrite `handoff.json` with the new sha256 values, and dispatch a fresh judge before the next handoff. An unchanged work order is simply re-queued (no new judge).
 
-Produce a structured summary:
+**Hand back without a new judge:** after review, if `blocks_pending` is non-empty
+and nothing is blocked or in rework, set `owner: executor`, `status:
+awaiting_execution`, and tell the user to run `/ff exec` again (for example after a
+single-block run).
 
-```markdown
-## FF Report — {work_type}: {task_title}
+### Step 3.2: Final gate
 
-**Blocks:** {N} completed, {M} retried
-**Tasks:** {total} micro-tasks, {passed} pass, {failed} fail, {skipped} skip
-**Files Changed:** {list}
-**Acceptance:** {status} — {scenarios_passed}/{scenarios_total} Gherkin scenarios
-**Tests:** {status} — {pass_count}/{total_count}
-**Duration:** {time}
-**Autonomy Mode:** {mode}
+When every block is approved:
+1. Run every check again, in block order.
+2. Run the project test suite (or justify why it does not apply).
+3. Cross-check plan vs. commits: each block's commits touch only its scope, and there are no unplanned changes. At least one `ff({session_id}): {block_id}` commit per block; reworks add more under the same subject.
+4. `git --no-optional-locks -c core.autocrlf=true status --porcelain` is empty.
+5. Write `report.md`: blocks, scenarios passed, files changed, reworks, proposal agreement rate, failures, lessons.
 
-### Failures
-{list of failed tasks with reasons}
+### Planner git on the user's machine is read-only
 
-### Lessons
-{new lessons captured this run}
-```
-
-### Step 3.4 — Capture Lessons
-
-For every failure that was escalated or retried:
-1. Extract: what failed, why, how it was fixed
-2. Format as lesson object
-3. Append to `.ff/lessons.json` (create if doesn't exist)
-
-```json
-{
-  "id": "lesson-{N}",
-  "timestamp": "ISO date",
-  "work_type": "bugfix",
-  "context": "Brief context of the failure",
-  "error": "What went wrong",
-  "correction": "How it was fixed",
-  "prevention": "Rule to prevent recurrence"
-}
-```
-
-### Step 3.5 — Persist Report and Finalize
-
-**PERSIST REPORT:** Write `.ff/traces/{session_id}/report.md` with the full FF report.
-
-**UPDATE SESSION METADATA:** Update `.ff/traces/{session_id}/session.json`:
-
-```json
-{
-  "session_id": "ff-20260914-001",
-  "completed_at": "ISO date",
-  "status": "completed",
-  "blocks_total": 4,
-  "tasks_total": 12,
-  "files_changed": ["src/auth.ts", "src/middleware.ts"],
-  "files_created": ["src/jwt.ts"]
-}
-```
-
-**UPDATE STATE:** Set `.ff/state.json`:
-
-```json
-{
-  "status": "completed",
-  "current_phase": "phase_3",
-  "completed_at": "ISO date",
-  "updated_at": "ISO date"
-}
-```
-
-**UPDATE CHANGELOG:** Append to `.ff/changelog.md`:
-
-```markdown
-## {session_id} — {YYYY-MM-DD} — {work_type}
-
-**Title:** {task_title}
-**Status:** completed
-**Blocks:** {N} | **Tasks:** {total} ({passed} pass, {failed} fail, {skipped} skip)
-**Files Changed:** {list}
-**Duration:** {time}
-**Autonomy:** {mode}
-
-{brief summary of what was accomplished}
-```
+When the planner reaches the repo through the linked computer's VM, every git
+command it runs is read-only and uses `git --no-optional-locks` (status also with
+`-c core.autocrlf=true`, to see what the user's Windows git sees). Never run `add`,
+`commit`, `update-index`, `restore` or `checkout` from the VM. Those take
+`.git/index.lock`, which the VM cannot remove, and a leftover lock blocks the
+user's next commit. Commits are made by the executor (or by the user).
 
 ---
 
-## Phase 4: LESSONS
+## Phase 4: LESSONS (planner)
 
-This phase is integrated into Phase 3. Lessons are captured after each failure and compiled into the final report.
+For every failure, rework, blocked block or proposal disagreement, append a lesson
+to `.ff/lessons.json`:
+```json
+{"id": "lesson-N", "timestamp": "ISO date", "work_type": "refactor", "actor": "executor",
+ "context": "...", "error": "...", "correction": "...", "prevention": "..."}
+```
+`actor` is `planner` | `executor`. Executor lessons shape future work orders
+(for example: which instructions the local model misreads). Then update
+`session.json` (completed), set `state.json` to `status: completed`, `owner: user`,
+and append the session to `.ff/changelog.md`.
+
+---
+
+## Multi-project
+
+One active FF session per repo. The protocol is read from the repo being worked
+on: `.eng/global-skills/ff/` in consumer projects, `global-skills/ff/` in the
+framework repo — never from memory or another repo. Every handoff message names
+the repo path.
 
 ---
 
 ## Autonomy Harness
 
-The autonomy harness is ALWAYS active. It governs what the FF protocol
-can do autonomously. Autonomy comes from clarity of information, not from
-the nature of the task.
-
-### Hard Rules (Never Override)
-
-These operations ALWAYS require human confirmation, regardless of autonomy score:
-
+Always active (details in `autonomy-harness.md`). Hard rules — always ask the user,
+whatever the score, for both roles:
 - `rm`, `rm -rf`, `del`, any destructive file operation
-- `git push --force`, `git reset --hard`, any destructive git operation
-- Writes to Firebase / Firestore / external databases
-- Changes to `.env` or environment configuration files
-- Changes to CI/CD pipelines or deployment configs
-- Any operation outside the project workspace root
+- `git push --force`, `git reset --hard`, any destructive git operation; any `git push`
+- writes to Firebase / external databases / remote APIs
+- changes to `.env` or environment configuration
+- changes to CI/CD or deployment configs
+- any operation outside the workspace root
 
-### Soft Rules (Autonomy Score Based)
+A `manual` block requires the user's confirmation in the executor session. A
+delete or outside-workspace action is allowed only in a step that a manual work
+order names explicitly, after the user's explicit "yes".
 
-- **Read operations:** Always auto (score doesn't matter)
-- **Write to new files:** Auto if scope is clear
-- **Write to existing files:** Semi-auto default
-- **Test execution:** Always auto
-- **Code review:** Always auto
-- **Dependency installation:** Semi-auto (show what will be installed)
-
-### Escalation Protocol
-
-When a block fails the gate:
-1. Retry failed rows once (max 1 retry per row)
-2. If retry fails → escalate with:
-   - Task ID and scope
-   - What was attempted
-   - Error output
-   - Suggested fix options
-3. Wait for human input
-4. If human says "fix it yourself" → one more attempt with human's guidance
-5. If that fails → HALT, mark as blocked
+Soft rules: reads, tests and new files are auto; edits to existing files are semi
+auto; dependency installs show what will be installed.
 
 ---
 
-## State Management
+## Integration
 
-### File: `.ff/state.json`
+| Skill | When | Purpose |
+|-------|------|---------|
+| `essence` | Phase 0 | clarify intent |
+| testing skills | Step 1.5 | shape acceptance and checks |
+| `ff-exec` | Phase 2 (executor) | executor protocol |
+| project skills | Phase 0-1 | digested into work orders |
 
-The state file is the **single source of truth** for session progress.
-Always read it before making decisions about current position.
-Never rely on conversation memory alone.
-
-```json
-{
-  "session_id": "ff-{date}-{hash}",
-  "work_type": "bugfix",
-  "task_title": "...",
-  "status": "running",
-  "current_block": "block-001",
-  "blocks_completed": [],
-  "blocks_pending": [],
-  "skills": ["python-fastapi-coding-conventions", "owasp-secure-coding-bdd"],
-  "tasks": {
-    "total": 12,
-    "passed": 8,
-    "failed": 2,
-    "skipped": 2,
-    "retried": 2
-  },
-  "autonomy_mode": "semi",
-  "summary": "Blocks 1-3 completed: auth middleware, login endpoint, session storage. Block 4 in progress: API routes.",
-  "started_at": "ISO date",
-  "updated_at": "ISO date"
-}
-```
-
-The agent updates state.json after each block completion. The `summary` field
-is updated every 3 blocks as part of the context budget rule. This enables resume
-if the session is interrupted and keeps the orchestrator grounded in actual progress.
-
-### File: `.ff/lessons.json`
-
-Array of lesson objects. Append-only. Loaded at Phase 1 (plan).
-See Phase 3.4 for lesson format.
-
-### File: `.ff/traces/{session_id}/skills.md`
-
-Discovered skills with reasons for inclusion. Created during Phase 0 Skill Discovery.
-These skills are loaded and injected as digests into all sub-agent dispatches.
-
-### File: `.ff/traces/{session_id}/plan/acceptance-plan.md`
-
-The acceptance plan written by the Acceptance Architect — per-block test
-instructions (runner, command, scenarios covered). Created in Phase 1 Step 1.4.
-
-### File: `.ff/traces/{session_id}/plan/acceptance/{block_id}.feature`
-
-The Gherkin acceptance feature for each block — the deterministic contract the
-delivery must satisfy. Created in Phase 1 Step 1.4.
-
----
-
-## Integration with Existing Skills
-
-FF uses these skills as components:
-
-| Skill | When Used | Purpose |
-|-------|-----------|---------|
-| `essence` | Phase 0 | Clarify intent, detect traps |
-| Testing skills (discovered) | Phase 1 Step 1.4 | Acceptance Architect digests their conventions into acceptance instructions |
-| `swarm` | Phase 2 | Fan-out parallel micro-tasks |
-| Project skills | Phase 0+ | Discovered, loaded, injected as digests into all dispatches |
-
-FF does NOT use:
-- LangChain, LangGraph, or any code-based framework
-- BMad story/sprint files (unless the project specifically requires them)
-- The `.eng/` loop or graph orchestrator
-- Wave templates (waves are the same problem as graphs)
+FF does not use Swarm, waves, graphs, or code frameworks for orchestration.
 
 ---
 
 ## Anti-Patterns
 
-**Do:**
-- Fragment aggressively — if a task feels big, split it
-- Validate at every block gate — don't let failures propagate
-- Capture lessons from every failure
-- Use the simplest block structure that works
-- Respect autonomy score — ask when uncertain
-- Acceptance before judgment — every block gets Gherkin acceptance criteria before the judge
-- Hand off rich context — build the full Context Package before every dispatch
+**Do:** fragment aggressively; write acceptance and checks before the judge;
+dry-run executor edits; hand off with hashes; re-run every check in review;
+capture executor lessons; keep the two analysis passes separate.
 
-**Don't:**
-- Create more than 8 blocks — if you need more, the fragmentation is wrong
-- Put more than 12 tasks in a block — re-fragment or split into separate FF runs
-- Skip the test validation — validation is mandatory
-- Let one failed block trigger a full restart — retry only failed rows
-- Encode assumptions in the harness — models improve, assumptions stale
-- Use FF for a single-file, single-change task — just do it inline
-- Use waves — waves are the same problem as graphs (sequential dependencies)
-- Execute tasks one-by-one when swarm is applicable — this defeats the purpose of FF
-- Show the plan to the user before the judge approves it — the judge is not optional
-- Stop after consolidation without dispatching the judge — this is a hard requirement
-- Accept a plan whose acceptance is missing or unit-level — the judge must reject it
-- Run tests inside the Acceptance Build step — that step writes specification only
-- Dispatch sub-agents with thin context — skill names and one-line instructions are not a handoff
-
----
-
-## Next
-
-This protocol is self-contained. When invoked, the agent follows Phase 0
-through Phase 4 sequentially. Load the autonomy harness as needed.
-
-For the autonomy harness rules, refer to the full harness specification.
+**Don't:** create more than 8 blocks; use waves; skip or self-assess the judge;
+show the plan before judge approval; dispatch any sub-agent except the judge; edit
+repo files during Phase 2; approve from the executor's self-report; hand the
+executor a work order that needs judgement; write to `.git` from the planner's VM.
