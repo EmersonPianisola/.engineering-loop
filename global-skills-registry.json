@@ -69,7 +69,11 @@
       "status": "synced"
     },
     "ff": {
-      "version": "unknown",
+      "version": "13.0.0",
+      "status": "synced"
+    },
+    "ff-exec": {
+      "version": "1.0.0",
       "status": "synced"
     },
     "find-skills": {
