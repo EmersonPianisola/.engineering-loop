@@ -42,7 +42,7 @@ npm run e2e
 
 ## FF Protocol
 
-FF is the default development mode. It replaces the sequential loop with parallel swarm execution.
+FF is the default development mode. It is hybrid: Claude plans and validates; a local model executes.
 
 ### Protocol Overview
 
@@ -50,24 +50,24 @@ FF is the default development mode. It replaces the sequential loop with paralle
 USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → acceptance (Gherkin) → judge approve
-PHASE 2: EXECUTE    → Swarm fan-out per block, gate check, retry
-PHASE 3: VALIDATE   → Final gate, cross-check plan vs. reality
+PHASE 1: PLAN       → (planner) in-session analysis passes → plan → work orders → acceptance (Gherkin) + checks → judge approve → handoff
+PHASE 2: EXECUTE    → (executor) /ff exec: work order → checks → commit → execution trace + validation proposal
+PHASE 3: VALIDATE   → (planner) critical review: re-run checks, scope + diff review, final gate
 PHASE 4: LESSONS    → Capture lessons, report results
 ```
 
 ### Plan Build
 
-The plan is **not built by the main agent**. It is built by two sub-agents:
+The plan is built **by the planner (Claude), in-session**, in two separate analysis passes:
 
-1. **Sub-Agent A (Structural Analyst)** — maps files, imports, dependencies, risk
-2. **Sub-Agent B (Adversarial Analyst)** — alternative approaches, edge cases, hidden dependencies
+1. **Structural pass** — maps files, imports, dependencies, risk
+2. **Adversarial pass** — re-examines the structural findings: alternative approaches, edge cases, hidden dependencies
 
-The main agent consolidates A + B, fragments the plan into draft blocks, then an **Acceptance Architect sub-agent** writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) for every block — specification only, it never runs tests. Finally a **judge sub-agent** validates the plan and the acceptance together. Only after approval does swarm execution begin.
+The planner consolidates both passes into the plan, fragments it into blocks, and writes for every block an **executor-grade work order** (exact files, exact edits), a Gherkin acceptance feature (Given/When/Then, end-user perspective) and an executable **check** script. A **judge sub-agent** — the protocol's only sub-agent, dispatched with a clean view — validates plan, work orders, acceptance and checks together. Only after approval is the session handed off to the executor.
 
 ### Execute
 
-Swarm dispatches parallel tasks per block. Independent tasks run together; dependent tasks wait. Each block validates before the next executes.
+The local model runs `/ff exec` in opencode. Blocks run in order: apply the work order, run the block's checks (one retry), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or sends it back for rework (max 2 rounds).
 
 ### Autonomy Score
 
@@ -164,7 +164,8 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
-- Verify that the Acceptance Architect and judge sub-agents are available
+- Verify that the judge sub-agent is available to the planner (it is the protocol's only sub-agent; without it the planner HALTs)
+- Verify the executor: opencode answers with the local model and `~/.agents/skills/ff-exec/` exists
 
 ### Lessons Not Captured
 
@@ -173,10 +174,15 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 ### Plan Build Failing
 
-- Ensure the sub-agents receive the full Context Package (file excerpts, contracts, skill digests, lessons) — thin handoffs cause discovery loops
-- Check that the Acceptance Architect wrote the Gherkin acceptance features before the judge ran
+- Ensure the judge receives the full artifact set with a clean view (plan, blocks, work orders, acceptance, checks, both analyses)
+- Check that the planner wrote the Gherkin features and the check scripts before the judge ran
 - Check that the judge sub-agent is responding
 - Verify that the plan is being properly consolidated
+
+### Executor Blocked
+
+- Read `.ff/traces/{session_id}/execution/{block_id}.json` — `blocked_reason` and the check output say why
+- Restore the tree with the exact commands the planner gives you (`git restore --staged --worktree -- <files>` for modified files; `del <path>` for untracked files the block created), then hand the session back to the planner (Claude): it sends a rework, or re-plans the block and gets a fresh judge before handing off again
 
 ---
 
@@ -184,4 +190,4 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 | File | Version |
 |------|---------|
-| Framework | v12.7.0 |
+| Framework | v13.0.0 |

@@ -1,4 +1,4 @@
-# Migration Guide — Engineering Loop v12.7.0
+# Migration Guide — Engineering Loop v13.0.0
 
 This guide shows how to migrate an existing project to use the Engineering Loop with the FF (Fail Fast) protocol.
 
@@ -143,13 +143,15 @@ You should:
 - Ask "Should I use FF for this?" (you already know the answer)
 - Execute substantial work sequentially without FF
 
-### FF Protocol Summary
+### FF Protocol Summary (Hybrid — v13)
 
-1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
-3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
-4. **Phase 3: Validate** — Cross-check plan vs. reality
-5. **Phase 4: Lessons** — Capture lessons, report results
+1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
+3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
+
+**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo.
 
 ### Autonomy Score
 
@@ -271,7 +273,8 @@ git commit -m "Update .eng submodule"
 
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
-- Verify that the Acceptance Architect and judge sub-agents are available
+- Verify that the judge sub-agent is available to the planner (it is the protocol's only sub-agent; without it the planner HALTs)
+- Verify the executor: opencode answers with the local model and `~/.agents/skills/ff-exec/` exists
 
 ### Lessons Not Captured
 
@@ -280,7 +283,12 @@ git commit -m "Update .eng submodule"
 
 ### Plan Build Failing
 
-- Ensure the sub-agents receive the full Context Package (file excerpts, contracts, skill digests, lessons) — thin handoffs cause discovery loops
-- Check that the Acceptance Architect wrote the Gherkin acceptance features before the judge ran
+- Ensure the judge receives the full artifact set with a clean view (plan, blocks, work orders, acceptance, checks, both analyses)
+- Check that the planner wrote the Gherkin features and the check scripts before the judge ran
 - Check that the judge sub-agent is responding
 - Verify that the plan is being properly consolidated
+
+### Executor Blocked
+
+- Read `.ff/traces/{session_id}/execution/{block_id}.json` — `blocked_reason` and the check output say why
+- Restore the tree with the exact commands the planner gives you (`git restore --staged --worktree -- <files>` for modified files; `del <path>` for untracked files the block created), then hand the session back to the planner (Claude): it sends a rework, or re-plans the block and gets a fresh judge before handing off again

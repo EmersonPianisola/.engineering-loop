@@ -4,16 +4,16 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v12.7.0
+# Engineering Loop v13.0.0
 
 **New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
-**Fail Fast (FF)** — orchestrator pattern for parallel swarm-based software development. Fragment any work item into atomic blocks, dispatch parallel tasks via Swarm, validate at each gate, recover isolated failures.
+**Fail Fast (FF)** — hybrid AI development protocol: Claude plans and validates, a local model executes. Fragment any work item into atomic blocks, hand them off as executor-grade work orders, validate every block twice, recover isolated failures.
 
 | | |
 |---|---|
-| **Version** | 12.7.0 |
-| **Development Mode** | FF (Fail Fast) — parallel swarm, acceptance-gated judge-approved plans |
+| **Version** | 13.0.0 |
+| **Development Mode** | FF (Fail Fast) — hybrid: Claude planner + local executor, acceptance-gated judge-approved plans |
 | **Skills** | 23 built-in ideação/verificação skills + global skills |
 | **References** | 16 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
 | **Architecture** | Multi-project via git submodule |
@@ -176,14 +176,14 @@ rm -rf .ff/
 
 Engineering Loop is a framework for orchestrating AI sub-agents through the complete software development lifecycle. Instead of a linear pipeline, it operates as a **persistent while-loop** that re-evaluates every stage on each iteration, allowing downstream findings to trigger upstream rework automatically.
 
-Development is orchestrated through the **FF (Fail Fast) protocol** — a parallel swarm-based approach where work items are fragmented into atomic blocks, dispatched to sub-agents in parallel, validated at each gate, and failures recovered in isolation. See [FF Protocol](#ff-protocol) for details.
+Development is orchestrated through the **FF (Fail Fast) protocol** — a hybrid approach where Claude (the planner) clarifies, plans and validates, and a local model (the executor) executes atomic blocks handed off through `.ff/`; every block is validated twice and failures are recovered in isolation. See [FF Protocol](#ff-protocol) for details.
 
 ### Core Principles
 
-- **Parallel swarm execution** — work items fragmented into atomic blocks dispatched to sub-agents in parallel
-- **Acceptance-gated plans** — two sub-agents cross-analyze, Gherkin acceptance criteria are written per delivery, judge validates plan and acceptance before execution
+- **Hybrid execution** — Claude plans and validates; a local model executes atomic blocks from executor-grade work orders
+- **Acceptance-gated plans** — two in-session analysis passes cross-check, Gherkin acceptance + executable checks are written per block, the judge validates everything before handoff
 - **Fail fast** — each block validated in isolation; failures don't contaminate siblings
-- **Context slicing** — each sub-agent receives only its relevant context; full artifacts are never passed to one agent
+- **Double validation** — the executor proposes a validation; the planner re-runs every check and reviews the full diff before approving
 - **Essence before execution** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
 - **Auto-sizing** — autonomy score determines execution mode (full auto / semi auto / manual)
 - **Independent verification** — author ≠ verifier; discrimination sensor confirms test quality
@@ -196,7 +196,7 @@ Development is orchestrated through the **FF (Fail Fast) protocol** — a parall
 
 ## FF Protocol
 
-FF is the **default development mode** for this project. It replaces the sequential loop with parallel swarm execution.
+FF is the **default development mode** for this project. It is hybrid: Claude plans and validates; a local model executes.
 
 ### Protocol Overview
 
@@ -204,24 +204,24 @@ FF is the **default development mode** for this project. It replaces the sequent
 USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN BUILD → Two sub-agents cross-analyze → consolidate → acceptance (Gherkin) → judge approve
-PHASE 2: EXECUTE    → Swarm fan-out per block, gate check, retry
-PHASE 3: VALIDATE   → Final gate, cross-check plan vs. reality
+PHASE 1: PLAN       → (planner) in-session analysis passes → plan → work orders → acceptance (Gherkin) + checks → judge approve → handoff
+PHASE 2: EXECUTE    → (executor) /ff exec: work order → checks → commit → execution trace + validation proposal
+PHASE 3: VALIDATE   → (planner) critical review: re-run checks, scope + diff review, final gate
 PHASE 4: LESSONS    → Capture lessons, report results
 ```
 
 ### Plan Build
 
-The plan is **not built by the main agent**. It is built by two sub-agents:
+The plan is built **by the planner (Claude), in-session**, in two separate analysis passes:
 
-1. **Sub-Agent A (Structural Analyst)** — maps files, imports, dependencies, risk
-2. **Sub-Agent B (Adversarial Analyst)** — alternative approaches, edge cases, hidden dependencies
+1. **Structural pass** — maps files, imports, dependencies, risk
+2. **Adversarial pass** — re-examines the structural findings: alternative approaches, edge cases, hidden dependencies
 
-The main agent consolidates A + B, fragments the plan into draft blocks, then an **Acceptance Architect sub-agent** writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) plus test instructions for every block — it writes specification only and never runs tests. Finally a **judge sub-agent** validates the plan and the acceptance together. Only after approval does swarm execution begin.
+The planner consolidates both passes into the plan, fragments it into blocks, and writes for every block an **executor-grade work order** (exact files, exact edits), a Gherkin acceptance feature (Given/When/Then, end-user perspective) and an executable **check** script. A **judge sub-agent** — the protocol's only sub-agent, dispatched with a clean view — validates plan, work orders, acceptance and checks together. Only after approval is the session handed off to the executor.
 
 ### Execute
 
-Swarm dispatches parallel tasks per block. Independent tasks run together; dependent tasks wait. Each block validates before the next executes.
+The local model runs `/ff exec` in opencode. Blocks run in order: apply the work order, run the block's checks (one retry), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or sends it back for rework (max 2 rounds).
 
 ### Autonomy Score
 
@@ -432,6 +432,7 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 | v12.5.0 | 2026-09-10 | **FF anti-drift protocol + installation guide**: manifest.md phase checkpoint checklist, reinjection at phase transitions, role assertion, context budget rule, state-file anchor, drift symptoms table; Installation/Quick Install + Verify Installation docs |
 | v12.6.0 | 2026-09-19 | **Community-ready**: /ff command shipped tracked, full session tracing, propagation script; docs consistency pass — motor-era sections removed, versions + counts aligned across all docs, consumer template fixed; stale motor artifacts untracked; milestone tag |
 | v12.7.0 | 2026-10-07 | **Acceptance layer + Context Handoff**: Acceptance Architect sub-agent writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) + test instructions per block BEFORE the judge — spec-only, never executes. Judge validates plan AND acceptance (unit-level acceptance is a rejection). Acceptance tests gate every block and the final validation. Context Package mandatory in every sub-agent dispatch (file excerpts, contracts, skill digests, lessons) — no more thin handoffs |
+| v13.0.0 | 2026-10-09 | **Hybrid FF — Claude planner + local executor**: roles split through a file-based handoff in `.ff/` (`owner`/`status` in state.json, work orders, executable checks, execution traces, reviews). The planner (Claude) runs Clarify, Plan (two in-session analysis passes, judge = only sub-agent), a critical Review & Validate and Lessons; the executor (local model, `/ff exec` in opencode) applies work orders, runs checks, commits per block and proposes a validation. New `ff-exec` skill; `/ff` command is executor-only; propagate refreshes stale `/ff` commands; `references/ff-protocol.md` is now a short reference |
 
 ---
 
