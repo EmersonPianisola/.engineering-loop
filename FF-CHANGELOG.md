@@ -2,6 +2,43 @@
 
 All notable changes to the FF protocol.
 
+## v13.0.0 — Hybrid Protocol: Claude Planner + Local Executor (2026-10-09)
+
+### New
+
+- **Two roles, one file contract.** The **planner** (Claude, cloud session linked to the repo) owns Phase 0 Clarify, Phase 1 Plan, Phase 3 Review & Validate and Phase 4 Lessons. The **executor** (local model via opencode) owns Phase 2 Execute. They communicate only through `.ff/`: `state.json` gains `owner` (`planner` | `executor` | `user`), the `status` values `planning` · `awaiting_execution` · `executing` · `awaiting_review` · `rework` · `blocked` · `completed` · `cancelled`, and the lists `blocks_executed`, `blocks_rework`, `blocks_blocked`.
+- **Executor-grade work orders** — `plan/work-orders/{block_id}.md`: exact files, exact edits, forbidden actions, check command. Anything that needs judgement is written by the planner.
+- **Executable checks** — `plan/checks/{block_id}.py`: Python stdlib, OS-agnostic, `PASS`/`FAIL` per scenario, exit 0 only if all pass. Judged together with the plan and the Gherkin acceptance.
+- **Handoff manifest** — `plan/handoff.json` with the sha256 of every work order and check.
+- **`ff-exec` skill** (new, `global-skills/ff-exec/`) — the executor protocol: start checks (owner, status, clean tree), one block at a time, one retry, one local commit per block, execution trace with a **validation proposal**.
+- **Critical second validation (Phase 3)** — the planner re-runs every check itself, verifies the scope from the commit, reads the full diff, records agreement/disagreement with the validation proposal, and approves or sends the block back for rework (max 2 rounds, then escalate).
+- **Multi-project rule** — one active FF session per repo; the protocol is read from the repo being worked on.
+
+### Changed
+
+- Analysis passes (structural, adversarial), plan, fragmentation and acceptance run in the planner session; the judge stays the only sub-agent (clean view; unavailable judge = HALT).
+- `/ff` (opencode) is now executor-only: `/ff exec`, `/ff exec <block_id>`, `/ff status`. A work description typed there is refused and redirected to the planner.
+- `references/ff-protocol.md` is now a short reference pointing to the canonical skills (no more 500-line mirror).
+- `scripts/propagate-to-projects.py` overwrites a stale `.opencode/commands/ff.md` in consumer projects and writes `.ff/` (not `. ff/`) to `.gitignore`.
+- Swarm is no longer part of FF. Session ff-20261009-001 (v12.8.0 draft, in-session + judge-only) was cancelled and folded into this version.
+
+### Files Changed
+
+- `global-skills/ff/SKILL.md`, `manifest.md`, `harness.md`, `autonomy-harness.md`
+- `global-skills/ff-exec/SKILL.md` (new), `global-skills-registry.json`
+- `.opencode/commands/ff.md`
+- `references/ff-protocol.md`, `references/anti-patterns.md`
+- `AGENTS.md`, `README.md`, `template-project/AGENTS.md`, `template-project/README.md`, `template-project/migration-guide.md`
+- `scripts/propagate-to-projects.py`
+- `skill-index.md`, `skill-governance.md`, `FF-CHANGELOG.md`
+
+### Migration for Consumer Projects
+
+1. From the framework repo: `python scripts/propagate-to-projects.py update <project>` — updates the submodule, runs `sync-global-skills.py pull` (installs `ff-exec` into `~/.agents/skills`) and now overwrites a stale `/ff` command. Always pass the project path: `update` without a path runs `git push origin master` on the framework repo first, without asking.
+2. Without the propagate script: `git submodule update --remote .eng`, then `python -X utf8 .eng/scripts/sync-global-skills.py pull` (run it on the machine where opencode runs).
+3. Make sure opencode in that project answers with the local model.
+4. In-flight v12.x sessions (no `owner` in `state.json`) are treated as legacy: the planner decides how to continue and re-judges before any handoff.
+
 ## v12.7.0 — Acceptance Layer + Context Handoff (2026-10-07)
 
 ### New

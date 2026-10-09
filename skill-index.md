@@ -6,7 +6,7 @@ description: 'Skill registry. IDs map to framework skills invoked by the FF prot
 
 # Skill Index
 
-**Framework:** Engineering Loop v12.7.0
+**Framework:** Engineering Loop v13.0.0
 **Root:** `{framework-root}/skills/`
 
 ## Registry
@@ -154,3 +154,4 @@ Skills marked as "self-constructed" are discovered and created at runtime from i
 | 2026-09-10 | story-flow | v1.0.0 — Story/Flow skill: bridges business value with technical validation. Mechanical anchors to test results, E2E evidence, data reconciliation. Evidence-or-zero discipline. Runs post-validation (after verifier, persona-simulator, E2E). |
 | 2026-09-10 | ff | **Anti-drift protocol**: `manifest.md` (phase checkpoint checklist, designed to stay in context), reinjection at every phase transition, role assertion, context budget rule (summary every 3 blocks), state file as anchor, drift symptoms table in SKILL.md, FF Orchestrator Drift section in anti-patterns.md, `summary` field added to state.json schema |
 | 2026-10-07 | ff | v12.7.0 — **Acceptance layer + Context Handoff**: Acceptance Architect sub-agent (Phase 1 Step 1.4, before the judge) writes Gherkin acceptance criteria per block (`acceptance/{block_id}.feature`, Given/When/Then, end-user perspective) + `acceptance-plan.md` test instructions — spec-only, the step never runs tests. Judge validates plan AND acceptance; unit-level/unit-only acceptance is a rejection. Acceptance tests run mechanically at the block gate and the final gate; traces record per-block scenario results. Context Package mandatory in every dispatch (session scope, plan slice, orchestrator-read file excerpts, contracts, acceptance, skill digests — never bare names — filtered lessons/decisions). Blocks carry self-contained multi-line instructions + contracts + acceptance refs |
+| 2026-10-09 | ff, ff-exec | v13.0.0 — **Hybrid protocol: Claude planner + local executor**: roles split through a file-based handoff in `.ff/` (`owner`/`status`, executor-grade work orders, executable Python checks, `handoff.json` hashes, execution traces with validation proposal, planner reviews). Planner runs Clarify, Plan (two in-session analysis passes; judge = only sub-agent, clean view), critical Review & Validate (re-runs every check, scope + full diff review, max 2 rework rounds) and Lessons (`actor` = planner or executor). New `ff-exec` skill for the local model; `/ff` command is executor-only; one active session per repo, protocol read from the repo |
