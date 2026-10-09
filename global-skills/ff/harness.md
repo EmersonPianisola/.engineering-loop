@@ -1,146 +1,95 @@
-# FF Protocol Harness — Hooks
+# FF Protocol Harness — Hooks (v13, hybrid)
 
-**READ THIS BEFORE ANY OTHER FF FILE.**
-
-This is the mechanical enforcement layer for the FF protocol. These hooks are NOT optional.
-They exist to prevent drift when context grows.
+**READ THIS BEFORE ANY OTHER FF FILE.** These hooks are the mechanical guardrail
+against drift. They are not optional.
 
 ---
 
-## Pre-Hook (BEFORE Starting Any Phase)
+## Pre-Hook (before any phase, handoff or review)
 
-**Trigger:** User runs `/ff`, or you are asked to use FF, or you detect you're already in an FF session.
-
-**Action — Execute in this exact order:**
-
-1. **Read state:** `Read .ff/state.json`
-   - If exists and status is "running"/"paused": announce "Existing session detected" and offer resume
-   - If exists and status is "completed": create new session
-   - If doesn't exist: create new session
-
-2. **Read manifest:** `Read manifest.md` (same directory as this skill)
-   - Use it as your phase gate checklist for the upcoming transition
-
-3. **Read lessons:** `Read .ff/lessons.json` (if exists and non-empty)
-    - Scan for lessons matching the current work_type
-    - Note any applicable prevention rules
-
-4. **Read skills:** If `.ff/state.json` exists and has a `skills` field, note them
-    - These skills will be injected into all sub-agent dispatches
-
-4. **Assert role:** Say exactly: "FF session initialized. I am the orchestrator."
-
-5. **Proceed to Phase 0.**
-
-**FAIL CONDITION:** If you skip any of these 5 steps, you are violating protocol. Stop and re-read this file.
+1. **Read state:** `.ff/state.json`.
+   - Missing → planner: new session (Phase 0).
+   - `status` is `completed` or `cancelled` → planner: new session.
+   - Branch on `owner`:
+     - `planner` → planner flow (continue at `current_phase`).
+     - `executor` → if you are the planner: the executor is working; report the status to the user and wait. If you are the executor: follow `ff-exec` (gates A-E).
+     - `user` → the session is closed; the planner starts a new one when asked.
+     - no `owner` field → **legacy** (pre-v13) session: the planner decides how to continue and re-judges before any handoff.
+2. **Read** `manifest.md` — the checklist for the upcoming gate.
+3. **Read** `.ff/lessons.json` (planner) — note prevention rules for this work type, including executor lessons.
+4. **Assert role:** planner: "FF session initialized. I am the planner." Executor: "I am the executor."
 
 ---
 
-## Post-Hook (AFTER Each Phase Completion)
+## Phase 0 → 1 Post-Hook (planner)
 
-**Trigger:** You are about to transition from one phase to the next, or FF is complete.
+Write `state.json` (`current_phase: "phase_0"`, `owner: planner`, `status: planning`,
+`work_type`, `task_title`, `skills`, `updated_at`), `skills.md` and `essence.md`.
 
-### Phase 0 → Phase 1 Post-Hook
+---
 
-Write to `.ff/state.json`:
-- `current_phase: "phase_0"`
-- `work_type: "<classified>"`
-- `task_title: "<title>"`
-- `skills: ["skill-1", "skill-2", ...]` (from Skill Discovery)
-- `updated_at: "<ISO>"`
+## Handoff Hook (planner, end of Phase 1)
 
-Write to `.ff/traces/{session_id}/skills.md`:
-- Discovered skills with reasons
+1. Verify that these exist: `plan/structural.json`, `plan/adversarial.json`, `plan/plan.md`, `plan/blocks.yaml`, `plan/work-orders/{block_id}.md`, `plan/acceptance-plan.md`, `plan/acceptance/{block_id}.feature`, `plan/checks/{block_id}.py` (every block), `plan/dry-run.txt`, and `plan/judge.json` with `approved: true`.
+2. Verify that the user said "go" and the tree is clean.
+3. Write `plan/handoff.json` (sha256 of every work order, check, content file and `blocks.yaml`).
+4. Set `state.json`: `owner: executor`, `status: awaiting_execution`, `current_phase: "phase_2"`, `blocks_pending`.
+5. Tell the user: run `/ff exec` in opencode in `<repo path>`.
 
-Write to `.ff/traces/{session_id}/essence.md`:
-- Full essence check output (verbatim)
+If anything is missing: do not hand off.
 
-### Phase 1 → Phase 2 Post-Hook
+---
 
-**Verify plan artifacts exist:**
-- `.ff/traces/{session_id}/plan/structural.json`
-- `.ff/traces/{session_id}/plan/adversarial.json`
-- `.ff/traces/{session_id}/plan/plan.md` (comprehensive plan document)
-- `.ff/traces/{session_id}/plan/blocks.yaml` (fragmented blocks — self-contained instructions, contracts, acceptance refs)
-- `.ff/traces/{session_id}/plan/acceptance-plan.md` (acceptance test instructions per block — spec-only, never executed in Phase 1)
-- `.ff/traces/{session_id}/plan/acceptance/{block_id}.feature` (one Gherkin acceptance feature per block)
-- `.ff/traces/{session_id}/plan/judge.json` (approved: true — plan AND acceptance validated)
+## Execution Hook (executor, per block — details in ff-exec)
 
-Write to `.ff/state.json`:
-- `current_phase: "phase_1"`
-- `blocks_completed: []`
-- `blocks_pending: ["block-001", ...]`
-- `autonomy_mode: "<mode>"`
-- `tasks.total: <N>`
-- `updated_at: "<ISO>"`
+After each block: write `execution/{block_id}.json` and move the block to
+`blocks_executed` (or `blocks_blocked`). At the end of the run: `owner: planner`,
+`status: awaiting_review` (or `blocked`).
 
-**If any artifact is missing, DO NOT proceed to Phase 2.**
+---
 
-### Phase 2 → Phase 3 Post-Hook (After Each Block)
+## Review Hook (planner, per block)
 
-For EACH block completed, write:
-- `.ff/traces/{session_id}/blocks/{block_id}.json` with:
-  - `block_id`, `scope`, `tasks`, `completed`, `failed`, `retried`, `acceptance` (feature, scenarios_total, scenarios_passed), `completed_at`, `files_changed`, `summary`
+1. Verify the `handoff.json` hashes, re-run the check, check the scope with `git --no-optional-locks show --name-only`, read the full diff, record the proposal agreement.
+2. Write `review/{block_id}.json` and update the lists:
+   - approved → `blocks_completed`;
+   - rework → `blocks_rework`, executor-grade `rework_instruction` (dry-run first), `owner: executor`, `status: rework`;
+   - escalate → ask the user.
+3. For blocks in `blocks_blocked`, apply **Blocked recovery** (SKILL.md Phase 3):
+   - review the working-tree `git --no-optional-locks diff`;
+   - the USER runs `git restore --staged --worktree -- <modified tracked files>`;
+   - the USER deletes **untracked** files the block created, with the exact `del <path>` commands the planner gives;
+   - the planner verifies a clean tree (`git --no-optional-locks -c core.autocrlf=true status --porcelain`);
+   - then `blocks_rework`, or a re-plan with a new `handoff.json` and a fresh judge.
+4. Pending blocks left and nothing blocked or in rework → hand back (`owner: executor`, `status: awaiting_execution`) with no new judge.
 
-Update `.ff/state.json`:
-- Add block to `blocks_completed`, remove from `blocks_pending`
-- Update `current_block`
-- Update `tasks` counts
-- Add files to `files_changed` / `files_created`
-- Update `updated_at`
+Planner git on the VM is read-only (`git --no-optional-locks`): never `add`, `commit`,
+`update-index`, `restore` or `checkout` from the VM.
 
-### Phase 3 → Complete Post-Hook
+---
 
-Write to `.ff/traces/{session_id}/report.md`:
-- Full FF report with all sections
+## Completion Post-Hook (planner)
 
-Update `.ff/traces/{session_id}/session.json`:
-- `status: "completed"`
-- `completed_at: "<ISO>"`
-- `blocks_total`, `tasks_total`, `files_changed`, `files_created`
-
-Update `.ff/state.json`:
-- `status: "completed"`
-- `completed_at: "<ISO>"`
-- `updated_at: "<ISO>"`
-
-Append to `.ff/changelog.md`:
-- Session entry with title, status, counts, duration, summary
-
-Update `.ff/lessons.json`:
-- Append new lessons for any failures
+Write `report.md`. Update `session.json` (`status: completed`, `completed_at`,
+files). Set `state.json` to `status: completed`, `owner: user`, `completed_at`.
+Append to `.ff/changelog.md`. Append lessons with `actor`.
 
 ---
 
 ## Interrupt Recovery Hook
 
-**Trigger:** Session ends unexpectedly, user reopens, or context is cleared.
-
-**Action:**
-
-1. Check `.ff/state.json`:
-   - If status is "running" or "paused": resume mode activated
-   - If missing: list `.ff/traces/` directories and ask user which to resume
-
-2. Load last checkpoint from `.ff/traces/{session_id}/`:
-   - Read last block trace or last phase output
-   - Never re-run what's already persisted as complete
-
-3. Announce: "Resuming FF session {session_id} from {current_phase}/{current_block}"
-
-4. Continue from that position.
+1. Read `.ff/state.json`; `owner` says whose turn it is. If it is missing, list `.ff/traces/` and ask which session to resume.
+2. Load the last checkpoint from `.ff/traces/{session_id}/`. Never redo what is recorded as approved.
+3. If the user reports that the executor died while the state still says `owner: executor`, `status: executing`, the planner inspects `git --no-optional-locks log` and `git --no-optional-locks -c core.autocrlf=true status --porcelain`:
+   - clean tree → tell the user to run `/ff exec` again (the executor resumes an interrupted run itself, gate B);
+   - dirty tree → take the session back (`owner: planner`, `status: blocked`) and run Blocked recovery.
+4. Announce: "Resuming FF session {session_id} from {current_phase} (owner: {owner})".
 
 ---
 
-## Verification Checklist (Use Before Declaring FF Done)
+## Verification Checklist (before declaring FF done)
 
-Before telling the user FF is complete, verify:
-
-- [ ] `.ff/state.json` status is "completed" with `completed_at` set
-- [ ] `.ff/traces/{session_id}/report.md` exists and is complete
-- [ ] `.ff/traces/{session_id}/session.json` status is "completed"
-- [ ] All block traces exist in `.ff/traces/{session_id}/blocks/`
-- [ ] `.ff/lessons.json` updated with any new lessons
-- [ ] `.ff/changelog.md` has session entry
-
-**If any item is missing, complete it before declaring FF done.**
+- [ ] `state.json`: `status: completed`, `owner: user`, `completed_at` set
+- [ ] `report.md` complete; `session.json` completed
+- [ ] Every block has `execution/{block_id}.json` and an approved `review/{block_id}.json`
+- [ ] `.ff/lessons.json` and `.ff/changelog.md` updated

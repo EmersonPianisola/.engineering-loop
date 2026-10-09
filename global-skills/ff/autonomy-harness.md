@@ -19,6 +19,8 @@ A production deploy with clear instructions, passing tests, and explicit scope c
 These operations **ALWAYS require human confirmation**, regardless of context
 or autonomy score. No exceptions.
 
+These rules bind both roles — the planner and the executor (local model). A `manual` block requires the user's confirmation in the executor session.
+
 ### Destructive Operations
 - `rm`, `rm -rf`, `rmdir /S`, `del /F` — any file deletion
 - `git push --force`, `git reset --hard`, `git checkout --` — destructive git
@@ -98,7 +100,7 @@ autonomy_score = (clarity * 0.4) + (complexity * 0.4) + ((1 - risk) * 0.2)
 | Score | Mode | Behavior |
 |-------|------|----------|
 | ≥ 0.8 | FULL AUTO | Execute blocks without asking. Report results after each block. |
-| 0.5-0.7 | SEMI AUTO | Show block plan → wait for "go" → execute → report. |
+| 0.5-0.8 | SEMI AUTO | Show block plan → wait for "go" → execute → report. |
 | < 0.5 | MANUAL | Ask before each block. Show task details. Wait for confirmation. |
 
 ### User Override
@@ -115,25 +117,13 @@ The user can always override the calculated mode:
 ### When a Block Gate Fails
 
 ```
-1. Retry failed rows once (max 1 retry per row)
-
-2. IF retry passes → continue to next block
-
-3. IF retry fails → escalate:
-   Show:
-     - Task ID and scope
-     - What was attempted
-     - Error output (first 50 lines)
-     - 2-3 suggested fix options
-
-4. Wait for human input:
-   - "try X" → one more attempt with guidance
-   - "skip" → mark task skipped, continue block
-   - "abort" → halt entire run
-   - "I'll fix it" → halt, let human take over
-
-5. IF one more attempt fails → HALT, mark as blocked
-   Capture as lesson: what failed, why, what was attempted
+1. The executor retries the check once (ff-exec section 4, idempotency rule).
+2. Still failing → the block is blocked and the run ends (ff-exec "Block and end" + section 6):
+   owner: planner, status: blocked.
+3. The planner runs Blocked recovery (SKILL.md Phase 3): review the working-tree diff,
+   the user restores the tree, then rework (max 2 rounds) or re-plan + fresh judge.
+4. After 2 rework rounds → escalate to the user with the task, what was attempted,
+   the check output, and 2-3 fix options. Capture the lesson (actor: executor or planner).
 ```
 
 ### When Context is Insufficient
@@ -165,56 +155,7 @@ The user can always override the calculated mode:
 
 ## Recovery
 
-### Session Interruption
-
-If the session is interrupted mid-block:
-1. Read `.ff/state.json` from disk
-2. Identify last completed block and current phase
-3. Resume from the next block or current phase
-4. Re-check autonomy score (context may have changed)
-
-### Session Resume Protocol
-
-When user requests resume or `/ff resume` is used:
-
-1. Read `.ff/state.json`:
-   - If status is "running" or "paused" → resume this session
-   - If status is "completed" → ask user which session to inspect
-   - If no state.json → list sessions from `.ff/traces/` and ask user to choose
-
-2. Load session context from `.ff/traces/{session_id}/`:
-   - Read `session.json` for metadata
-   - Read `essence.md` for scope and clarifications
-   - Read `plan/consolidated.json` for the plan
-   - Read last block trace from `blocks/` or last phase output
-   - Read relevant lessons from `.ff/lessons.json`
-
-3. Announce to user:
-   ```
-   Resuming FF session {session_id}
-   Work: {task_title}
-   From: {current_phase} / {current_block}
-   Progress: {blocks_completed}/{blocks_total} blocks
-   ```
-
-4. Continue from the last checkpoint position. Do NOT re-run completed blocks.
-
-5. If the last block was mid-execution:
-   - Read its trace to see which tasks completed
-   - Re-run only failed/incomplete tasks
-   - Do NOT re-run tasks marked as "completed" in the trace
-
-### Block Corruption
-
-If a block produces invalid output:
-1. Discard that block's outputs
-2. Re-run the block from scratch
-3. If re-run fails → escalate
-
-### Full Run Recovery
-
-If the entire FF run needs to restart:
-1. Read state.json for context
-2. Re-run Phase 1 (PLAN BUILD) with lessons from previous run
-3. Re-calculate autonomy score
-4. Resume from Block 0
+- Interrupted executor run → `harness.md` Interrupt Recovery Hook + ff-exec Gate B.
+- Blocked block → SKILL.md Phase 3 "Blocked recovery".
+- Resuming a session → ask the planner; it reads `.ff/state.json` (`owner` says whose turn it is) and the traces in `.ff/traces/{session_id}/` (`plan/`, `execution/`, `review/`). Never redo a block recorded as approved.
+- A plan that turns out to be wrong → re-plan the affected blocks and dispatch a fresh judge before the next handoff.

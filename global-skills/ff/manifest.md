@@ -1,174 +1,113 @@
-# FF Protocol Manifest — Phase Checkpoint Checklist
+# FF Protocol Manifest — Gate Checklist (v13, hybrid)
 
-## Purpose
-
-Read this file BEFORE every phase transition. It is a compressed checkpoint that
-forces the orchestrator to verify it is following protocol, regardless of
-context window size. If any item fails, STOP and correct before proceeding.
-
-**Read order: harness.md → this file → phase instructions.**
-
-This file is designed to be small enough to stay in context at all times.
+Read this file BEFORE every phase transition and every handoff.
+Read order: `harness.md` → this file → the phase instructions in `SKILL.md` (planner) or `ff-exec` (executor).
+If any item fails: STOP and fix it before moving on.
 
 ---
 
-## Role Assertion — Read at EVERY Phase Transition
+## Role Assertion
 
 ```
-YOU ARE THE ORCHESTRATOR.
-You dispatch sub-agents. You consolidate results. You enforce gates.
-You DO NOT write application code yourself.
-You DO NOT execute tasks sequentially when Swarm applies.
-If you find yourself writing code, you have drifted. STOP. Re-dispatch.
+PLANNER (Claude):  I plan and review. I do not execute work orders.
+                   The judge is the only sub-agent.
+EXECUTOR (local):  I execute work orders. I do not plan. I never edit plan artifacts.
 ```
+`.ff/state.json` `owner` says whose turn it is. If it is not your turn: report and wait.
 
 ---
 
-## Pre-Flight Check (BEFORE Phase 0)
+## Pre-Flight (both roles)
 
-- [ ] Read `harness.md` — executed pre-hook
-- [ ] `.ff/state.json` read (existing session? resume or new?)
-- [ ] `.ff/lessons.json` read (loaded relevant lessons)
-- [ ] Role asserted: "FF session initialized. I am the orchestrator."
-
-**FAIL any item → Do not proceed. Read harness.md and complete pre-hook.**
+- [ ] `harness.md` pre-hook executed
+- [ ] `.ff/state.json` read (`owner`, `status`, block lists)
+- [ ] `.ff/lessons.json` read (planner: all relevant; executor: none needed)
+- [ ] Role asserted
 
 ---
 
-## Phase 0 → Phase 1 Gate
+## Phase 0 → 1 Gate (planner)
 
-- [ ] Session initialized: `session_id` generated, `.ff/traces/{session_id}/` created
-- [ ] `.ff/traces/{session_id}/session.json` written with metadata
-- [ ] `.ff/state.json` initialized with full schema
-- [ ] Essence check completed (skill "essence" loaded)
-- [ ] All Lens 4 tensions resolved with user
-- [ ] Essence output persisted to `.ff/traces/{session_id}/essence.md`
-- [ ] Skill Discovery completed — skills identified and persisted to `state.json`
-- [ ] Skills persisted to `.ff/traces/{session_id}/skills.md`
-- [ ] Work type classified
-- [ ] Auto-size rule evaluated (FF activated or inline execution justified)
-- [ ] Post-hook executed: `state.json` updated with `current_phase: "phase_0"`
-
-**FAIL any item → Return to Phase 0**
+- [ ] `session_id` generated, `.ff/traces/{session_id}/` created, `session.json` written
+- [ ] `state.json` initialized: `owner: planner`, `status: planning`
+- [ ] Essence check done, Lens 4 tensions resolved, `essence.md` persisted
+- [ ] Skills discovered → `state.json` `skills` + `skills.md`
+- [ ] Work type classified; auto-size rule evaluated
 
 ---
 
-## Phase 1 → Phase 2 Gate
+## Phase 1 → Handoff Gate (planner)
 
-- [ ] Context Package assembled for EVERY dispatch (file excerpts read, skill digests loaded — not bare names)
-- [ ] Two sub-agents dispatched in parallel (Structural + Adversarial)
-- [ ] Both sub-agents returned results
-- [ ] Sub-agent outputs persisted: `plan/structural.json`, `plan/adversarial.json`
-- [ ] Sub-agents received the Context Package and reported skills_used
-- [ ] Conflicts reconciled (no unresolved safe vs risky disagreements)
-- [ ] Plan Writer sub-agent dispatched — produced comprehensive plan document
-- [ ] Plan document includes "Skills Used" section
-- [ ] Plan document persisted: `plan/plan.md`
-- [ ] Plan fragmented into draft blocks (≤ 8 blocks, each ≤ 5000 tokens context)
-- [ ] Block list persisted: `plan/blocks.yaml`
-- [ ] Every block has a self-contained multi-line `instruction` (read what, change what, satisfy which acceptance) — one-line instructions are a violation
-- [ ] Block `contracts` (consumes/produces) defined; dependencies defined (parallel blocks have no shared writes)
-- [ ] Acceptance Architect sub-agent dispatched (NOT skipped — acceptance is BEFORE the judge)
-- [ ] Acceptance Architect wrote spec ONLY — no tests, commands, or suites were executed in that step
-- [ ] Acceptance plan persisted: `plan/acceptance-plan.md` (per-block executable test instructions: runner, command, scenarios)
-- [ ] One Gherkin feature per block persisted: `plan/acceptance/{block_id}.feature`
-- [ ] Acceptance is end-user perspective — no unit-level acceptance, no block missing scenarios
-- [ ] Judge sub-agent dispatched (NOT skipped, NOT replaced with self-assessment)
-- [ ] Judge validated plan AND acceptance criteria (acceptance gate: per-block feature, user-level, deterministic, edge cases covered, executable instructions)
-- [ ] Judge returned `{"approved": true}`
-- [ ] Judge decision persisted: `plan/judge.json`
-- [ ] Autonomy score calculated
-- [ ] `.ff/state.json` updated with block list, current_phase: "phase_1"
-- [ ] Relevant lessons loaded from `.ff/lessons.json`
+- [ ] Two SEPARATE in-session analysis passes persisted: `plan/structural.json`, `plan/adversarial.json`
+- [ ] Conflicts reconciled; `plan/plan.md` persisted
+- [ ] `plan/blocks.yaml`: ≤ 8 blocks; executor blocks hand-edit ≤ 3 files; shared files dependency-ordered
+- [ ] `plan/work-orders/{block_id}.md` for every block, executor-grade (E/O/C format, check + commit commands, manual question first)
+- [ ] `plan/acceptance/{block_id}.feature` + `plan/checks/{block_id}.py` for every block; `acceptance-plan.md`
+- [ ] Planner dry-run on a throwaway copy: oldStrings match once, newStrings absent before, second pass changes nothing, checks FAIL → PASS (`plan/dry-run.txt`)
+- [ ] Judge dispatched with the clean-view Judge Handoff (artifacts only); fresh judge on every round
+- [ ] `plan/judge.json` approved: true
+- [ ] Plan presented AFTER approval; the user said "go"
+- [ ] Clean tree; `plan/handoff.json` written with sha256 of work orders, checks, content files, blocks.yaml
+- [ ] `state.json`: owner → executor, `status: awaiting_execution`, `blocks_pending` set
+- [ ] The user was told to run `/ff exec` in opencode, with the repo path
 
-**FAIL any item → Return to Phase 1, do NOT proceed to execution**
-
-**COMMON DRIFT:** Showing plan to user before judge approval. DO NOT DO THIS.
-**COMMON DRIFT:** Skipping judge because "the plan looks fine." THE JUDGE IS NOT OPTIONAL.
-**COMMON DRIFT:** Building the plan yourself instead of dispatching sub-agents. YOU ARE THE ORCHESTRATOR.
-**COMMON DRIFT:** Skipping acceptance build because "tests can come later." ACCEPTANCE IS BEFORE THE JUDGE.
-**COMMON DRIFT:** Accepting unit-level acceptance. THE GATE IS END-USER PERSPECTIVE.
-**COMMON DRIFT:** Dispatching sub-agents with one-line instructions and skill names only. BUILD THE CONTEXT PACKAGE.
+**COMMON DRIFT:** showing the plan before the judge · self-assessing instead of the judge ·
+dispatching any sub-agent other than the judge · a work order that needs judgement.
 
 ---
 
-## Phase 2 Block Gate (Check Before Each Block)
+## Phase 2 Executor Gate (executor, per block)
 
-- [ ] Read `.ff/state.json` to confirm current block position
-- [ ] Previous block completed successfully (or failure handled per escalation protocol)
-- [ ] Previous block trace persisted in `blocks/{block_id}.json`
-- [ ] Block autonomy mode checked against score
-- [ ] Block skills assigned (global skills + scope-specific skills)
-- [ ] Block's Context Package assembled: orchestrator READ the `block.scope` files, injected excerpts, contracts, and skill DIGESTS (loaded + filtered — not bare names)
-- [ ] Block's full acceptance Gherkin feature injected into the dispatch context
-- [ ] If block has ≥ 2 independent tasks → MUST dispatch Swarm (sequential execution FORBIDDEN)
-- [ ] Gate check performed on results
-- [ ] Acceptance tests executed mechanically per `acceptance-plan.md` instructions (runner + command — never "looks right")
-- [ ] Failed acceptance scenarios counted as failed (retry/escalation rules apply)
-- [ ] Failed rows retried once (max 1 retry)
-- [ ] Block trace persisted: `blocks/{block_id}.json` with tasks, results, acceptance results (feature, scenarios_total, scenarios_passed), files_changed
-- [ ] `.ff/state.json` updated: blocks_completed, blocks_pending, task counts, files lists
-
-**FAIL any item → Halt block, correct before proceeding to next block**
-
-**COMMON DRIFT:** Executing tasks sequentially instead of via Swarm. THIS DEFEATS FF.
-**COMMON DRIFT:** Skipping gate check because "it looks right." VALIDATE MECHANICALLY.
-**COMMON DRIFT:** Writing code instead of dispatching sub-agents. YOU ARE THE ORCHESTRATOR.
+- [ ] Gates A-E passed (owner executor; interrupted run handled; status valid; clean tree)
+- [ ] Manual block: user confirmed BEFORE the first edit
+- [ ] Edits applied within scope, with the idempotency rule; rework applies ONLY `rework_instruction`
+- [ ] Check run; one retry at most
+- [ ] One commit `ff({session_id}): {block_id}`
+- [ ] `execution/{block_id}.json` written, with `validation_proposal`
+- [ ] Block lists updated; at end of run: owner planner, `status: awaiting_review` or `blocked`
 
 ---
 
-## Phase 2 → Phase 3 Gate
+## Review Gate (planner, per executed or blocked block)
 
-- [ ] All blocks completed (or failures escalated and documented)
-- [ ] `.ff/state.json` reflects final block status
-- [ ] No unresolved block failures
+- [ ] `handoff.json` hashes verified (work orders, checks, content, blocks.yaml unchanged)
+- [ ] Check re-run by the planner — never approved from the executor's self-report
+- [ ] Scope: `git show --name-only <commit>` (as `git --no-optional-locks show …`) ⊆ block scope
+- [ ] Full diff read against the work order and the feature
+- [ ] Proposal agreement recorded (`agree` / `disagree` + why)
+- [ ] `review/{block_id}.json` written: approved / rework / escalate
+- [ ] Rework: `rework_instruction` is executor-grade (E/O/C against the committed state, dry-run first); ≤ 2 rework rounds, then escalate
+- [ ] Rework that needs a plan or scope change → re-plan + fresh judge + new `handoff.json`
+- [ ] Blocked block → Blocked recovery: working-tree `git diff`; the USER runs `git restore` (modified files) and deletes untracked new files; the planner verifies a clean tree; then rework or re-plan
+- [ ] Planner git on the VM is read-only: `git --no-optional-locks` (status with `-c core.autocrlf=true`)
 
-**FAIL any item → Return to failed block, do NOT proceed to validation**
-
----
-
-## Phase 3 Completion Gate
-
-- [ ] Full acceptance suite run — every block's acceptance tests, per `acceptance-plan.md`
-- [ ] Full test suite run (or justified why not applicable)
-- [ ] Cross-check: plan vs. actual changes compared
-- [ ] FF Report persisted to `.ff/traces/{session_id}/report.md`
-- [ ] Lessons captured for every failure (retried or escalated)
-- [ ] Lessons appended to `.ff/lessons.json`
-- [ ] Session metadata updated: `.ff/traces/{session_id}/session.json` (completed_at, status, files)
-- [ ] `.ff/state.json` status set to "completed", completed_at set
-- [ ] Changelog updated: `.ff/changelog.md` with session summary
-- [ ] Post-hook verification from `harness.md` passed
-
-**BEFORE declaring FF complete, verify ALL items above. Missing any = not done.**
-
-**FAIL any item → Complete missing steps before reporting done**
+**COMMON DRIFT:** approving from the executor's self-report · writing to `.git` from the VM.
 
 ---
 
-## Context Budget Rule
+## Completion Gate (planner)
 
-After every 3 blocks completed, or if you sense context is getting large:
-
-1. Summarize completed blocks into a single paragraph
-2. Update `.ff/state.json` with complete status
-3. Explicitly note: "Context summary created. Continuing from block {N}."
-
-This keeps the conversation history manageable and ensures the protocol
-checklist remains accessible.
+- [ ] Every block approved (or escalated and documented)
+- [ ] Final gate: all checks re-run, project tests run (or justified), plan vs commits cross-checked, clean tree
+- [ ] `report.md` persisted
+- [ ] Lessons appended to `.ff/lessons.json`, each with `actor` (planner | executor)
+- [ ] `session.json` completed; `state.json`: `status: completed`, `owner: user`
+- [ ] `.ff/changelog.md` updated; `harness.md` verification checklist passed
 
 ---
 
-## Quick Reference — What the Orchestrator Does vs. Doesn't Do
+## Quick Reference
 
-| DO | DON'T |
-|----|-------|
-| Read `harness.md` before starting | Skip the pre-hook |
-| Dispatch sub-agents (Task tool) | Write application code yourself |
-| Consolidate sub-agent outputs | Build the plan yourself |
-| Enforce gates mechanically | Skip gates because "it looks fine" |
-| Run Swarm for parallel tasks | Execute tasks sequentially |
-| Update `.ff/state.json` every step | Rely on conversation memory for state |
-| Load this manifest at each phase | Trust that you "remember" the protocol |
-| Run post-hook after each phase | Declare FF done without persistence |
-| Send plan to judge before user | Show plan to user first |
+| Planner DO | Planner DON'T |
+|------------|---------------|
+| Plan in-session, judge before the user sees the plan | Dispatch any sub-agent except the judge |
+| Write executor-grade work orders and content | Hand off a work order that needs judgement |
+| Hash the handoff, re-run every check in review | Approve from the validation proposal |
+| Keep VM git read-only | Edit repo files during Phase 2 |
+
+| Executor DO | Executor DON'T |
+|-------------|----------------|
+| Pass gates A-E, follow the block order | Plan, re-scope, or guess |
+| Apply edits exactly (idempotency rule) | Edit `plan/`, push, delete, touch `.env` |
+| Run the check, commit once, write the trace | Hide a concern or a deviation |
+| Stop at the first blocked block | Continue after a block is blocked |
