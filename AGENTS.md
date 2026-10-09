@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v12.7.0
+# AGENTS.md — Engineering Loop v13.0.0
 
 ## What This Repo Is
 
@@ -25,30 +25,41 @@ Consumer projects install this repo as a git submodule at `.eng/` and update the
 
 Key: The consumer project's `AGENTS.md` must instruct the agent to auto-load the ff skill for any substantial work request — no explicit "use FF" invocation should be needed.
 
-### FF Protocol
+### FF Protocol (Hybrid — v13)
 
-FF is a protocol for parallel swarm-based software development. The main agent orchestrates, sub-agents execute. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
+FF is a fail-fast protocol with two roles that communicate only through files in `.ff/`. The **planner** (Claude, cloud session linked to the repo) owns every input, the plan, and the final validation. The **executor** (local model via opencode) executes the approved work orders. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
 
 **Protocol:**
-1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
-3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
-4. **Phase 3: Validate** — Cross-check plan vs. reality
-5. **Phase 4: Lessons** — Capture lessons, report results
+1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
+3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
 
-**Key:** The plan is built by two sub-agents (structural + adversarial), consolidated by the main agent, then an Acceptance Architect writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) for every block — spec-only, the step never runs tests — and the judge approves the plan and the acceptance together. Every sub-agent dispatch carries a Context Package (file excerpts, contracts, skill digests, lessons). Only after approval does swarm execution begin. No waves. No graphs. Just blocks.
+**Key:** The judge is the only sub-agent — dispatched by the planner with a clean view (artifacts only) — and approves the plan, work orders, acceptance and checks before anything is handed off. The executor never plans; the planner never trusts the executor's self-report without re-running the checks. No waves. No graphs. Just blocks.
+
+### Hybrid Roles — Which One Are You?
+
+| You are | Load | Do | Never |
+|---|---|---|---|
+| Claude (planner) | `global-skills/ff/SKILL.md` (consumers: `.eng/global-skills/ff/SKILL.md`) | Phases 0, 1, 3, 4; hand off with `.ff/state.json` `owner: executor` | Edit repo files in Phase 2 |
+| Local model in opencode (executor) | `global-skills/ff-exec/SKILL.md` via `/ff exec` | Phase 2 only, when `.ff/state.json` `owner` is `executor` | Plan, re-scope, edit `plan/` artifacts, push, delete |
+
+**Multi-project:** one active FF session per repo. The protocol is always read from the repo being worked on — never from memory or another repo. Every handoff names the repo.
 
 ### Using FF
 
-**Start a session:**
-- Type `/ff <description>` — loads the ff skill and starts the protocol
-- Or say "use FF" — the skill auto-loads for substantial work requests
+**Start a session (planner — Claude):**
+- Describe the work to Claude in the session linked to this repo, or say "use FF" — the planner loads the ff skill for substantial work requests
+- The planner plans, gets judge approval, then tells you to run `/ff exec`
 
-**Manage sessions:**
-- `/ff status` — show current FF session status
-- `/ff resume` — resume an interrupted session from last checkpoint
-- `/ff history` — list recent FF sessions
-- `/ff lessons` — show accumulated lessons
+**Execute (executor — opencode):**
+- `/ff exec` — execute all pending/rework blocks of the active session (stops at the first blocked block)
+- `/ff exec <block_id>` — execute one block
+- `/ff status` — show the active session, owner and block lists
+- `/ff <description>` in opencode is refused — planning happens in the planner session
+
+**Session management (ask the planner):** status, resume, history, lessons — all read from `.ff/`.
 
 FF tracks all progress in `.ff/` (gitignored — these are working artifacts):
 - Current session state: `.ff/state.json`
@@ -56,7 +67,7 @@ FF tracks all progress in `.ff/` (gitignored — these are working artifacts):
 - Lessons learned: `.ff/lessons.json`
 - Session changelog: `.ff/changelog.md`
 
-If the session is interrupted, resume by running `/ff resume` or loading `.ff/state.json`.
+If a session is interrupted, ask the planner to resume — it reads `.ff/state.json` (`owner` says whose turn it is).
 
 ### Autonomy Score
 

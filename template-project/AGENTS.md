@@ -25,11 +25,13 @@ When the user says things like:
 - "Refactor Z"
 - "Add tests for W"
 
-You should:
-1. Load the ff skill (`/skills/ff`)
+You should (planner — Claude):
+1. Load the ff skill (`.eng/global-skills/ff/SKILL.md`)
 2. Run Phase 0: CLARIFY (essence check)
-3. Continue through Phase 1-4 without stopping for protocol questions
+3. Continue through Phase 1 (plan + judge), hand off to the executor, then run Phases 3-4 when the executor returns
 4. Only ask the user about scope clarification and autonomy decisions
+
+If you are the local model in opencode (executor): do NOT plan. Only run `/ff exec` on work orders of an approved session (skill `ff-exec`).
 
 **DO NOT:**
 - Wait for the user to say "use FF" or "run FF"
@@ -37,13 +39,15 @@ You should:
 - Ask "Should I use FF for this?" (you already know the answer)
 - Execute substantial work sequentially without FF
 
-### FF Protocol Summary
+### FF Protocol Summary (Hybrid — v13)
 
-1. **Phase 0: Clarify** — Essence check, resolve scope tensions
-2. **Phase 1: Plan Build** — Two sub-agents cross-analyze → consolidate → acceptance criteria (Gherkin) per block → judge approve
-3. **Phase 2: Execute** — Swarm fan-out per block, gate check, retry
-4. **Phase 3: Validate** — Cross-check plan vs. reality
-5. **Phase 4: Lessons** — Capture lessons, report results
+1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
+3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
+
+**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo.
 
 ### Autonomy Score
 
