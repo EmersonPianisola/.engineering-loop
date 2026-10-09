@@ -167,16 +167,18 @@ def update_project(project_path, force=False):
         )
         print(f"  ✓ .ff/ directory created")
 
-    # Create /ff command
+    # Create or refresh /ff command (framework-owned: overwrite when stale)
     ff_cmd = p / ".opencode" / "commands" / "ff.md"
-    if not ff_cmd.exists():
-        ff_cmd.parent.mkdir(parents=True, exist_ok=True)
-
-        # Copy from engineering-loop
-        source_cmd = ROOT / ".opencode" / "commands" / "ff.md"
-        if source_cmd.exists():
-            ff_cmd.write_text(source_cmd.read_text())
+    source_cmd = ROOT / ".opencode" / "commands" / "ff.md"
+    if source_cmd.exists():
+        source_text = source_cmd.read_text(encoding="utf-8")
+        if not ff_cmd.exists():
+            ff_cmd.parent.mkdir(parents=True, exist_ok=True)
+            ff_cmd.write_text(source_text, encoding="utf-8")
             print(f"  ✓ .opencode/commands/ff.md created")
+        elif ff_cmd.read_text(encoding="utf-8") != source_text:
+            ff_cmd.write_text(source_text, encoding="utf-8")
+            print(f"  ✓ .opencode/commands/ff.md updated (was stale)")
 
     # Update .gitignore
     gi = p / ".gitignore"
@@ -191,7 +193,7 @@ def update_project(project_path, force=False):
     if patterns_added:
         if gi_content and not gi_content.endswith("\n"):
             gi_content += "\n"
-        gi_content += "\n# FF workspace\n. ff/\n\n# OpenCode local config\n.opencode/\n"
+        gi_content += "\n# FF workspace\n.ff/\n\n# OpenCode local config\n.opencode/\n"
         gi.write_text(gi_content)
         print(f"  ✓ .gitignore updated: {', '.join(patterns_added)}")
 
