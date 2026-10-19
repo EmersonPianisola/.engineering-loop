@@ -31,7 +31,7 @@ You should (planner — Claude):
 3. Continue through Phase 1 (plan + judge), hand off to the executor, then run Phases 3-4 when the executor returns
 4. Only ask the user about scope clarification and autonomy decisions
 
-If you are the local model in opencode (executor): do NOT plan. Only run `/ff exec` on work orders of an approved session (skill `ff-exec`).
+If you are the local model in opencode (executor): do NOT plan. Only execute work orders of an approved session (skill `ff-exec`) — dispatched by the planner (`ff-executor` agent) or run by the user with `/ff exec`.
 
 **DO NOT:**
 - Wait for the user to say "use FF" or "run FF"
@@ -39,15 +39,15 @@ If you are the local model in opencode (executor): do NOT plan. Only run `/ff ex
 - Ask "Should I use FF for this?" (you already know the answer)
 - Execute substantial work sequentially without FF
 
-### FF Protocol Summary (Hybrid — v13)
+### FF Protocol Summary (Hybrid — v14, tiered)
 
 1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
-2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
-3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
-4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks routed by execution tier (T0 mechanical · T1 guided · T2 high effort) → executor-grade work orders (T1/T2: spec + planner-written protected tests) → acceptance (Gherkin) + executable checks → judge approve (≤ 3 rounds) → handoff
+3. **Phase 2: Execute** (executor, dispatched by the planner one block at a time — `opencode run --command ff --agent ff-executor`; manual fallback `/ff exec`) — apply the work order (T1/T2: write the specified code), run checks, self-repair once (attempt 2), commit per block, write execution trace + validation proposal; the planner reviews each block before the next dispatch
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, one correction per block (attempt 3) then the user, final gate
 5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
 
-**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo.
+**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo. Blocks are routed by execution tier (`.eng/global-skills/ff/routing.md`): the planner specifies and validates, the local model writes what the spec and tests allow. After your single "go" the planner dispatches the executor (`.opencode/agents/ff-executor.md`) block by block, like a sub-agent; one executor run at a time per machine (one GPU).
 
 ### Autonomy Score
 
@@ -57,12 +57,14 @@ If you are the local model in opencode (executor): do NOT plan. Only run `/ff ex
 | 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
 | < 0.5 | MANUAL | Ask before each block |
 
+**FF v14:** one "go" per plan — after it the planner (Claude) dispatches and supervises the local executor block by block; manual blocks still ask you first. The score is reported with the plan as a risk summary.
+
 ### Hard Rules (Never Override)
 
 - `rm -rf`, `git push --force` — always ask
 - Writes to Firebase — always ask
 - Changes to `.env` — always ask
-- Operations outside workspace — always block
+- Operations outside workspace — always block (exception: the FF executor writes, never deletes, `~/.agents/ff-executor.lock` — `.eng/global-skills/ff-exec/SKILL.md` section 6)
 
 ### Anti-Drift: State File is Your Anchor
 
@@ -80,7 +82,7 @@ The Engineering Loop framework is installed as a git submodule at `.eng/`. It is
 
 - `.eng/global-skills/` — 106 versioned global skills (single source of truth)
 - `.eng/skills/` — 23 framework-specific skills
-- `.eng/references/` — 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
+- `.eng/references/` — 17 reference docs (anti-patterns, decisions, lessons, ff-protocol, executor-calibration, etc.)
 - `.eng/scripts/sync-global-skills.py` — Sync global skills to `~/.agents/skills/`
 - `.eng/AGENTS.md` — Framework instructions
 - `.eng/skill-index.md` — Skill registry

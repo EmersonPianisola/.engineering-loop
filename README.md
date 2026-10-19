@@ -4,7 +4,7 @@ type: entry-point
 description: 'Comprehensive framework documentation.'
 ---
 
-# Engineering Loop v13.0.0
+# Engineering Loop v14.0.0
 
 **New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
@@ -12,10 +12,10 @@ description: 'Comprehensive framework documentation.'
 
 | | |
 |---|---|
-| **Version** | 13.0.0 |
+| **Version** | 14.0.0 |
 | **Development Mode** | FF (Fail Fast) — hybrid: Claude planner + local executor, acceptance-gated judge-approved plans |
 | **Skills** | 23 built-in ideação/verificação skills + global skills |
-| **References** | 16 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol) |
+| **References** | 17 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol, executor-calibration) |
 | **Architecture** | Multi-project via git submodule |
 | **Anti-Drift** | manifest.md, role assertion, context budget, state file anchor |
 
@@ -71,14 +71,17 @@ artifacts/
 # OpenCode local config (the /ff command stays tracked)
 .opencode/*
 !.opencode/commands/
+!.opencode/agents/
 EOF
 
 # 7. Copy the /ff command definition from the framework
 mkdir -p .opencode/commands
 cp .eng/.opencode/commands/ff.md .opencode/commands/ff.md
+mkdir -p .opencode/agents
+cp .eng/.opencode/agents/ff-executor.md .opencode/agents/ff-executor.md
 
 # 8. Commit
-git add .eng AGENTS.md .gitignore .opencode/commands
+git add .eng AGENTS.md .gitignore .opencode/commands .opencode/agents
 git commit -m "Add Engineering Loop framework with FF protocol"
 ```
 
@@ -205,7 +208,7 @@ USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
 PHASE 1: PLAN       → (planner) in-session analysis passes → plan → work orders → acceptance (Gherkin) + checks → judge approve → handoff
-PHASE 2: EXECUTE    → (executor) /ff exec: work order → checks → commit → execution trace + validation proposal
+PHASE 2: EXECUTE    → (executor, dispatched by the planner block by block) work order → checks → self-repair → commit → trace → planner review
 PHASE 3: VALIDATE   → (planner) critical review: re-run checks, scope + diff review, final gate
 PHASE 4: LESSONS    → Capture lessons, report results
 ```
@@ -221,7 +224,7 @@ The planner consolidates both passes into the plan, fragments it into blocks, an
 
 ### Execute
 
-The local model runs `/ff exec` in opencode. Blocks run in order: apply the work order, run the block's checks (one retry), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or sends it back for rework (max 2 rounds).
+The planner dispatches the local model in opencode one block at a time, like a sub-agent (`opencode run --command ff --agent ff-executor`; manual fallback: you run `/ff exec`). Every block has an execution tier — T0 mechanical (copy and verbatim edits), T1 guided or T2 high effort (the local model writes the code from the planner's spec and protected tests). Blocks run in order: apply the work order, run the block's checks, self-repair once on failure (attempt 2), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or spends its single correction (attempt 3) before escalating to the user.
 
 ### Autonomy Score
 
@@ -231,12 +234,14 @@ The local model runs `/ff exec` in opencode. Blocks run in order: apply the work
 | 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
 | < 0.5 | MANUAL | Ask before each block |
 
+**FF v14:** one "go" per plan — after it the planner (Claude) dispatches and supervises the local executor block by block; manual blocks still ask you first. The score is reported with the plan as a risk summary.
+
 ### Hard Rules (Never Override)
 
 - `rm -rf`, `git push --force` — always ask
 - Writes to Firebase — always ask
 - Changes to `.env` — always ask
-- Operations outside workspace — always block
+- Operations outside workspace — always block (exception: the FF executor writes, never deletes, `~/.agents/ff-executor.lock` — ff-exec section 6)
 
 ### Anti-Patterns
 
@@ -433,6 +438,7 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 | v12.6.0 | 2026-09-19 | **Community-ready**: /ff command shipped tracked, full session tracing, propagation script; docs consistency pass — motor-era sections removed, versions + counts aligned across all docs, consumer template fixed; stale motor artifacts untracked; milestone tag |
 | v12.7.0 | 2026-10-07 | **Acceptance layer + Context Handoff**: Acceptance Architect sub-agent writes Gherkin acceptance criteria (Given/When/Then, end-user perspective) + test instructions per block BEFORE the judge — spec-only, never executes. Judge validates plan AND acceptance (unit-level acceptance is a rejection). Acceptance tests gate every block and the final validation. Context Package mandatory in every sub-agent dispatch (file excerpts, contracts, skill digests, lessons) — no more thin handoffs |
 | v13.0.0 | 2026-10-09 | **Hybrid FF — Claude planner + local executor**: roles split through a file-based handoff in `.ff/` (`owner`/`status` in state.json, work orders, executable checks, execution traces, reviews). The planner (Claude) runs Clarify, Plan (two in-session analysis passes, judge = only sub-agent), a critical Review & Validate and Lessons; the executor (local model, `/ff exec` in opencode) applies work orders, runs checks, commits per block and proposes a validation. New `ff-exec` skill; `/ff` command is executor-only; propagate refreshes stale `/ff` commands; `references/ff-protocol.md` is now a short reference |
+| v14.0.0 | 2026-10-18 | **Tiered routing — the cloud planner specifies, the local executor writes**: every block gets an execution tier (T0 mechanical, T1 guided, T2 high effort) from the routing rubric (`global-skills/ff/routing.md`); T1/T2 hand the local model a spec + protected planner-written tests; attempt ladder (1-2 local with self-repair, 3 = one planner correction, then the user); judge capped at 3 rounds; cost telemetry and beta calibration (`.ff/calibration.jsonl`, `references/executor-calibration.md`); Claude dispatches the local executor block by block like a sub-agent (one "go" per plan, agent `.opencode/agents/ff-executor.md`); one executor run per machine (lock) |
 
 ---
 
@@ -448,7 +454,7 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 | `global-skills-registry.json` | Global skills registry |
 | `state-template.json` | State template (retained for reference) |
 | `scripts/sync-global-skills.py` | Global skills sync utility |
-| `references/` | 16 shared reference documents |
+| `references/` | 17 shared reference documents |
 | `skills/` | 23 built-in skills |
 | `global-skills/` | Global skills versioned for `~/.agents/skills/` |
 | `template-project/` | Consumer project template (AGENTS.md, README, migration guide, .gitignore, .gitmodules) |

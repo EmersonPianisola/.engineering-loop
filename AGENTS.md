@@ -1,4 +1,4 @@
-# AGENTS.md — Engineering Loop v13.0.0
+# AGENTS.md — Engineering Loop v14.0.0
 
 ## What This Repo Is
 
@@ -25,25 +25,27 @@ Consumer projects install this repo as a git submodule at `.eng/` and update the
 
 Key: The consumer project's `AGENTS.md` must instruct the agent to auto-load the ff skill for any substantial work request — no explicit "use FF" invocation should be needed.
 
-### FF Protocol (Hybrid — v13)
+### FF Protocol (Hybrid — v14, tiered)
 
-FF is a fail-fast protocol with two roles that communicate only through files in `.ff/`. The **planner** (Claude, cloud session linked to the repo) owns every input, the plan, and the final validation. The **executor** (local model via opencode) executes the approved work orders. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
+FF is a fail-fast protocol with two roles that communicate only through files in `.ff/`. The **planner** (Claude, cloud session linked to the repo) owns every input, the plan, and the final validation. The **executor** (local model via opencode) executes the approved work orders, dispatched by the planner one block at a time like a sub-agent. Every unit of work is atomic, validated in isolation, and fails fast without contaminating siblings.
 
 **Protocol:**
 1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
-2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
-3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
-4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks routed by execution tier (T0 mechanical · T1 guided · T2 high effort) → executor-grade work orders (T1/T2: spec + planner-written protected tests) → acceptance (Gherkin) + executable checks → judge approve (≤ 3 rounds) → handoff
+3. **Phase 2: Execute** (executor, dispatched by the planner one block at a time — `opencode run --command ff --agent ff-executor`; manual fallback `/ff exec`) — apply the work order (T1/T2: write the specified code), run checks, self-repair once (attempt 2), commit per block, write execution trace + validation proposal; the planner reviews each block before the next dispatch
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, one correction per block (attempt 3) then the user, final gate
 5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
 
 **Key:** The judge is the only sub-agent — dispatched by the planner with a clean view (artifacts only) — and approves the plan, work orders, acceptance and checks before anything is handed off. The executor never plans; the planner never trusts the executor's self-report without re-running the checks. No waves. No graphs. Just blocks.
+
+**Tiers (v14):** every block gets an execution tier from the routing rubric (`global-skills/ff/routing.md`) — T0 mechanical, T1 guided, T2 high effort. The planner specifies and validates; the local model writes the code when the spec and protected tests allow it. After your single "go" the planner dispatches and supervises the local model block by block (`opencode run --command ff --agent ff-executor`), like a sub-agent. Attempts 1-2 are local (2 = self-repair), attempt 3 is one planner correction, then the user decides. The judge is capped at 3 rounds. Every session appends `.ff/calibration.jsonl` for the beta calibration (`references/executor-calibration.md`).
 
 ### Hybrid Roles — Which One Are You?
 
 | You are | Load | Do | Never |
 |---|---|---|---|
-| Claude (planner) | `global-skills/ff/SKILL.md` (consumers: `.eng/global-skills/ff/SKILL.md`) | Phases 0, 1, 3, 4; hand off with `.ff/state.json` `owner: executor` | Edit repo files in Phase 2 |
-| Local model in opencode (executor) | `global-skills/ff-exec/SKILL.md` via `/ff exec` | Phase 2 only, when `.ff/state.json` `owner` is `executor` | Plan, re-scope, edit `plan/` artifacts, push, delete |
+| Claude (planner) | `global-skills/ff/SKILL.md` (consumers: `.eng/global-skills/ff/SKILL.md`) | Phases 0, 1, 3, 4; in Phase 2 dispatch and supervise the executor block by block (`opencode run --command ff --agent ff-executor`) | Edit repo files in Phase 2 |
+| Local model in opencode (executor) | `global-skills/ff-exec/SKILL.md` via the `ff-executor` agent (dispatched by the planner) or `/ff exec` | Phase 2 only, when `.ff/state.json` `owner` is `executor` | Plan, re-scope, edit `plan/` artifacts, push, delete |
 
 **Multi-project:** one active FF session per repo. The protocol is always read from the repo being worked on — never from memory or another repo. Every handoff names the repo.
 
@@ -51,9 +53,9 @@ FF is a fail-fast protocol with two roles that communicate only through files in
 
 **Start a session (planner — Claude):**
 - Describe the work to Claude in the session linked to this repo, or say "use FF" — the planner loads the ff skill for substantial work requests
-- The planner plans, gets judge approval, then tells you to run `/ff exec`
+- The planner plans, gets judge approval and your single "go", then dispatches the local model block by block (`opencode run --command ff --agent ff-executor`) and reviews each block as it returns
 
-**Execute (executor — opencode):**
+**Manual fallback (executor — opencode), only when the planner has no shell on this machine:**
 - `/ff exec` — execute all pending/rework blocks of the active session (stops at the first blocked block)
 - `/ff exec <block_id>` — execute one block
 - `/ff status` — show the active session, owner and block lists
@@ -77,17 +79,19 @@ If a session is interrupted, ask the planner to resume — it reads `.ff/state.j
 | 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
 | < 0.5 | MANUAL | Ask before each block |
 
+**FF v14:** one "go" per plan — after it the planner (Claude) dispatches and supervises the local executor block by block; manual blocks still ask you first. The score is reported with the plan as a risk summary.
+
 ### Hard Rules (Never Override)
 
 - `rm -rf`, `git push --force` — always ask
 - Writes to Firebase — always ask
 - Changes to `.env` — always ask
-- Operations outside workspace — always block
+- Operations outside workspace — always block (exception: the FF executor writes, never deletes, `~/.agents/ff-executor.lock` — ff-exec section 6)
 
 ### Loop Motor Removed (FF Replaces It)
 
 The loop motor (LangGraph, Python orchestrator, 34 stages) was removed in the FF transition (v12.4.0). FF protocol replaces the stage-based loop entirely. What remains in this repo:
-- `references/` — 16 reference docs (decision log, anti-patterns, lessons, ff-protocol, etc.)
+- `references/` — 17 reference docs (decision log, anti-patterns, lessons, ff-protocol, executor-calibration, etc.)
 - `skills/` — 23 ideação/verificação skills
 - `artifacts/` — trace JSONL files (gitignored)
 - `AGENTS.md`, `skill-index.md`, `FF-CHANGELOG.md` — framework documentation
@@ -144,7 +148,7 @@ Other global skills useful for development work: `eval-engineering` (evals/bench
 
 ## References (`references/`)
 
-15 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, ff-protocol, etc.) + `lessons-shared.json`.
+16 shared reference documents (anti-patterns, exit-conditions, lessons, essence-sidecar, ff-protocol, executor-calibration, etc.) + `lessons-shared.json`.
 
 ## Config
 
@@ -160,4 +164,4 @@ This repo is consumed as a submodule. Breaking changes (renamed stages, removed 
 
 ## OpenCode Config
 
-`.opencode/opencode.json` contains local model provider config and is gitignored — do not commit it. `.opencode/commands/ff.md` (the `/ff` command definition) is tracked — do not delete it.
+`.opencode/opencode.json` contains local model provider config and is gitignored — do not commit it. `.opencode/commands/ff.md` (the `/ff` command definition) and `.opencode/agents/ff-executor.md` (the executor agent the planner dispatches) are tracked — do not delete them.
