@@ -17,9 +17,9 @@ A production deploy with clear instructions, passing tests, and explicit scope c
 ## Hard Rules (Never Override)
 
 These operations **ALWAYS require human confirmation**, regardless of context
-or autonomy score. No exceptions.
+or autonomy score. No exceptions other than the one declared below.
 
-These rules bind both roles — the planner and the executor (local model). A `manual` block requires the user's confirmation in the executor session.
+These rules bind both roles — the planner and the executor (local model). A `manual` block requires the user's confirmation (driven: the planner asks and passes `confirmed`; manual fallback: in the executor session). The one standing exception: the executor writes the lock `~/.agents/ff-executor.lock` (ff-exec Gates E and G / section 6), with the exact commands given there; it never deletes it.
 
 ### Destructive Operations
 - `rm`, `rm -rf`, `rmdir /S`, `del /F` — any file deletion
@@ -103,6 +103,11 @@ autonomy_score = (clarity * 0.4) + (complexity * 0.4) + ((1 - risk) * 0.2)
 | 0.5-0.8 | SEMI AUTO | Show block plan → wait for "go" → execute → report. |
 | < 0.5 | MANUAL | Ask before each block. Show task details. Wait for confirmation. |
 
+**FF v14 (user decision):** dispatching the local executor is governed by **one "go"
+per plan**, whatever the score — after it the planner drives every block. The score
+is reported with the plan as a risk summary. Manual blocks still ask the user before
+their dispatch (the planner asks, then passes `confirmed`).
+
 ### User Override
 
 The user can always override the calculated mode:
@@ -117,12 +122,16 @@ The user can always override the calculated mode:
 ### When a Block Gate Fails
 
 ```
-1. The executor retries the check once (ff-exec section 4, idempotency rule).
-2. Still failing → the block is blocked and the run ends (ff-exec "Block and end" + section 6):
-   owner: planner, status: blocked.
-3. The planner runs Blocked recovery (SKILL.md Phase 3): review the working-tree diff,
-   the user restores the tree, then rework (max 2 rounds) or re-plan + fresh judge.
-4. After 2 rework rounds → escalate to the user with the task, what was attempted,
+Attempt ladder (v14 — routing.md section 5):
+1. Attempt 1 (executor, local): apply the work order, run the check.
+2. Attempt 2 (executor, local self-repair): read the check output, fix within scope
+   (never protected files or checks), run the check again.
+3. Still failing → the block is blocked and the run ends (ff-exec "Block and end" +
+   section 7): diff saved, owner: planner, status: blocked.
+4. Attempt 3 (planner, cloud — one correction per block): Blocked recovery (SKILL.md
+   Phase 3), diagnose from the trace and the saved diff, re-dispatch ONE corrected
+   order (may downgrade the tier). Same scope and acceptance → no fresh judge.
+5. Attempt 3 failing → escalate to the user with the task, what was attempted,
    the check output, and 2-3 fix options. Capture the lesson (actor: executor or planner).
 ```
 
