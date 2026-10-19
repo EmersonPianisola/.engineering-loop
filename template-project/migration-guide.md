@@ -1,4 +1,4 @@
-# Migration Guide — Engineering Loop v13.0.0
+# Migration Guide — Engineering Loop v14.0.0
 
 This guide shows how to migrate an existing project to use the Engineering Loop with the FF (Fail Fast) protocol.
 
@@ -45,28 +45,9 @@ artifacts/
 # Create the FF workspace
 mkdir .ff
 
-# Initialize state (schema: .eng/global-skills/ff/SKILL.md — "State Management")
-echo '{
-  "session_id": "ff-{date}-{hash}",
-  "work_type": "feature",
-  "task_title": "",
-  "status": "idle",
-  "current_block": "",
-  "blocks_completed": [],
-  "blocks_pending": [],
-  "skills": [],
-  "tasks": {
-    "total": 0,
-    "passed": 0,
-    "failed": 0,
-    "skipped": 0,
-    "retried": 0
-  },
-  "autonomy_mode": "semi",
-  "summary": "",
-  "started_at": "",
-  "updated_at": ""
-}' > .ff/state.json
+# Do NOT create .ff/state.json: the planner (Claude) creates it at Phase 0 of the
+# first FF session (schema: .eng/global-skills/ff/SKILL.md — "Handoff Contract").
+# A state.json without "owner" is read as a legacy (pre-v13) session.
 
 # Initialize lessons
 echo '[]' > .ff/lessons.json
@@ -143,15 +124,15 @@ You should:
 - Ask "Should I use FF for this?" (you already know the answer)
 - Execute substantial work sequentially without FF
 
-### FF Protocol Summary (Hybrid — v13)
+### FF Protocol Summary (Hybrid — v14, tiered)
 
 1. **Phase 0: Clarify** (planner) — Essence check, resolve scope tensions
-2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks → executor-grade work orders → acceptance (Gherkin) + executable checks → judge approve → handoff
-3. **Phase 2: Execute** (executor) — `/ff exec`: apply work order, run checks, commit per block, write execution trace + validation proposal
-4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, final gate
+2. **Phase 1: Plan** (planner) — Structural + adversarial in-session passes → plan → blocks routed by execution tier (T0 mechanical · T1 guided · T2 high effort) → executor-grade work orders (T1/T2: spec + planner-written protected tests) → acceptance (Gherkin) + executable checks → judge approve (≤ 3 rounds) → handoff
+3. **Phase 2: Execute** (executor, dispatched by the planner one block at a time — `opencode run --command ff --agent ff-executor`; manual fallback `/ff exec`) — apply the work order (T1/T2: write the specified code), run checks, self-repair once (attempt 2), commit per block, write execution trace + validation proposal; the planner reviews each block before the next dispatch
+4. **Phase 3: Review & Validate** (planner) — Critical second validation: re-run checks, scope check, full diff review, verdict per block, one correction per block (attempt 3) then the user, final gate
 5. **Phase 4: Lessons** (planner) — Capture lessons (planner and executor), report results
 
-**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo.
+**Roles:** the planner is Claude (loads `.eng/global-skills/ff/SKILL.md`); the executor is the local model in opencode (`/ff exec`, skill `ff-exec`). The judge is the only sub-agent. One active FF session per repo; the protocol is read from this repo. Blocks are routed by execution tier (`.eng/global-skills/ff/routing.md`): the planner specifies and validates, the local model writes what the spec and tests allow. After your single "go" the planner dispatches the executor (`.opencode/agents/ff-executor.md`) block by block, like a sub-agent; one executor run at a time per machine (one GPU).
 
 ### Autonomy Score
 
@@ -161,18 +142,20 @@ You should:
 | 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
 | < 0.5 | MANUAL | Ask before each block |
 
+**FF v14:** one "go" per plan — after it the planner (Claude) dispatches and supervises the local executor block by block; manual blocks still ask you first. The score is reported with the plan as a risk summary.
+
 ### Hard Rules (Never Override)
 
 - `rm -rf`, `git push --force` — always ask
 - Writes to Firebase — always ask
 - Changes to `.env` — always ask
-- Operations outside workspace — always block
+- Operations outside workspace — always block (exception: the FF executor writes, never deletes, `~/.agents/ff-executor.lock` — `.eng/global-skills/ff-exec/SKILL.md` section 6)
 
 ### Framework
 
 The Engineering Loop framework is installed as a git submodule at `.eng/`. It is read-only and gitignored.
 
-- `.eng/references/` — 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
+- `.eng/references/` — 17 reference docs (anti-patterns, decisions, lessons, ff-protocol, executor-calibration, etc.)
 - `.eng/skills/` — 23 ideação/verificação skills
 - `.eng/AGENTS.md` — Framework instructions
 - `.eng/skill-index.md` — Skill registry
@@ -240,7 +223,7 @@ After completing the migration, verify:
 2. **FF workspace exists:**
    ```bash
    ls -la .ff/
-   # Should show: state.json, lessons.json, README.md
+   # Should show: lessons.json, README.md (state.json appears with the first FF session)
    ```
 
 3. **Artifacts directory exists:**
@@ -274,7 +257,7 @@ git commit -m "Update .eng submodule"
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
 - Verify that the judge sub-agent is available to the planner (it is the protocol's only sub-agent; without it the planner HALTs)
-- Verify the executor: opencode answers with the local model and `~/.agents/skills/ff-exec/` exists
+- Verify the executor: opencode answers with the local model, `~/.agents/skills/ff-exec/` exists and `.opencode/agents/ff-executor.md` exists in the project (`opencode agent list` shows `ff-executor`)
 
 ### Lessons Not Captured
 

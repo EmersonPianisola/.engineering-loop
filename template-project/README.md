@@ -51,7 +51,7 @@ USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
 PHASE 1: PLAN       → (planner) in-session analysis passes → plan → work orders → acceptance (Gherkin) + checks → judge approve → handoff
-PHASE 2: EXECUTE    → (executor) /ff exec: work order → checks → commit → execution trace + validation proposal
+PHASE 2: EXECUTE    → (executor, dispatched by the planner block by block) work order → checks → self-repair → commit → trace → planner review
 PHASE 3: VALIDATE   → (planner) critical review: re-run checks, scope + diff review, final gate
 PHASE 4: LESSONS    → Capture lessons, report results
 ```
@@ -67,7 +67,7 @@ The planner consolidates both passes into the plan, fragments it into blocks, an
 
 ### Execute
 
-The local model runs `/ff exec` in opencode. Blocks run in order: apply the work order, run the block's checks (one retry), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or sends it back for rework (max 2 rounds).
+The planner dispatches the local model in opencode one block at a time, like a sub-agent (`opencode run --command ff --agent ff-executor`; manual fallback: you run `/ff exec`). Every block has an execution tier — T0 mechanical (copy and verbatim edits), T1 guided or T2 high effort (the local model writes the code from the planner's spec and protected tests). Blocks run in order: apply the work order, run the block's checks, self-repair once on failure (attempt 2), commit locally, and write an execution trace with a **validation proposal**. Then the planner runs a **critical second validation** — it re-runs every check itself, verifies the scope from the commit, reads the full diff, and approves the block or spends its single correction (attempt 3) before escalating to the user.
 
 ### Autonomy Score
 
@@ -77,12 +77,14 @@ The local model runs `/ff exec` in opencode. Blocks run in order: apply the work
 | 0.5-0.7 | SEMI AUTO | Show plan → wait for "go" → execute |
 | < 0.5 | MANUAL | Ask before each block |
 
+**FF v14:** one "go" per plan — after it the planner (Claude) dispatches and supervises the local executor block by block; manual blocks still ask you first. The score is reported with the plan as a risk summary.
+
 ### Hard Rules (Never Override)
 
 - `rm -rf`, `git push --force` — always ask
 - Writes to Firebase — always ask
 - Changes to `.env` — always ask
-- Operations outside workspace — always block
+- Operations outside workspace — always block (exception: the FF executor writes, never deletes, `~/.agents/ff-executor.lock` — `.eng/global-skills/ff-exec/SKILL.md` section 6)
 
 ---
 
@@ -91,7 +93,7 @@ The local model runs `/ff exec` in opencode. Blocks run in order: apply the work
 ```
 <project-name>/
 ├── .eng/                  # Engineering Loop framework (git submodule, ignored)
-│   ├── references/        # 16 reference docs (anti-patterns, decisions, lessons, ff-protocol, etc.)
+│   ├── references/        # 17 reference docs (anti-patterns, decisions, lessons, ff-protocol, executor-calibration, etc.)
 │   ├── skills/            # 23 ideação/verificação skills
 │   ├── AGENTS.md          # Framework instructions
 │   ├── skill-index.md     # Skill registry
@@ -165,7 +167,7 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 - Ensure `.eng/` is properly initialized as a submodule
 - Check that `~/.agents/skills/ff/` exists (the FF skill)
 - Verify that the judge sub-agent is available to the planner (it is the protocol's only sub-agent; without it the planner HALTs)
-- Verify the executor: opencode answers with the local model and `~/.agents/skills/ff-exec/` exists
+- Verify the executor: opencode answers with the local model, `~/.agents/skills/ff-exec/` exists and `.opencode/agents/ff-executor.md` exists in the project (`opencode agent list` shows `ff-executor`)
 
 ### Lessons Not Captured
 
@@ -182,7 +184,7 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 ### Executor Blocked
 
 - Read `.ff/traces/{session_id}/execution/{block_id}.json` — `blocked_reason` and the check output say why
-- Restore the tree with the exact commands the planner gives you (`git restore --staged --worktree -- <files>` for modified files; `del <path>` for untracked files the block created), then hand the session back to the planner (Claude): it sends a rework, or re-plans the block and gets a fresh judge before handing off again
+- Restore the tree with the exact commands the planner gives you (`git restore --staged --worktree -- <files>` for modified files; `del <path>` for untracked files the block created), then hand the session back to the planner (Claude): it diagnoses from the saved `execution/{block_id}.attempt-{n}.diff` and sends one corrected order (attempt 3), or escalates the decision to you
 
 ---
 
@@ -190,4 +192,4 @@ If you are migrating from a sequential loop (34 stages, LangGraph) to FF:
 
 | File | Version |
 |------|---------|
-| Framework | v13.0.0 |
+| Framework | v14.0.0 |
