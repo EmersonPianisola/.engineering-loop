@@ -24,6 +24,13 @@ if sys.platform == "win32":
 ROOT = Path(__file__).resolve().parent.parent  # .engineering-loop
 ENGINEERING_LOOP = ROOT
 
+# Framework-owned opencode files copied into every consumer project (overwritten when stale):
+# the /ff command and the ff-executor agent the planner dispatches (FF v14).
+OPENCODE_FILES = [
+    Path(".opencode") / "commands" / "ff.md",
+    Path(".opencode") / "agents" / "ff-executor.md",
+]
+
 # Projects are siblings of .engineering-loop in the same parent directory
 PROJECTS_BASE = ROOT.parent  # C:\Users\emers\Documents\Claude\Projects
 
@@ -167,18 +174,9 @@ def update_project(project_path, force=False):
         )
         print(f"  ✓ .ff/ directory created")
 
-    # Create or refresh /ff command (framework-owned: overwrite when stale)
-    ff_cmd = p / ".opencode" / "commands" / "ff.md"
-    source_cmd = ROOT / ".opencode" / "commands" / "ff.md"
-    if source_cmd.exists():
-        source_text = source_cmd.read_text(encoding="utf-8")
-        if not ff_cmd.exists():
-            ff_cmd.parent.mkdir(parents=True, exist_ok=True)
-            ff_cmd.write_text(source_text, encoding="utf-8")
-            print(f"  ✓ .opencode/commands/ff.md created")
-        elif ff_cmd.read_text(encoding="utf-8") != source_text:
-            ff_cmd.write_text(source_text, encoding="utf-8")
-            print(f"  ✓ .opencode/commands/ff.md updated (was stale)")
+    # Create or refresh the framework-owned opencode files (/ff command, ff-executor agent)
+    for line in sync_opencode_files(p):
+        print(line)
 
     # Update .gitignore
     gi = p / ".gitignore"
@@ -199,7 +197,7 @@ def update_project(project_path, force=False):
 
     # Stage changes
     result = subprocess.run(
-        ["git", "add", ".eng", ".gitignore", ".opencode/commands/ff.md"],
+        ["git", "add", ".eng", ".gitignore"] + [rel.as_posix() for rel in OPENCODE_FILES],
         cwd=p,
         capture_output=True,
         text=True,
@@ -207,6 +205,29 @@ def update_project(project_path, force=False):
     print(f"  ✓ Changes staged (run 'git commit' to finalize)")
 
     return True
+
+
+def sync_opencode_files(project_path):
+    """Copy every framework-owned opencode file into the project; overwrite when stale.
+
+    Returns one status line per file created or updated (empty when all are current).
+    """
+    p = Path(project_path)
+    lines = []
+    for rel in OPENCODE_FILES:
+        source = ROOT / rel
+        if not source.exists():
+            continue
+        source_text = source.read_text(encoding="utf-8")
+        target = p / rel
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source_text, encoding="utf-8")
+            lines.append(f"  ✓ {rel.as_posix()} created")
+        elif target.read_text(encoding="utf-8") != source_text:
+            target.write_text(source_text, encoding="utf-8")
+            lines.append(f"  ✓ {rel.as_posix()} updated (was stale)")
+    return lines
 
 
 def push_to_origin():
