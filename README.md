@@ -8,12 +8,12 @@ description: 'Comprehensive framework documentation.'
 
 **New user? Start with [Installation](#installation) — get up and running in 7 steps.**
 
-**Fail Fast (FF)** — hybrid AI development protocol: Claude plans and validates, a local model executes. Fragment any work item into atomic blocks, hand them off as executor-grade work orders, validate every block twice, recover isolated failures.
+**Fail Fast (FF)** — hybrid AI development protocol: Claude plans, validates and drives a local model like a sub-agent, block by block. Fragment any work item into atomic blocks, route each one to an execution tier (the local model writes whatever the spec and tests allow), validate every block twice, recover isolated failures.
 
 | | |
 |---|---|
 | **Version** | 14.0.0 |
-| **Development Mode** | FF (Fail Fast) — hybrid: Claude planner + local executor, acceptance-gated judge-approved plans |
+| **Development Mode** | FF (Fail Fast) — hybrid: Claude planner drives a local executor (tiers T0/T1/T2), acceptance-gated judge-approved plans |
 | **Skills** | 23 built-in ideação/verificação skills + global skills |
 | **References** | 17 shared reference documents (anti-patterns, exit-conditions, lessons, ff-protocol, executor-calibration) |
 | **Architecture** | Multi-project via git submodule |
@@ -149,6 +149,7 @@ your-project/
 │   ├── scripts/             # Framework scripts (skills sync, propagation)
 │   ├── template-project/    # AGENTS.md template, migration guide
 │   ├── .opencode/commands/  # /ff command definition (copied into your project)
+│   ├── .opencode/agents/    # ff-executor agent the planner dispatches (copied into your project)
 │   ├── AGENTS.md            # Framework instructions
 │   ├── FF-CHANGELOG.md      # FF protocol changelog
 │   ├── skill-index.md       # Skill registry + improvement log
@@ -158,9 +159,11 @@ your-project/
 │
 ├── AGENTS.md                # Your project's instructions (from template)
 ├── .opencode/commands/      # /ff command definition (copied from the framework)
+├── .opencode/agents/        # ff-executor agent (copied from the framework)
 ├── .ff/                     # FF workspace (gitignored)
 │   ├── state.json           # Session state — your anchor
-│   └── lessons.json         # Accumulated lessons (append-only)
+│   ├── lessons.json         # Accumulated lessons (append-only)
+│   └── calibration.jsonl    # One line per block — beta calibration of the executor tiers
 └── artifacts/               # Project artifacts (gitignored)
 ```
 
@@ -179,16 +182,19 @@ rm -rf .ff/
 
 Engineering Loop is a framework for orchestrating AI sub-agents through the complete software development lifecycle. Instead of a linear pipeline, it operates as a **persistent while-loop** that re-evaluates every stage on each iteration, allowing downstream findings to trigger upstream rework automatically.
 
-Development is orchestrated through the **FF (Fail Fast) protocol** — a hybrid approach where Claude (the planner) clarifies, plans and validates, and a local model (the executor) executes atomic blocks handed off through `.ff/`; every block is validated twice and failures are recovered in isolation. See [FF Protocol](#ff-protocol) for details.
+Development is orchestrated through the **FF (Fail Fast) protocol** — a hybrid approach where Claude (the planner) clarifies, plans, validates and dispatches a local model (the executor) block by block, like a sub-agent; the blocks travel as work orders in `.ff/`, every block is validated twice and failures are recovered in isolation. See [FF Protocol](#ff-protocol) for details.
 
 ### Core Principles
 
-- **Hybrid execution** — Claude plans and validates; a local model executes atomic blocks from executor-grade work orders
+- **Hybrid execution** — Claude plans, validates and drives; a local model executes atomic blocks from executor-grade work orders (`opencode run --agent ff-executor`, one block per dispatch)
+- **Cost-aware routing** — every block gets an execution tier: T0 mechanical (the planner writes the content), T1 guided and T2 high effort (the local model writes the code from the planner's spec and protected tests); see `global-skills/ff/routing.md`
+- **Attempt ladder** — attempts 1-2 on the local model (2 = self-repair), attempt 3 = one planner correction, then the user decides; the judge is capped at 3 rounds per session
+- **Measured, not assumed** — traces record tier, model, attempts, local tokens and wall time; `.ff/calibration.jsonl` drives the beta calibration (`references/executor-calibration.md`)
 - **Acceptance-gated plans** — two in-session analysis passes cross-check, Gherkin acceptance + executable checks are written per block, the judge validates everything before handoff
 - **Fail fast** — each block validated in isolation; failures don't contaminate siblings
 - **Double validation** — the executor proposes a validation; the planner re-runs every check and reviews the full diff before approving
 - **Essence before execution** — inputs validated through Four Lenses; Lens 4 scope tensions ask for clarification before blocking
-- **Auto-sizing** — autonomy score determines execution mode (full auto / semi auto / manual)
+- **One "go" per plan** — after the judge approves and you say "go", the planner dispatches every block; manual blocks still ask you first (the autonomy score is a risk summary)
 - **Independent verification** — author ≠ verifier; discrimination sensor confirms test quality
 - **Multi-project isolation** — each project has its own config, state, and artifacts
 - **Shared lessons** — confirmed lessons propagate across all projects via the framework
@@ -199,7 +205,7 @@ Development is orchestrated through the **FF (Fail Fast) protocol** — a hybrid
 
 ## FF Protocol
 
-FF is the **default development mode** for this project. It is hybrid: Claude plans and validates; a local model executes.
+FF is the **default development mode** for this project. It is hybrid: Claude plans, validates and drives; a local model executes, dispatched block by block.
 
 ### Protocol Overview
 
@@ -207,10 +213,10 @@ FF is the **default development mode** for this project. It is hybrid: Claude pl
 USER INTENT
     ↓
 PHASE 0: CLARIFY    → Essence check, gather unknowns, scope the task
-PHASE 1: PLAN       → (planner) in-session analysis passes → plan → work orders → acceptance (Gherkin) + checks → judge approve → handoff
+PHASE 1: PLAN       → (planner) in-session analysis passes → plan → blocks + execution tiers → work orders → acceptance (Gherkin) + checks → judge approve (≤ 3 rounds) → "go" → handoff
 PHASE 2: EXECUTE    → (executor, dispatched by the planner block by block) work order → checks → self-repair → commit → trace → planner review
-PHASE 3: VALIDATE   → (planner) critical review: re-run checks, scope + diff review, final gate
-PHASE 4: LESSONS    → Capture lessons, report results
+PHASE 3: VALIDATE   → (planner) critical review per block: re-run checks, scope + diff review, one correction (attempt 3), final gate
+PHASE 4: LESSONS    → Capture lessons, calibration line per block, report results (with the cost summary)
 ```
 
 ### Plan Build
@@ -220,7 +226,7 @@ The plan is built **by the planner (Claude), in-session**, in two separate analy
 1. **Structural pass** — maps files, imports, dependencies, risk
 2. **Adversarial pass** — re-examines the structural findings: alternative approaches, edge cases, hidden dependencies
 
-The planner consolidates both passes into the plan, fragments it into blocks, and writes for every block an **executor-grade work order** (exact files, exact edits), a Gherkin acceptance feature (Given/When/Then, end-user perspective) and an executable **check** script. A **judge sub-agent** — the protocol's only sub-agent, dispatched with a clean view — validates plan, work orders, acceptance and checks together. Only after approval is the session handed off to the executor.
+The planner consolidates both passes into the plan, fragments it into blocks, routes each block to an **execution tier** with the rubric R1-R7 (T1/T2 only when every path and symbol is named, planner-written tests fail first, and there is no design decision or long prose), and writes for every block an **executor-grade work order** (T0: exact files and edits; T1/T2: spec + protected tests), a Gherkin acceptance feature (Given/When/Then, end-user perspective) and an executable **check** script. A **judge sub-agent** — the protocol's only sub-agent, dispatched with a clean view — validates plan, work orders, acceptance and checks together. Only after approval is the session handed off to the executor.
 
 ### Execute
 
@@ -400,6 +406,14 @@ The protocol-specific don'ts are listed in the [FF Protocol](#ff-protocol) secti
 - Ensure your local model server is running at the configured `base_url`
 - Check the model name matches what your server expects
 - Verify `.opencode/opencode.json` has correct provider config
+
+**Symptom:** The planner cannot dispatch the executor, or a dispatch hangs
+
+**Resolution:**
+- `opencode agent list` (in the project) must show `ff-executor`; if not, copy `.eng/.opencode/agents/ff-executor.md` into `.opencode/agents/` (or run `propagate-to-projects.py update <project>`)
+- Check `~/.agents/ff-executor.lock`: `"active": true` for another repo means that repo's run is using the GPU — wait for it, or confirm it is dead
+- The project's `.opencode/opencode.json` `model` must match the session's `handoff.json` `executor_model` (ff-exec Gate F)
+- A dispatch past its wall-clock limit (T0 20 / T1 40 / T2 60 min) is stopped by the planner and recovered (one redispatch, then you decide)
 
 ---
 
