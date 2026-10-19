@@ -18,9 +18,10 @@ graphify-out/cache/
 # FF workspace — session traces and state (artefatos de trabalho)
 .ff/
 
-# OpenCode local config (the /ff command definition stays tracked)
+# OpenCode local config (the /ff command and the ff-executor agent stay tracked)
 .opencode/*
 !.opencode/commands/
+!.opencode/agents/
 
 # Python build artifacts
 __pycache__/
