@@ -2,6 +2,43 @@
 
 All notable changes to the FF protocol.
 
+## v14.0.0 — Tiered Routing: Cloud Planner Specifies, Local Executor Writes (2026-10-18)
+
+### New
+
+- **Execution tiers per block** (`global-skills/ff/routing.md`, new): **T0 mechanical** (copy / overwrite / verbatim edit — v13 behavior), **T1 guided** (the local model writes one bounded implementation from the planner's spec and tests) and **T2 high effort** (same, up to 3 files with ordered steps). `blocks.yaml` gains `exec_tier`, `rubric` and `protected`.
+- **Routing rubric R1-R7** — T1/T2 only when every path and symbol is named, planner-written tests define "done" and fail first (red), there is no design decision or new dependency, no long prose, a read list and the tier size limits, and no free-form JSON to parse. Otherwise T0 or inline. Evidence: v13 local runs (8/8 T0 blocks) and the loop-motor era failure modes (hallucinated paths > 60%, schema drift, stalls).
+- **I steps** (`### I<n> — implement:`) in T1/T2 work orders: goal, signature, contract, examples, "do not". Tests are installed by C steps and are **protected** (never edited by the executor; the check asserts it).
+- **Attempt ladder** (replaces "retry once → blocked → rework ×2 → user"): attempts 1-2 local (attempt 2 = self-repair with the check output), attempt 3 = the planner's single correction (may downgrade the tier; same scope and acceptance → no fresh judge), then the user decides.
+- **Telemetry** — execution traces gain `exec_tier`, `model`, cumulative `attempts` with shell timestamps, `lines_authored_local`, and a saved `attempt-{n}.diff` when blocked; reviews gain `resolved_at_attempt`, `planner_authored_lines`, `protected_ok`; `state.json` gains `cost` (judge rounds, corrections, escalations, `local_authorship_ratio`); `handoff.json` gains `executor_model`.
+- **Beta calibration** — `.ff/calibration.jsonl` (one line per block, Phase 4) and `references/executor-calibration.md` (new): schema, aggregation after ≥ 30 T1/T2 blocks, decision rules for promoting/demoting task kinds between tiers and for comparing local models.
+- **Claude drives the local executor as an external sub-agent** — after the user's single "go" per plan, the planner dispatches each block with `opencode run --command ff --agent ff-executor --format json "exec <block_id> driven"`, supervises it with a wall-clock limit (beta: T0 20 / T1 40 / T2 60 min), saves the event stream (`execution/{block_id}.events.jsonl`, token usage) and reviews the block before the next dispatch. A driven executor never asks questions; manual blocks are confirmed by the user through the planner (`confirmed`). Manual fallback `/ff exec` when the planner has no shell on the machine.
+- **opencode agent `.opencode/agents/ff-executor.md`** (new, tracked): temperature 0; permissions deny the `question` tool (a non-interactive run can never hang on a question), sub-agent `task`s, `git push`/`reset`/`checkout`/`restore`/`clean`/`rebase`/`rm`/`stash`/`--amend`, shell deletes, web access and doom loops. `/ff` now runs on this agent; `scripts/propagate-to-projects.py` copies it to consumer projects (`sync_opencode_files`), `.gitignore` keeps `.opencode/agents/` tracked.
+- **One executor per machine** — ff-exec Gate E (lock `~/.agents/ff-executor.lock` free), Gate F (configured model = `executor_model`) and Gate G (take the lock); released by writing `active: false`. The lock is the one declared exception to the outside-workspace hard rule (written, never deleted). The planner may plan several repos; execution is serial (one GPU, one model).
+
+### Changed
+
+- **Autonomy:** one "go" per plan governs dispatching (user decision); the autonomy score is informational.
+- **Judge capped at 3 rounds per session** (lesson-007) with a minimal clean view (artifacts + `routing.md` + the Phase 1 gate).
+- Planner dry-run: T0 unchanged (FAIL → PASS, idempotent); T1/T2 = red before green, without writing the implementation.
+- `ff-exec` 2.0.0: sections renumbered (lock = 6, end of run = 7, status = 8); `/ff` command updated.
+- `harness.md`, `manifest.md`, `autonomy-harness.md`, `references/ff-protocol.md` aligned; consumer docs describe the tiers; the migration guide no longer creates a pre-v13 `state.json`.
+
+### Files Changed
+
+- `global-skills/ff/SKILL.md`, `routing.md` (new), `harness.md`, `manifest.md`, `autonomy-harness.md`
+- `global-skills/ff-exec/SKILL.md`, `.opencode/commands/ff.md`, `.opencode/agents/ff-executor.md` (new), `global-skills-registry.json`
+- `scripts/propagate-to-projects.py`, `.gitignore`
+- `references/ff-protocol.md`, `references/executor-calibration.md` (new)
+- `AGENTS.md`, `README.md`, `template-project/AGENTS.md`, `template-project/README.md`, `template-project/migration-guide.md`, `skill-governance.md`, `skill-index.md`, `FF-CHANGELOG.md`
+
+### Migration for Consumer Projects
+
+1. `python scripts/propagate-to-projects.py update <project>` (always pass the path; it now also copies `.opencode/agents/ff-executor.md`), or `git submodule update --remote .eng` + `python -X utf8 .eng/scripts/sync-global-skills.py pull`.
+2. Keep the project's `.opencode/opencode.json` `model` set to the local model you plan with; the planner records it in `handoff.json`.
+3. v13 sessions in flight continue as all-T0 (no `exec_tier`, traces without `attempts` stay valid).
+4. Beta: nothing to configure — the planner appends `.ff/calibration.jsonl` in every session.
+
 ## v13.0.0 — Hybrid Protocol: Claude Planner + Local Executor (2026-10-09)
 
 ### New
